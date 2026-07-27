@@ -1,0 +1,21 @@
+# Node
+node_modules/
+npm-debug.log*
+
+# Next.js
+.next/
+out/
+build/
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# Local project data (user-generated content, not source)
+data/projects/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
