@@ -89,4 +89,14 @@ describe("project store", () => {
 
     expect(found).toBeNull();
   });
+
+  it("rejects path-traversal attempts in project id", async () => {
+    const found = await readProject("../../../../etc/passwd");
+    expect(found).toBeNull();
+  });
+
+  it("rejects path-traversal attempts in filename", async () => {
+    const project = await createProject("경로 검증", "script");
+    await expect(writeProjectFile(project.id, "../../evil.txt", "bad")).rejects.toThrow();
+  });
 });
