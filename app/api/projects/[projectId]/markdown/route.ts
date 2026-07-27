@@ -11,8 +11,16 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ pr
   const rawText = await readProjectFile(projectId, "extracted.txt");
   if (!rawText) return NextResponse.json({ error: "업로드된 원본 텍스트가 없습니다" }, { status: 400 });
 
-  const client = createDeepSeekClient();
-  const markdown = await convertToMarkdown(client, rawText, project.scriptType);
+  let markdown: string;
+  try {
+    const client = createDeepSeekClient();
+    markdown = await convertToMarkdown(client, rawText, project.scriptType);
+  } catch (err) {
+    return NextResponse.json(
+      { error: `AI 변환에 실패했습니다: ${(err as Error).message}` },
+      { status: 502 }
+    );
+  }
 
   await writeProjectFile(projectId, "narration.md", markdown);
   await updateProjectStep(projectId, "markdown");
@@ -22,7 +30,10 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ pr
 
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ projectId: string }> }) {
   const { projectId } = await params;
-  const { markdown } = (await req.json()) as { markdown: string };
-  await writeProjectFile(projectId, "narration.md", markdown);
+  const body = (await req.json()) as { markdown?: unknown };
+  if (typeof body.markdown !== "string") {
+    return NextResponse.json({ error: "markdown 필드는 문자열이어야 합니다" }, { status: 400 });
+  }
+  await writeProjectFile(projectId, "narration.md", body.markdown);
   return NextResponse.json({ ok: true });
 }

@@ -15,22 +15,47 @@ export function MarkdownEditor({
   const router = useRouter();
   const [markdown, setMarkdown] = useState(initialMarkdown ?? "");
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   async function handleGenerate() {
     setLoading(true);
-    const res = await fetch(`/api/projects/${projectId}/markdown`, { method: "POST" });
-    const data = await res.json();
-    setLoading(false);
-    if (res.ok) setMarkdown(data.markdown);
+    setError(null);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/markdown`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error ?? "변환에 실패했습니다");
+        return;
+      }
+      setMarkdown(data.markdown);
+    } catch {
+      setError("변환 요청 중 오류가 발생했습니다");
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function handleNext() {
-    await fetch(`/api/projects/${projectId}/markdown`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ markdown }),
-    });
-    router.push(`/projects/${projectId}/scenes`);
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/markdown`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ markdown }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error ?? "저장에 실패했습니다");
+        return;
+      }
+      router.push(`/projects/${projectId}/scenes`);
+    } catch {
+      setError("저장 요청 중 오류가 발생했습니다");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -44,8 +69,9 @@ export function MarkdownEditor({
         onChange={(e) => setMarkdown(e.target.value)}
         placeholder="변환 결과가 여기에 표시됩니다. 직접 수정할 수 있습니다."
       />
-      <Button onClick={handleNext} disabled={!markdown}>
-        다음 단계
+      {error && <p className="text-sm text-red-600">{error}</p>}
+      <Button onClick={handleNext} disabled={!markdown || saving}>
+        {saving ? "저장 중..." : "다음 단계"}
       </Button>
     </div>
   );
