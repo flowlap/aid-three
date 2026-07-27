@@ -1,11 +1,13 @@
 import { promises as fs } from "fs";
-import pdfParse from "pdf-parse";
+import { PDFParse } from "pdf-parse";
 
 export async function extractText(filePath: string, mimeType: "pdf" | "txt"): Promise<string> {
   if (mimeType === "txt") {
     return fs.readFile(filePath, "utf-8");
   }
   const buffer = await fs.readFile(filePath);
-  const data = await pdfParse(buffer);
-  return data.text;
+  const pdfParser = new PDFParse({ data: buffer });
+  const textResult = await pdfParser.getText();
+  await pdfParser.destroy();
+  return textResult.text;
 }
