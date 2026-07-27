@@ -16,8 +16,9 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ pr
     const client = createDeepSeekClient();
     markdown = await convertToMarkdown(client, rawText, project.scriptType);
   } catch (err) {
+    console.error("마크다운 변환 실패:", err);
     return NextResponse.json(
-      { error: `AI 변환에 실패했습니다: ${(err as Error).message}` },
+      { error: "AI 변환에 실패했습니다. 잠시 후 다시 시도해주세요." },
       { status: 502 }
     );
   }
