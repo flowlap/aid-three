@@ -38,6 +38,9 @@ JSON으로만 응답하세요: {"scenes": [{"order": number, "narrationText": st
   );
 
   const parsed = JSON.parse(raw) as { scenes: Array<Omit<Scene, "id">> };
+  if (!parsed || !Array.isArray(parsed.scenes)) {
+    throw new Error("AI 응답 형식이 올바르지 않습니다 (scenes 배열 없음)");
+  }
   return parsed.scenes.map((scene, index) => ({
     id: `scene-${String(index + 1).padStart(3, "0")}`,
     ...scene,
