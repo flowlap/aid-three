@@ -77,7 +77,7 @@ export function VisualDesignEditor({
         {scenes.map((scene) => {
           const design = designs[scene.id];
           return (
-            <Card key={scene.id} className="space-y-2 p-4">
+            <Card key={scene.id} id={scene.id} className="space-y-2 p-4">
               <div className="rounded bg-gray-50 p-3 text-sm">
                 <p className="font-medium">화면 자막: {design?.caption ?? "-"}</p>
                 <p>핵심 키워드: {design?.keywords?.join(", ") ?? "-"}</p>
