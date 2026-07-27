@@ -23,6 +23,13 @@
 # misc
 .DS_Store
 *.pem
+Thumbs.db
+
+# Local project data (user-generated content, not source)
+data/projects/
+
+# OS / editor
+.vscode/
 
 # debug
 npm-debug.log*
