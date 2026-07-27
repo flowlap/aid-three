@@ -1,0 +1,34 @@
+import { describe, it, expect } from "vitest";
+import { MockDeepSeekClient } from "../ai/deepseekClient.mock";
+import { selectScreenTypes } from "./selectScreenTypes";
+import type { Scene } from "./splitScenes";
+
+const scenes: Scene[] = [
+  { id: "scene-001", order: 1, narrationText: "정의를 설명합니다.", estimatedDurationSec: 10, splitReason: "문장종결" },
+  { id: "scene-002", order: 2, narrationText: "표를 보여줍니다.", estimatedDurationSec: 20, splitReason: "표/그래프 등장" },
+];
+
+describe("selectScreenTypes", () => {
+  it("maps each scene id to a screen type assignment", async () => {
+    const client = new MockDeepSeekClient([
+      JSON.stringify({ screenType: "텍스트 강조형", recommendedLayout: "중앙 텍스트", rationale: "정의 강조" }),
+      JSON.stringify({ screenType: "표/그래프형", recommendedLayout: "전체 화면 표", rationale: "표 데이터 설명" }),
+    ]);
+
+    const result = await selectScreenTypes(client, scenes);
+
+    expect(Object.keys(result)).toEqual(["scene-001", "scene-002"]);
+    expect(result["scene-002"].screenType).toBe("표/그래프형");
+  });
+
+  it("includes neighboring scene context in the prompt", async () => {
+    const client = new MockDeepSeekClient([
+      JSON.stringify({ screenType: "텍스트 강조형", recommendedLayout: "중앙 텍스트", rationale: "정의 강조" }),
+      JSON.stringify({ screenType: "표/그래프형", recommendedLayout: "전체 화면 표", rationale: "표 데이터 설명" }),
+    ]);
+
+    await selectScreenTypes(client, scenes);
+
+    expect(client.calls[0].messages[1].content).toContain("표를 보여줍니다.");
+  });
+});
