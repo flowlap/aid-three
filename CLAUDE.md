@@ -4,12 +4,12 @@
 
 이러닝 교육 과정 원고(또는 나레이션)를 영상 제작용 스토리보드로 변환하는 로컬 실행 제작 지원 도구. 원고 1개 = 프로젝트 1개로 관리하며, 사용자가 각 파이프라인 단계의 AI 산출물을 검토·수정하면서 순차적으로 스토리보드를 완성한다.
 
-전체 설계는 [`docs/superpowers/specs/2026-07-27-elearning-storyboard-generator-design.md`](docs/superpowers/specs/2026-07-27-elearning-storyboard-generator-design.md)에 있다. **구현 전에 반드시 이 문서를 먼저 읽을 것.**
+**새 세션(다른 기기 포함)에서는 먼저 [`docs/PROJECT_OVERVIEW.md`](docs/PROJECT_OVERVIEW.md)를 읽을 것** — 아키텍처, 파일 구조, 확립된 코딩 패턴, 알려진 제약을 한 문서에 정리해둔 것. 전체 설계 배경은 [`docs/superpowers/specs/2026-07-27-elearning-storyboard-generator-design.md`](docs/superpowers/specs/2026-07-27-elearning-storyboard-generator-design.md) 참고.
 
 ## 현재 상태
 
-- 2026-07-28: v1 파이프라인(업로드 ~ 최종 스토리보드 뷰) 구현 완료, 수동 검증 통과.
-- 다음 단계 후보(v1 범위 밖, 필요 시 새 스펙으로 브레인스토밍): pptx 템플릿 내보내기, AI 이미지 초안 생성.
+- 2026-07-29: v1 파이프라인(업로드 ~ 최종 스토리보드 뷰) 구현 완료, 13개 태스크 + 최종 전체 브랜치 리뷰 통과, 실제 DeepSeek API로 라이브 E2E 검증 완료, `master`에 병합 및 GitHub push 완료.
+- 다음 작업은 [`docs/ROADMAP.md`](docs/ROADMAP.md) 참고 (작은 개선 항목부터 pptx 내보내기·AI 이미지 생성 같은 큰 후속 기능까지 우선순위별로 정리됨). 착수 전 `superpowers:brainstorming`부터 시작할 것.
 
 ## 기술 스택
 
@@ -34,7 +34,10 @@
 
 ## 참고 문서
 
+- [**프로젝트 개요 및 상세**](docs/PROJECT_OVERVIEW.md) — 새 세션 시작 시 가장 먼저 읽을 문서
+- [**향후 개발 계획**](docs/ROADMAP.md) — 우선순위별 다음 작업 후보
 - [설계 문서](docs/superpowers/specs/2026-07-27-elearning-storyboard-generator-design.md) — 전체 아키텍처, 데이터 모델, 에러 처리, 테스트 전략
+- [구현 계획 (13개 태스크)](docs/superpowers/plans/2026-07-28-elearning-storyboard-generator.md)
 - [파이프라인 단계별 입출력 명세](docs/reference/pipeline-steps.md) — 각 단계 구현 시 참고할 상세 계약
 - [DeepSeek API 레퍼런스](docs/reference/deepseek-api.md) — 모델명, 엔드포인트, 사용 시 주의사항 (레거시 모델명 폐지 확인됨)
 
