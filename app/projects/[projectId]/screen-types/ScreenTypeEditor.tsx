@@ -41,7 +41,11 @@ export function ScreenTypeEditor({
   }
 
   function updateAssignment(sceneId: string, patch: Partial<ScreenTypeAssignment>) {
-    setScreenTypes((prev) => ({ ...prev, [sceneId]: { ...prev[sceneId], ...patch } }));
+    setScreenTypes((prev) => {
+      const defaults: ScreenTypeAssignment = { screenType: "", recommendedLayout: "", rationale: "" };
+      const base = prev[sceneId] ?? defaults;
+      return { ...prev, [sceneId]: { ...base, ...patch } };
+    });
   }
 
   async function handleNext() {

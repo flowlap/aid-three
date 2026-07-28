@@ -19,6 +19,18 @@ export function ReviewIssueList({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  async function handleViewStoryboard() {
+    try {
+      const res = await fetch(`/api/projects/${projectId}/storyboard`, { method: "POST" });
+      if (!res.ok) {
+        console.error("스토리보드 단계 업데이트 실패:", await res.text());
+      }
+    } catch (err) {
+      console.error("스토리보드 단계 업데이트 요청 중 오류:", err);
+    }
+    router.push(`/projects/${projectId}/storyboard`);
+  }
+
   async function handleGenerate() {
     setLoading(true);
     setError(null);
@@ -69,7 +81,7 @@ export function ReviewIssueList({
           ))}
         </ul>
       )}
-      <Button onClick={() => router.push(`/projects/${projectId}/storyboard`)}>최종 스토리보드 보기</Button>
+      <Button onClick={handleViewStoryboard}>최종 스토리보드 보기</Button>
     </div>
   );
 }

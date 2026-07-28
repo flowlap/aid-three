@@ -39,8 +39,9 @@ export async function POST(req: NextRequest) {
   try {
     rawText = await extractText(sourcePath, isPdf ? "pdf" : "txt");
   } catch (err) {
+    console.error("파일 파싱 실패:", err);
     return NextResponse.json(
-      { error: `파일 파싱에 실패했습니다: ${(err as Error).message}` },
+      { error: "파일 파싱에 실패했습니다. 파일 형식을 확인해주세요." },
       { status: 422 }
     );
   }

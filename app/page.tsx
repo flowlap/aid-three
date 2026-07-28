@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { listProjects } from "@/lib/projects/store";
 import { Button } from "@/components/ui/button";
+import { ProjectListItem } from "./ProjectListItem";
 
 export default async function HomePage() {
   const projects = await listProjects();
@@ -13,15 +14,7 @@ export default async function HomePage() {
       </div>
       <ul className="space-y-2">
         {projects.map((project) => (
-          <li key={project.id} className="rounded border p-4">
-            <Link href={`/projects/${project.id}/markdown`} className="font-medium hover:underline">
-              {project.title}
-            </Link>
-            <p className="text-sm text-gray-500">
-              현재 단계: {project.currentStep} · 생성일:{" "}
-              {new Date(project.createdAt).toLocaleDateString("ko-KR")}
-            </p>
-          </li>
+          <ProjectListItem key={project.id} project={project} />
         ))}
         {projects.length === 0 && <p className="text-gray-500">아직 프로젝트가 없습니다.</p>}
       </ul>

@@ -29,4 +29,25 @@ describe("validateNarrationIntegrity", () => {
 
     expect(validateNarrationIntegrity(original, scenes)).toBe(false);
   });
+
+  it("ignores markdown heading and bullet syntax when the wording matches", () => {
+    const original = "# 도입부\n\n오늘은 이러닝을 배웁니다.\n\n- 첫째 항목\n- 둘째 항목";
+    const scenes = ["도입부", "오늘은 이러닝을 배웁니다.", "첫째 항목", "둘째 항목"];
+
+    expect(validateNarrationIntegrity(original, scenes)).toBe(true);
+  });
+
+  it("ignores emphasis markers (bold/italic/code) when the wording matches", () => {
+    const original = "이것은 **중요한** 개념이며 `핵심 용어`입니다. 그리고 _강조_ 표현도 있습니다.";
+    const scenes = ["이것은 중요한 개념이며 핵심 용어입니다.", "그리고 강조 표현도 있습니다."];
+
+    expect(validateNarrationIntegrity(original, scenes)).toBe(true);
+  });
+
+  it("still returns false when wording genuinely changed, even after markdown stripping", () => {
+    const original = "# 도입부\n\n오늘은 이러닝을 배웁니다.";
+    const scenes = ["도입부", "오늘은 이러닝을 학습합니다."];
+
+    expect(validateNarrationIntegrity(original, scenes)).toBe(false);
+  });
 });
