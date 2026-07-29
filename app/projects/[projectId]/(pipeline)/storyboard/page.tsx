@@ -3,6 +3,7 @@ import { readProjectFile, listProjectImageIds } from "@/lib/projects/store";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ScreenMockup } from "@/components/ScreenMockup";
+import { PptxExportButton } from "./PptxExportButton";
 import type { Scene } from "@/lib/pipeline/splitScenes";
 import type { ScreenTypeAssignment } from "@/lib/pipeline/selectScreenTypes";
 import type { VisualDesign } from "@/lib/pipeline/designVisuals";
@@ -25,7 +26,10 @@ export default async function StoryboardPage({ params }: { params: Promise<{ pro
           <h1 className="text-3xl font-semibold tracking-tight">최종 스토리보드</h1>
           <p className="mt-1 text-sm text-muted-foreground">총 {scenes.length}개 씬</p>
         </div>
-        <Button nativeButton={false} render={<Link href={`/projects/${projectId}/preview`}>미리보기로 보기</Link>} />
+        <div className="flex items-start gap-2">
+          <PptxExportButton projectId={projectId} />
+          <Button nativeButton={false} render={<Link href={`/projects/${projectId}/preview`}>미리보기로 보기</Link>} />
+        </div>
       </div>
       <div className="space-y-4">
         {scenes.map((scene, index) => {
