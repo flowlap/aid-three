@@ -8,6 +8,13 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import type { Scene } from "@/lib/pipeline/splitScenes";
 import type { VisualDesign } from "@/lib/pipeline/designVisuals";
+import { useAiJob } from "@/lib/client/useAiJob";
+
+type VisualDesignStreamEvent =
+  | { type: "scene"; sceneId: string; index: number; total: number; data: VisualDesign }
+  | { type: "result"; visualDesigns: Record<string, VisualDesign> }
+  | { type: "error"; message: string }
+  | { type: "cancelled" };
 
 export function VisualDesignEditor({
   projectId,
@@ -20,26 +27,29 @@ export function VisualDesignEditor({
 }) {
   const router = useRouter();
   const [designs, setDesigns] = useState(initialDesigns);
-  const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  const { loading, discoveredRunning, error, progress, start, cancel } = useAiJob<VisualDesignStreamEvent>({
+    projectId,
+    step: "visual-design",
+    onEvent: (event) => {
+      if (event.type === "scene") {
+        setDesigns((prev) => ({ ...prev, [event.sceneId]: event.data }));
+      } else if (event.type === "result") {
+        setDesigns(event.visualDesigns);
+      }
+    },
+    onPollUpdate: (status) => {
+      const partial = status.partialData as { visualDesigns?: Record<string, VisualDesign> } | null;
+      if (partial?.visualDesigns) setDesigns(partial.visualDesigns);
+    },
+    onSettled: () => router.refresh(),
+  });
 
   async function handleGenerate() {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch(`/api/projects/${projectId}/visual-design`, { method: "POST" });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error ?? "비주얼 설계에 실패했습니다");
-        return;
-      }
-      setDesigns(data.visualDesigns);
-    } catch {
-      setError("비주얼 설계 요청 중 오류가 발생했습니다");
-    } finally {
-      setLoading(false);
-    }
+    setDesigns({});
+    await start();
   }
 
   function updateDesign(sceneId: string, patch: Partial<VisualDesign>) {
@@ -66,7 +76,7 @@ export function VisualDesignEditor({
 
   async function handleNext() {
     setSaving(true);
-    setError(null);
+    setSaveError(null);
     try {
       const res = await fetch(`/api/projects/${projectId}/visual-design`, {
         method: "PUT",
@@ -75,12 +85,12 @@ export function VisualDesignEditor({
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error ?? "저장에 실패했습니다");
+        setSaveError(data.error ?? "저장에 실패했습니다");
         return;
       }
       router.push(`/projects/${projectId}/review`);
     } catch {
-      setError("저장 요청 중 오류가 발생했습니다");
+      setSaveError("저장 요청 중 오류가 발생했습니다");
     } finally {
       setSaving(false);
     }
@@ -88,10 +98,26 @@ export function VisualDesignEditor({
 
   return (
     <div className="space-y-4">
-      <Button onClick={handleGenerate} disabled={loading}>
-        {loading ? "설계 중..." : Object.keys(designs).length ? "다시 생성" : "AI로 비주얼 설계"}
-      </Button>
+      <div className="flex gap-2">
+        <Button onClick={handleGenerate} disabled={loading}>
+          {loading
+            ? discoveredRunning
+              ? `이미 실행 중...${progress ? ` (${progress.index}/${progress.total})` : ""}`
+              : progress
+                ? `설계 중... (${progress.index}/${progress.total})`
+                : "설계 중..."
+            : Object.keys(designs).length
+              ? "다시 생성"
+              : "AI로 비주얼 설계"}
+        </Button>
+        {loading && (
+          <Button variant="outline" onClick={cancel}>
+            취소
+          </Button>
+        )}
+      </div>
       {error && <p className="text-sm text-red-600">{error}</p>}
+      {saveError && <p className="text-sm text-red-600">{saveError}</p>}
       <div className="space-y-4">
         {scenes.map((scene) => {
           const design = designs[scene.id];
@@ -152,7 +178,7 @@ export function VisualDesignEditor({
           );
         })}
       </div>
-      <Button onClick={handleNext} disabled={Object.keys(designs).length === 0 || saving}>
+      <Button onClick={handleNext} disabled={Object.keys(designs).length === 0 || saving || loading}>
         {saving ? "저장 중..." : "다음 단계"}
       </Button>
     </div>

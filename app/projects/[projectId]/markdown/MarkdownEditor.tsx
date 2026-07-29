@@ -4,6 +4,13 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { useAiJob } from "@/lib/client/useAiJob";
+
+type MarkdownStreamEvent =
+  | { type: "chunk"; text: string }
+  | { type: "result"; markdown: string }
+  | { type: "error"; message: string }
+  | { type: "cancelled" };
 
 export function MarkdownEditor({
   projectId,
@@ -14,31 +21,33 @@ export function MarkdownEditor({
 }) {
   const router = useRouter();
   const [markdown, setMarkdown] = useState(initialMarkdown ?? "");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  const { loading, discoveredRunning, error, start, cancel } = useAiJob<MarkdownStreamEvent>({
+    projectId,
+    step: "markdown",
+    onEvent: (event) => {
+      if (event.type === "chunk") {
+        setMarkdown((prev) => prev + event.text);
+      } else if (event.type === "result") {
+        setMarkdown(event.markdown);
+      }
+    },
+    onPollUpdate: (status) => {
+      if (typeof status.partialRaw === "string") setMarkdown(status.partialRaw);
+    },
+    onSettled: () => router.refresh(),
+  });
 
   async function handleGenerate() {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch(`/api/projects/${projectId}/markdown`, { method: "POST" });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error ?? "변환에 실패했습니다");
-        return;
-      }
-      setMarkdown(data.markdown);
-    } catch {
-      setError("변환 요청 중 오류가 발생했습니다");
-    } finally {
-      setLoading(false);
-    }
+    setMarkdown("");
+    await start();
   }
 
   async function handleNext() {
     setSaving(true);
-    setError(null);
+    setSaveError(null);
     try {
       const res = await fetch(`/api/projects/${projectId}/markdown`, {
         method: "PUT",
@@ -47,12 +56,12 @@ export function MarkdownEditor({
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error ?? "저장에 실패했습니다");
+        setSaveError(data.error ?? "저장에 실패했습니다");
         return;
       }
       router.push(`/projects/${projectId}/scenes`);
     } catch {
-      setError("저장 요청 중 오류가 발생했습니다");
+      setSaveError("저장 요청 중 오류가 발생했습니다");
     } finally {
       setSaving(false);
     }
@@ -60,9 +69,16 @@ export function MarkdownEditor({
 
   return (
     <div className="space-y-4">
-      <Button onClick={handleGenerate} disabled={loading}>
-        {loading ? "변환 중..." : markdown ? "다시 생성" : "AI로 변환"}
-      </Button>
+      <div className="flex gap-2">
+        <Button onClick={handleGenerate} disabled={loading}>
+          {loading ? (discoveredRunning ? "이미 실행 중..." : "변환 중...") : markdown ? "다시 생성" : "AI로 변환"}
+        </Button>
+        {loading && (
+          <Button variant="outline" onClick={cancel}>
+            취소
+          </Button>
+        )}
+      </div>
       <Textarea
         rows={20}
         value={markdown}
@@ -70,7 +86,8 @@ export function MarkdownEditor({
         placeholder="변환 결과가 여기에 표시됩니다. 직접 수정할 수 있습니다."
       />
       {error && <p className="text-sm text-red-600">{error}</p>}
-      <Button onClick={handleNext} disabled={!markdown || saving}>
+      {saveError && <p className="text-sm text-red-600">{saveError}</p>}
+      <Button onClick={handleNext} disabled={!markdown || saving || loading}>
         {saving ? "저장 중..." : "다음 단계"}
       </Button>
     </div>

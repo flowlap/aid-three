@@ -1,4 +1,4 @@
-import type { DeepSeekClient } from "../ai/deepseekClient";
+import { DEEPSEEK_MODELS, type ChatMessage, type DeepSeekClient } from "../ai/deepseekClient";
 
 export interface Scene {
   id: string;
@@ -14,7 +14,7 @@ const SCENE_LENGTH_GUIDE =
 const SPLIT_CRITERIA =
   "문장종결, 주제전환, 설명 대상 변경, 화면 유형 변경, 열거 시작과 종료, 사례 또는 질문, 표/그래프 등장, 예상 재생시간";
 
-export async function splitScenes(client: DeepSeekClient, narrationMarkdown: string): Promise<Scene[]> {
+function buildSplitScenesMessages(narrationMarkdown: string): ChatMessage[] {
   const prompt = `다음 나레이션을 씬으로 분할하세요. 나레이션 문구는 절대 수정하지 말고 분절만 하세요.
 
 씬 길이 기준:
@@ -31,14 +31,13 @@ ${narrationMarkdown}
 
 JSON으로만 응답하세요: {"scenes": [{"order": number, "narrationText": string, "estimatedDurationSec": number, "splitReason": string}]}`;
 
-  const raw = await client.complete(
-    [
-      { role: "system", content: "당신은 이러닝 스토리보드 제작을 돕는 씬 분할 전문가입니다." },
-      { role: "user", content: prompt },
-    ],
-    { jsonMode: true }
-  );
+  return [
+    { role: "system", content: "당신은 이러닝 스토리보드 제작을 돕는 씬 분할 전문가입니다." },
+    { role: "user", content: prompt },
+  ];
+}
 
+export function parseScenesResponse(raw: string): Scene[] {
   const parsed = JSON.parse(raw) as { scenes: Array<Omit<Scene, "id">> };
   if (!parsed || !Array.isArray(parsed.scenes)) {
     throw new Error("AI 응답 형식이 올바르지 않습니다 (scenes 배열 없음)");
@@ -47,4 +46,24 @@ JSON으로만 응답하세요: {"scenes": [{"order": number, "narrationText": st
     id: `scene-${String(index + 1).padStart(3, "0")}`,
     ...scene,
   }));
+}
+
+export async function splitScenes(client: DeepSeekClient, narrationMarkdown: string): Promise<Scene[]> {
+  const raw = await client.complete(buildSplitScenesMessages(narrationMarkdown), {
+    jsonMode: true,
+    model: DEEPSEEK_MODELS.pro,
+  });
+  return parseScenesResponse(raw);
+}
+
+export async function splitScenesStream(
+  client: DeepSeekClient,
+  narrationMarkdown: string,
+  signal?: AbortSignal
+): Promise<AsyncIterable<string>> {
+  return client.completeStream(buildSplitScenesMessages(narrationMarkdown), {
+    jsonMode: true,
+    model: DEEPSEEK_MODELS.pro,
+    signal,
+  });
 }

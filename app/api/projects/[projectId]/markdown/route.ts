@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readProject, readProjectFile, writeProjectFile, updateProjectStep } from "@/lib/projects/store";
 import { createDeepSeekClient } from "@/lib/ai/deepseekClient";
-import { convertToMarkdown } from "@/lib/pipeline/convertMarkdown";
+import { convertToMarkdownStream } from "@/lib/pipeline/convertMarkdown";
+import { createResilientStream } from "@/lib/http/resilientStream";
+import { startJob, finishJob, recordChunk, getJob, JobAlreadyRunningError } from "@/lib/jobs/registry";
+
+const STEP = "markdown" as const;
 
 export async function POST(_req: NextRequest, { params }: { params: Promise<{ projectId: string }> }) {
   const { projectId } = await params;
@@ -11,26 +15,63 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ pr
   const rawText = await readProjectFile(projectId, "extracted.txt");
   if (!rawText) return NextResponse.json({ error: "업로드된 원본 텍스트가 없습니다" }, { status: 400 });
 
-  let markdown: string;
+  let job;
+  try {
+    job = startJob(projectId, STEP);
+  } catch (err) {
+    if (err instanceof JobAlreadyRunningError) {
+      return NextResponse.json({ error: "이미 실행 중입니다" }, { status: 409 });
+    }
+    throw err;
+  }
+
+  let chunks: AsyncIterable<string>;
   try {
     const client = createDeepSeekClient();
-    markdown = await convertToMarkdown(client, rawText, project.scriptType);
+    chunks = await convertToMarkdownStream(client, rawText, project.scriptType, job.controller.signal);
   } catch (err) {
     console.error("마크다운 변환 실패:", err);
+    finishJob(projectId, STEP, "error", "AI 변환에 실패했습니다");
     return NextResponse.json(
       { error: "AI 변환에 실패했습니다. 잠시 후 다시 시도해주세요." },
       { status: 502 }
     );
   }
 
-  await writeProjectFile(projectId, "narration.md", markdown);
-  await updateProjectStep(projectId, "markdown");
+  const stream = createResilientStream(async (emit) => {
+    let fullMarkdown = "";
+    try {
+      for await (const delta of chunks) {
+        fullMarkdown += delta;
+        recordChunk(projectId, STEP, delta);
+        emit(JSON.stringify({ type: "chunk", text: delta }) + "\n");
+      }
 
-  return NextResponse.json({ markdown });
+      await writeProjectFile(projectId, "narration.md", fullMarkdown);
+      await updateProjectStep(projectId, STEP);
+      finishJob(projectId, STEP, "done");
+      emit(JSON.stringify({ type: "result", markdown: fullMarkdown }) + "\n");
+    } catch (err) {
+      if (job.controller.signal.aborted) {
+        finishJob(projectId, STEP, "cancelled");
+        emit(JSON.stringify({ type: "cancelled" }) + "\n");
+        return;
+      }
+      console.error("마크다운 스트리밍 중 오류:", err);
+      finishJob(projectId, STEP, "error", "AI 변환에 실패했습니다");
+      emit(JSON.stringify({ type: "error", message: "AI 변환에 실패했습니다" }) + "\n");
+    }
+  });
+
+  return new Response(stream, { headers: { "Content-Type": "application/x-ndjson; charset=utf-8" } });
 }
 
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ projectId: string }> }) {
   const { projectId } = await params;
+  if (getJob(projectId, STEP)?.status === "running") {
+    return NextResponse.json({ error: "생성이 진행 중입니다. 완료 후 다시 시도해주세요" }, { status: 409 });
+  }
+
   const body = (await req.json()) as { markdown?: unknown };
   if (typeof body.markdown !== "string") {
     return NextResponse.json({ error: "markdown 필드는 문자열이어야 합니다" }, { status: 400 });

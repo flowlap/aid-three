@@ -92,3 +92,37 @@ export async function readProjectFile(id: string, filename: string): Promise<str
     return null;
   }
 }
+
+/**
+ * Merges a single entry into a top-level map within a project JSON file,
+ * e.g. { screenTypes: { "scene-001": {...} } }, without touching sibling
+ * entries. Used for per-scene incremental saves during streaming generation.
+ * Safe from read-modify-write races only because the AI job registry
+ * (lib/jobs/registry.ts) guarantees a single loop owns writes to this file
+ * at any given time — this helper does not add its own locking.
+ */
+export async function mergeProjectJsonMap(
+  id: string,
+  filename: string,
+  topLevelKey: string,
+  entryKey: string,
+  value: unknown
+): Promise<void> {
+  assertSafeFilename(filename);
+  const filePath = path.join(projectDir(id), filename);
+
+  let parsed: Record<string, unknown> = {};
+  try {
+    parsed = JSON.parse(await fs.readFile(filePath, "utf-8"));
+  } catch {
+    parsed = {};
+  }
+
+  const existingMap = parsed[topLevelKey];
+  const map: Record<string, unknown> =
+    typeof existingMap === "object" && existingMap !== null ? { ...(existingMap as Record<string, unknown>) } : {};
+  map[entryKey] = value;
+  parsed[topLevelKey] = map;
+
+  await fs.writeFile(filePath, JSON.stringify(parsed, null, 2), "utf-8");
+}

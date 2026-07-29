@@ -10,6 +10,7 @@ import {
   deleteProject,
   writeProjectFile,
   readProjectFile,
+  mergeProjectJsonMap,
 } from "./store";
 
 let tempRoot: string;
@@ -98,5 +99,55 @@ describe("project store", () => {
   it("rejects path-traversal attempts in filename", async () => {
     const project = await createProject("경로 검증", "script");
     await expect(writeProjectFile(project.id, "../../evil.txt", "bad")).rejects.toThrow();
+  });
+});
+
+describe("mergeProjectJsonMap", () => {
+  it("creates the file with the merged entry when it doesn't exist yet", async () => {
+    const project = await createProject("병합 생성", "script");
+
+    await mergeProjectJsonMap(project.id, "screen-types.json", "screenTypes", "scene-001", { screenType: "A" });
+    const content = await readProjectFile(project.id, "screen-types.json");
+
+    expect(JSON.parse(content!)).toEqual({ screenTypes: { "scene-001": { screenType: "A" } } });
+  });
+
+  it("preserves sibling entries already in the map", async () => {
+    const project = await createProject("병합 보존", "script");
+    await mergeProjectJsonMap(project.id, "screen-types.json", "screenTypes", "scene-001", { screenType: "A" });
+
+    await mergeProjectJsonMap(project.id, "screen-types.json", "screenTypes", "scene-002", { screenType: "B" });
+    const content = await readProjectFile(project.id, "screen-types.json");
+
+    expect(JSON.parse(content!)).toEqual({
+      screenTypes: { "scene-001": { screenType: "A" }, "scene-002": { screenType: "B" } },
+    });
+  });
+
+  it("overwrites the same entry key in place", async () => {
+    const project = await createProject("병합 갱신", "script");
+    await mergeProjectJsonMap(project.id, "screen-types.json", "screenTypes", "scene-001", { screenType: "A" });
+
+    await mergeProjectJsonMap(project.id, "screen-types.json", "screenTypes", "scene-001", { screenType: "C" });
+    const content = await readProjectFile(project.id, "screen-types.json");
+
+    expect(JSON.parse(content!)).toEqual({ screenTypes: { "scene-001": { screenType: "C" } } });
+  });
+
+  it("preserves other top-level keys already in the file", async () => {
+    const project = await createProject("최상위 보존", "script");
+    await writeProjectFile(project.id, "screen-types.json", JSON.stringify({ note: "keep me" }));
+
+    await mergeProjectJsonMap(project.id, "screen-types.json", "screenTypes", "scene-001", { screenType: "A" });
+    const content = await readProjectFile(project.id, "screen-types.json");
+
+    expect(JSON.parse(content!)).toEqual({ note: "keep me", screenTypes: { "scene-001": { screenType: "A" } } });
+  });
+
+  it("rejects path-traversal attempts in filename", async () => {
+    const project = await createProject("병합 경로 검증", "script");
+    await expect(
+      mergeProjectJsonMap(project.id, "../../evil.json", "screenTypes", "scene-001", {})
+    ).rejects.toThrow();
   });
 });

@@ -2,6 +2,7 @@
 
 - 작성일: 2026-07-29
 - v1(업로드 ~ 최종 스토리보드 뷰) 완료 이후의 작업 후보를 정리한 문서. 실제 착수 시에는 각 항목을 `superpowers:brainstorming`으로 다시 스펙화한 뒤 `superpowers:writing-plans`로 태스크 분해할 것 — 이 문서는 "무엇을 할지"의 후보 목록이지 실행 계획은 아니다.
+- **2026-07-29 업데이트**: v2 전면 개편 요청이 들어와 [`docs/superpowers/plans/2026-07-29-v2-redesign-roadmap.md`](superpowers/plans/2026-07-29-v2-redesign-roadmap.md)로 별도 Phase 계획을 남김(Phase 0/1 완료, Phase 2~7 미착수). 아래 우선순위 B의 "화면 유형 드롭다운"과 우선순위 C의 "씬별 AI 이미지 생성"은 그 문서의 Phase 5/7로 대체됨 — 착수 시 이 문서 대신 그 문서를 따를 것.
 
 ## 우선순위 A — 다음에 바로 착수하기 좋은 작은 개선
 

@@ -124,7 +124,8 @@ npx tsc --noEmit               # 타입 체크 (테스트에 안 걸리는 실�
 ## 7. 참고 문서 인덱스
 
 - [설계 스펙](superpowers/specs/2026-07-27-elearning-storyboard-generator-design.md)
-- [구현 계획 (13개 태스크)](superpowers/plans/2026-07-28-elearning-storyboard-generator.md)
+- [구현 계획 (13개 태스크, v1)](superpowers/plans/2026-07-28-elearning-storyboard-generator.md)
+- [v2 전면 개편 로드맵 (Phase 0~7)](superpowers/plans/2026-07-29-v2-redesign-roadmap.md)
 - [파이프라인 단계별 입출력 계약](reference/pipeline-steps.md)
 - [DeepSeek API 레퍼런스](reference/deepseek-api.md)
 - [향후 개발 계획](ROADMAP.md)

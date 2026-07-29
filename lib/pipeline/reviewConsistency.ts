@@ -1,4 +1,4 @@
-import type { DeepSeekClient } from "../ai/deepseekClient";
+import { DEEPSEEK_MODELS, type ChatMessage, type DeepSeekClient } from "../ai/deepseekClient";
 import type { Scene } from "./splitScenes";
 import type { ScreenTypeAssignment } from "./selectScreenTypes";
 import type { VisualDesign } from "./designVisuals";
@@ -107,11 +107,10 @@ function isSemanticReviewResponse(value: unknown): value is { issues: Array<Omit
   );
 }
 
-export async function reviewSemanticConsistency(
-  client: DeepSeekClient,
+function buildSemanticReviewMessages(
   scenes: Scene[],
   visualDesigns: Record<string, VisualDesign>
-): Promise<ReviewIssue[]> {
+): ChatMessage[] {
   const summary = scenes.map((scene) => ({
     sceneId: scene.id,
     narrationText: scene.narrationText,
@@ -129,14 +128,13 @@ ${JSON.stringify(summary, null, 2)}
 
 JSON으로만 응답하세요: {"issues": [{"type": string, "severity": "info"|"warning"|"error", "sceneIds": string[], "message": string}]}`;
 
-  const raw = await client.complete(
-    [
-      { role: "system", content: "당신은 이러닝 스토리보드 품질 검수 전문가입니다." },
-      { role: "user", content: prompt },
-    ],
-    { jsonMode: true }
-  );
+  return [
+    { role: "system", content: "당신은 이러닝 스토리보드 품질 검수 전문가입니다." },
+    { role: "user", content: prompt },
+  ];
+}
 
+export function parseSemanticReviewResponse(raw: string): ReviewIssue[] {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
@@ -154,17 +152,27 @@ JSON으로만 응답하세요: {"issues": [{"type": string, "severity": "info"|"
   }));
 }
 
-export async function reviewConsistency(
+export async function reviewSemanticConsistency(
   client: DeepSeekClient,
   scenes: Scene[],
-  screenTypes: Record<string, ScreenTypeAssignment>,
   visualDesigns: Record<string, VisualDesign>
 ): Promise<ReviewIssue[]> {
-  const deterministic = [
-    ...checkDuplicateLayouts(scenes, screenTypes),
-    ...checkOverlongNarration(scenes),
-    ...checkSceneNumbering(scenes),
-  ];
-  const semantic = await reviewSemanticConsistency(client, scenes, visualDesigns);
-  return [...deterministic, ...semantic];
+  const raw = await client.complete(buildSemanticReviewMessages(scenes, visualDesigns), {
+    jsonMode: true,
+    model: DEEPSEEK_MODELS.flash,
+  });
+  return parseSemanticReviewResponse(raw);
+}
+
+export async function reviewSemanticConsistencyStream(
+  client: DeepSeekClient,
+  scenes: Scene[],
+  visualDesigns: Record<string, VisualDesign>,
+  signal?: AbortSignal
+): Promise<AsyncIterable<string>> {
+  return client.completeStream(buildSemanticReviewMessages(scenes, visualDesigns), {
+    jsonMode: true,
+    model: DEEPSEEK_MODELS.flash,
+    signal,
+  });
 }

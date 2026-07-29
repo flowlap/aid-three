@@ -46,4 +46,53 @@ describe("designVisuals", () => {
 
     expect(client.calls[0].messages[1].content).toContain("텍스트 강조형");
   });
+
+  it("requests the flash model", async () => {
+    const client = new MockDeepSeekClient([
+      JSON.stringify({
+        caption: "핵심 정의",
+        keywords: ["정의"],
+        imageOrDiagramDescription: "중앙에 큰 텍스트",
+        objectPlacement: "중앙",
+        appearanceOrder: ["제목", "본문"],
+        productionNotes: "폰트 크게",
+      }),
+    ]);
+
+    await designVisuals(client, scenes, screenTypes);
+
+    expect(client.calls[0].options?.model).toBe("deepseek-v4-flash");
+  });
+
+  it("calls onProgress after each scene and stops before the next once aborted", async () => {
+    const twoScenes: Scene[] = [
+      ...scenes,
+      { id: "scene-002", order: 2, narrationText: "표를 보여줍니다.", estimatedDurationSec: 20, splitReason: "표/그래프 등장" },
+    ];
+    const client = new MockDeepSeekClient([
+      JSON.stringify({
+        caption: "핵심 정의",
+        keywords: ["정의"],
+        imageOrDiagramDescription: "중앙에 큰 텍스트",
+        objectPlacement: "중앙",
+        appearanceOrder: ["제목", "본문"],
+        productionNotes: "폰트 크게",
+      }),
+    ]);
+    const controller = new AbortController();
+    const progressCalls: number[] = [];
+
+    await expect(
+      designVisuals(client, twoScenes, screenTypes, {
+        onProgress: (_sceneId, index) => {
+          progressCalls.push(index);
+          controller.abort();
+        },
+        signal: controller.signal,
+      })
+    ).rejects.toThrow();
+
+    expect(progressCalls).toEqual([0]);
+    expect(client.calls).toHaveLength(1);
+  });
 });

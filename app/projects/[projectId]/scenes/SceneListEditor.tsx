@@ -5,6 +5,13 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { Scene } from "@/lib/pipeline/splitScenes";
+import { useAiJob } from "@/lib/client/useAiJob";
+
+type SceneStreamEvent =
+  | { type: "chunk"; text: string }
+  | { type: "result"; scenes: Scene[]; integrityOk: boolean }
+  | { type: "error"; message: string }
+  | { type: "cancelled" };
 
 export function SceneListEditor({
   projectId,
@@ -15,28 +22,32 @@ export function SceneListEditor({
 }) {
   const router = useRouter();
   const [scenes, setScenes] = useState<Scene[]>(initialScenes);
-  const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [rawPreview, setRawPreview] = useState("");
+
+  const { loading, discoveredRunning, error, start, cancel } = useAiJob<SceneStreamEvent>({
+    projectId,
+    step: "scenes",
+    onEvent: (event) => {
+      if (event.type === "chunk") {
+        setRawPreview((prev) => prev + event.text);
+      } else if (event.type === "result") {
+        setScenes(event.scenes);
+        setWarning(event.integrityOk ? null : "AI가 나레이션 원문을 임의로 수정했을 수 있습니다. 확인해주세요.");
+      }
+    },
+    onPollUpdate: (status) => {
+      if (typeof status.partialRaw === "string") setRawPreview(status.partialRaw);
+    },
+    onSettled: () => router.refresh(),
+  });
 
   async function handleGenerate() {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch(`/api/projects/${projectId}/scenes`, { method: "POST" });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error ?? "씬 분할에 실패했습니다");
-        return;
-      }
-      setScenes(data.scenes);
-      setWarning(data.integrityOk ? null : "AI가 나레이션 원문을 임의로 수정했을 수 있습니다. 확인해주세요.");
-    } catch {
-      setError("씬 분할 요청 중 오류가 발생했습니다");
-    } finally {
-      setLoading(false);
-    }
+    setWarning(null);
+    setRawPreview("");
+    await start();
   }
 
   function updateScene(index: number, patch: Partial<Scene>) {
@@ -45,7 +56,7 @@ export function SceneListEditor({
 
   async function handleNext() {
     setSaving(true);
-    setError(null);
+    setSaveError(null);
     try {
       const res = await fetch(`/api/projects/${projectId}/scenes`, {
         method: "PUT",
@@ -54,12 +65,12 @@ export function SceneListEditor({
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error ?? "저장에 실패했습니다");
+        setSaveError(data.error ?? "저장에 실패했습니다");
         return;
       }
       router.push(`/projects/${projectId}/screen-types`);
     } catch {
-      setError("저장 요청 중 오류가 발생했습니다");
+      setSaveError("저장 요청 중 오류가 발생했습니다");
     } finally {
       setSaving(false);
     }
@@ -67,11 +78,24 @@ export function SceneListEditor({
 
   return (
     <div className="space-y-4">
-      <Button onClick={handleGenerate} disabled={loading}>
-        {loading ? "분할 중..." : scenes.length ? "다시 생성" : "AI로 씬 분할"}
-      </Button>
+      <div className="flex gap-2">
+        <Button onClick={handleGenerate} disabled={loading}>
+          {loading ? (discoveredRunning ? "이미 실행 중..." : "분할 중...") : scenes.length ? "다시 생성" : "AI로 씬 분할"}
+        </Button>
+        {loading && (
+          <Button variant="outline" onClick={cancel}>
+            취소
+          </Button>
+        )}
+      </div>
       {warning && <p className="text-sm text-amber-600">{warning}</p>}
       {error && <p className="text-sm text-red-600">{error}</p>}
+      {saveError && <p className="text-sm text-red-600">{saveError}</p>}
+      {loading && (
+        <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded border bg-gray-50 p-3 text-xs text-gray-600">
+          {rawPreview || "생성 준비 중..."}
+        </pre>
+      )}
       <ul className="space-y-3">
         {scenes.map((scene, index) => (
           <li key={scene.id} className="rounded border p-3">
@@ -95,7 +119,7 @@ export function SceneListEditor({
           </li>
         ))}
       </ul>
-      <Button onClick={handleNext} disabled={scenes.length === 0 || saving}>
+      <Button onClick={handleNext} disabled={scenes.length === 0 || saving || loading}>
         {saving ? "저장 중..." : "다음 단계"}
       </Button>
     </div>

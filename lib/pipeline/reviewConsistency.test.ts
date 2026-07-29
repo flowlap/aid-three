@@ -100,4 +100,13 @@ describe("reviewSemanticConsistency", () => {
     expect(issues[0].id).toBe("semantic-1");
     expect(issues[0].type).toBe("terminology");
   });
+
+  it("requests the flash model", async () => {
+    const client = new MockDeepSeekClient([JSON.stringify({ issues: [] })]);
+    const scenes = [makeScene("scene-001", 1)];
+
+    await reviewSemanticConsistency(client, scenes, {});
+
+    expect(client.calls[0].options?.model).toBe("deepseek-v4-flash");
+  });
 });

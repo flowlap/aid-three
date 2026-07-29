@@ -1,4 +1,4 @@
-import type { DeepSeekClient } from "../ai/deepseekClient";
+import { DEEPSEEK_MODELS, type DeepSeekClient } from "../ai/deepseekClient";
 import type { Scene } from "./splitScenes";
 import type { ScreenTypeAssignment } from "./selectScreenTypes";
 
@@ -38,15 +38,32 @@ function isVisualDesign(value: unknown): value is VisualDesign {
   );
 }
 
+export type VisualDesignProgress = (
+  sceneId: string,
+  index: number,
+  total: number,
+  design: VisualDesign
+) => void | Promise<void>;
+
+export interface DesignVisualsOptions {
+  designGuide?: DesignGuide;
+  onProgress?: VisualDesignProgress;
+  signal?: AbortSignal;
+}
+
 export async function designVisuals(
   client: DeepSeekClient,
   scenes: Scene[],
   screenTypes: Record<string, ScreenTypeAssignment>,
-  designGuide: DesignGuide = DEFAULT_DESIGN_GUIDE
+  options: DesignVisualsOptions = {}
 ): Promise<Record<string, VisualDesign>> {
+  const { designGuide = DEFAULT_DESIGN_GUIDE, onProgress, signal } = options;
   const result: Record<string, VisualDesign> = {};
 
-  for (const scene of scenes) {
+  for (let i = 0; i < scenes.length; i++) {
+    if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+
+    const scene = scenes[i];
     const screenType = screenTypes[scene.id];
     const prompt = `다음 씬의 비주얼을 설계하세요.
 
@@ -62,7 +79,7 @@ JSON으로만 응답하세요: {"caption": string, "keywords": string[], "imageO
         { role: "system", content: "당신은 이러닝 스토리보드 비주얼 디자이너입니다." },
         { role: "user", content: prompt },
       ],
-      { jsonMode: true }
+      { jsonMode: true, model: DEEPSEEK_MODELS.flash, signal }
     );
 
     let parsed: unknown;
@@ -79,6 +96,7 @@ JSON으로만 응답하세요: {"caption": string, "keywords": string[], "imageO
     }
 
     result[scene.id] = parsed;
+    await onProgress?.(scene.id, i, scenes.length, parsed);
   }
 
   return result;

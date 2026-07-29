@@ -6,6 +6,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { Scene } from "@/lib/pipeline/splitScenes";
 import type { ScreenTypeAssignment } from "@/lib/pipeline/selectScreenTypes";
+import { useAiJob } from "@/lib/client/useAiJob";
+
+type ScreenTypeStreamEvent =
+  | { type: "scene"; sceneId: string; index: number; total: number; data: ScreenTypeAssignment }
+  | { type: "result"; screenTypes: Record<string, ScreenTypeAssignment> }
+  | { type: "error"; message: string }
+  | { type: "cancelled" };
 
 export function ScreenTypeEditor({
   projectId,
@@ -18,26 +25,29 @@ export function ScreenTypeEditor({
 }) {
   const router = useRouter();
   const [screenTypes, setScreenTypes] = useState(initialScreenTypes);
-  const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  const { loading, discoveredRunning, error, progress, start, cancel } = useAiJob<ScreenTypeStreamEvent>({
+    projectId,
+    step: "screen-types",
+    onEvent: (event) => {
+      if (event.type === "scene") {
+        setScreenTypes((prev) => ({ ...prev, [event.sceneId]: event.data }));
+      } else if (event.type === "result") {
+        setScreenTypes(event.screenTypes);
+      }
+    },
+    onPollUpdate: (status) => {
+      const partial = status.partialData as { screenTypes?: Record<string, ScreenTypeAssignment> } | null;
+      if (partial?.screenTypes) setScreenTypes(partial.screenTypes);
+    },
+    onSettled: () => router.refresh(),
+  });
 
   async function handleGenerate() {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch(`/api/projects/${projectId}/screen-types`, { method: "POST" });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error ?? "화면 유형 선정에 실패했습니다");
-        return;
-      }
-      setScreenTypes(data.screenTypes);
-    } catch {
-      setError("화면 유형 선정 요청 중 오류가 발생했습니다");
-    } finally {
-      setLoading(false);
-    }
+    setScreenTypes({});
+    await start();
   }
 
   function updateAssignment(sceneId: string, patch: Partial<ScreenTypeAssignment>) {
@@ -50,7 +60,7 @@ export function ScreenTypeEditor({
 
   async function handleNext() {
     setSaving(true);
-    setError(null);
+    setSaveError(null);
     try {
       const res = await fetch(`/api/projects/${projectId}/screen-types`, {
         method: "PUT",
@@ -59,12 +69,12 @@ export function ScreenTypeEditor({
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error ?? "저장에 실패했습니다");
+        setSaveError(data.error ?? "저장에 실패했습니다");
         return;
       }
       router.push(`/projects/${projectId}/visual-design`);
     } catch {
-      setError("저장 요청 중 오류가 발생했습니다");
+      setSaveError("저장 요청 중 오류가 발생했습니다");
     } finally {
       setSaving(false);
     }
@@ -72,10 +82,26 @@ export function ScreenTypeEditor({
 
   return (
     <div className="space-y-4">
-      <Button onClick={handleGenerate} disabled={loading}>
-        {loading ? "선정 중..." : Object.keys(screenTypes).length ? "다시 생성" : "AI로 화면 유형 선정"}
-      </Button>
+      <div className="flex gap-2">
+        <Button onClick={handleGenerate} disabled={loading}>
+          {loading
+            ? discoveredRunning
+              ? `이미 실행 중...${progress ? ` (${progress.index}/${progress.total})` : ""}`
+              : progress
+                ? `선정 중... (${progress.index}/${progress.total})`
+                : "선정 중..."
+            : Object.keys(screenTypes).length
+              ? "다시 생성"
+              : "AI로 화면 유형 선정"}
+        </Button>
+        {loading && (
+          <Button variant="outline" onClick={cancel}>
+            취소
+          </Button>
+        )}
+      </div>
       {error && <p className="text-sm text-red-600">{error}</p>}
+      {saveError && <p className="text-sm text-red-600">{saveError}</p>}
       <ul className="space-y-3">
         {scenes.map((scene) => {
           const assignment = screenTypes[scene.id];
@@ -98,7 +124,7 @@ export function ScreenTypeEditor({
           );
         })}
       </ul>
-      <Button onClick={handleNext} disabled={Object.keys(screenTypes).length === 0 || saving}>
+      <Button onClick={handleNext} disabled={Object.keys(screenTypes).length === 0 || saving || loading}>
         {saving ? "저장 중..." : "다음 단계"}
       </Button>
     </div>

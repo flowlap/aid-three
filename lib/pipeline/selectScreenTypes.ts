@@ -1,4 +1,4 @@
-import type { DeepSeekClient } from "../ai/deepseekClient";
+import { DEEPSEEK_MODELS, type DeepSeekClient } from "../ai/deepseekClient";
 import type { Scene } from "./splitScenes";
 
 export interface ScreenTypeAssignment {
@@ -19,13 +19,29 @@ function isScreenTypeAssignment(value: unknown): value is ScreenTypeAssignment {
   );
 }
 
+export type ScreenTypeProgress = (
+  sceneId: string,
+  index: number,
+  total: number,
+  assignment: ScreenTypeAssignment
+) => void | Promise<void>;
+
+export interface SelectScreenTypesOptions {
+  onProgress?: ScreenTypeProgress;
+  signal?: AbortSignal;
+}
+
 export async function selectScreenTypes(
   client: DeepSeekClient,
-  scenes: Scene[]
+  scenes: Scene[],
+  options: SelectScreenTypesOptions = {}
 ): Promise<Record<string, ScreenTypeAssignment>> {
+  const { onProgress, signal } = options;
   const result: Record<string, ScreenTypeAssignment> = {};
 
   for (let i = 0; i < scenes.length; i++) {
+    if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+
     const scene = scenes[i];
     const prevScene = scenes[i - 1];
     const nextScene = scenes[i + 1];
@@ -45,7 +61,7 @@ JSON으로만 응답하세요: {"screenType": string, "recommendedLayout": strin
         { role: "system", content: "당신은 이러닝 스토리보드 화면 설계 전문가입니다." },
         { role: "user", content: prompt },
       ],
-      { jsonMode: true }
+      { jsonMode: true, model: DEEPSEEK_MODELS.flash, signal }
     );
 
     let parsed: unknown;
@@ -62,6 +78,7 @@ JSON으로만 응답하세요: {"screenType": string, "recommendedLayout": strin
     }
 
     result[scene.id] = parsed;
+    await onProgress?.(scene.id, i, scenes.length, parsed);
   }
 
   return result;

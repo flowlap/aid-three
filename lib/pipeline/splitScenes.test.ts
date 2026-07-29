@@ -28,4 +28,12 @@ describe("splitScenes", () => {
 
     expect(client.calls[0].options?.jsonMode).toBe(true);
   });
+
+  it("requests the pro model", async () => {
+    const client = new MockDeepSeekClient([SAMPLE_RESPONSE]);
+
+    await splitScenes(client, "나레이션");
+
+    expect(client.calls[0].options?.model).toBe("deepseek-v4-pro");
+  });
 });

@@ -20,4 +20,12 @@ describe("convertToMarkdown", () => {
     expect(result).toBe("# 나레이션\n\n원문 그대로.");
     expect(client.calls[0].messages[1].content).toContain("내용은 절대 수정하지 말고");
   });
+
+  it("requests the pro model", async () => {
+    const client = new MockDeepSeekClient(["결과"]);
+
+    await convertToMarkdown(client, "원고", "narration");
+
+    expect(client.calls[0].options?.model).toBe("deepseek-v4-pro");
+  });
 });
