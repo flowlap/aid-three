@@ -11,6 +11,19 @@ export interface ReviewIssue {
   message: string;
 }
 
+/**
+ * Korean labels for the deterministic checks below (a fixed, known set).
+ * AI-generated semantic issues have a free-text `type` with no fixed set of
+ * values, so they're intentionally left out — the UI falls back to just the
+ * severity badge + message for those, since the message is already a full
+ * Korean sentence.
+ */
+export const DETERMINISTIC_ISSUE_LABELS: Record<string, string> = {
+  "duplicate-layout": "레이아웃 반복",
+  "overlong-narration": "나레이션 과다",
+  "numbering-gap": "씬 번호 오류",
+};
+
 const MAX_REASONABLE_DURATION_SEC = 40;
 const REPEATED_LAYOUT_THRESHOLD = 3;
 

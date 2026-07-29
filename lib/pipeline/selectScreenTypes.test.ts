@@ -11,8 +11,8 @@ const scenes: Scene[] = [
 describe("selectScreenTypes", () => {
   it("maps each scene id to a screen type assignment", async () => {
     const client = new MockDeepSeekClient([
-      JSON.stringify({ screenType: "텍스트 강조형", recommendedLayout: "중앙 텍스트", rationale: "정의 강조" }),
-      JSON.stringify({ screenType: "표/그래프형", recommendedLayout: "전체 화면 표", rationale: "표 데이터 설명" }),
+      JSON.stringify({ screenType: "텍스트 강조형", recommendedLayout: "중앙 텍스트", rationale: "정의 강조", caption: "짧은 요약 자막" }),
+      JSON.stringify({ screenType: "표/그래프형", recommendedLayout: "전체 화면 표", rationale: "표 데이터 설명", caption: "짧은 요약 자막" }),
     ]);
 
     const result = await selectScreenTypes(client, scenes);
@@ -23,8 +23,8 @@ describe("selectScreenTypes", () => {
 
   it("includes neighboring scene context in the prompt", async () => {
     const client = new MockDeepSeekClient([
-      JSON.stringify({ screenType: "텍스트 강조형", recommendedLayout: "중앙 텍스트", rationale: "정의 강조" }),
-      JSON.stringify({ screenType: "표/그래프형", recommendedLayout: "전체 화면 표", rationale: "표 데이터 설명" }),
+      JSON.stringify({ screenType: "텍스트 강조형", recommendedLayout: "중앙 텍스트", rationale: "정의 강조", caption: "짧은 요약 자막" }),
+      JSON.stringify({ screenType: "표/그래프형", recommendedLayout: "전체 화면 표", rationale: "표 데이터 설명", caption: "짧은 요약 자막" }),
     ]);
 
     await selectScreenTypes(client, scenes);
@@ -34,7 +34,7 @@ describe("selectScreenTypes", () => {
 
   it("requests the flash model", async () => {
     const client = new MockDeepSeekClient([
-      JSON.stringify({ screenType: "텍스트 강조형", recommendedLayout: "중앙 텍스트", rationale: "정의 강조" }),
+      JSON.stringify({ screenType: "텍스트 강조형", recommendedLayout: "중앙 텍스트", rationale: "정의 강조", caption: "짧은 요약 자막" }),
     ]);
 
     await selectScreenTypes(client, [scenes[0]]);
@@ -44,8 +44,8 @@ describe("selectScreenTypes", () => {
 
   it("calls onProgress after each scene with its index/total", async () => {
     const client = new MockDeepSeekClient([
-      JSON.stringify({ screenType: "텍스트 강조형", recommendedLayout: "중앙 텍스트", rationale: "정의 강조" }),
-      JSON.stringify({ screenType: "표/그래프형", recommendedLayout: "전체 화면 표", rationale: "표 데이터 설명" }),
+      JSON.stringify({ screenType: "텍스트 강조형", recommendedLayout: "중앙 텍스트", rationale: "정의 강조", caption: "짧은 요약 자막" }),
+      JSON.stringify({ screenType: "표/그래프형", recommendedLayout: "전체 화면 표", rationale: "표 데이터 설명", caption: "짧은 요약 자막" }),
     ]);
     const calls: Array<{ sceneId: string; index: number; total: number }> = [];
 
@@ -63,8 +63,8 @@ describe("selectScreenTypes", () => {
 
   it("stops before the next scene once the signal is aborted", async () => {
     const client = new MockDeepSeekClient([
-      JSON.stringify({ screenType: "텍스트 강조형", recommendedLayout: "중앙 텍스트", rationale: "정의 강조" }),
-      JSON.stringify({ screenType: "표/그래프형", recommendedLayout: "전체 화면 표", rationale: "표 데이터 설명" }),
+      JSON.stringify({ screenType: "텍스트 강조형", recommendedLayout: "중앙 텍스트", rationale: "정의 강조", caption: "짧은 요약 자막" }),
+      JSON.stringify({ screenType: "표/그래프형", recommendedLayout: "전체 화면 표", rationale: "표 데이터 설명", caption: "짧은 요약 자막" }),
     ]);
     const controller = new AbortController();
 
@@ -78,5 +78,22 @@ describe("selectScreenTypes", () => {
     ).rejects.toThrow();
 
     expect(client.calls).toHaveLength(1);
+  });
+
+  it("warns the model off a screen type after it repeats twice in a row", async () => {
+    const threeScenes: Scene[] = [
+      { id: "scene-001", order: 1, narrationText: "첫 문장.", estimatedDurationSec: 5, splitReason: "문장종결" },
+      { id: "scene-002", order: 2, narrationText: "두번째 문장.", estimatedDurationSec: 5, splitReason: "문장종결" },
+      { id: "scene-003", order: 3, narrationText: "세번째 문장.", estimatedDurationSec: 5, splitReason: "문장종결" },
+    ];
+    const client = new MockDeepSeekClient([
+      JSON.stringify({ screenType: "텍스트 강조형", recommendedLayout: "중앙 텍스트", rationale: "-", caption: "자막1" }),
+      JSON.stringify({ screenType: "텍스트 강조형", recommendedLayout: "중앙 텍스트", rationale: "-", caption: "자막2" }),
+      JSON.stringify({ screenType: "요약/정리형", recommendedLayout: "목록", rationale: "-", caption: "자막3" }),
+    ]);
+
+    await selectScreenTypes(client, threeScenes);
+
+    expect(client.calls[2].messages[1].content).toContain('"텍스트 강조형"은 선택하지 말고');
   });
 });

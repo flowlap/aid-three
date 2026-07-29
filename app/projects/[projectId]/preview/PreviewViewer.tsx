@@ -1,0 +1,260 @@
+"use client";
+
+import Link from "next/link";
+import { useEffect, useRef, useState } from "react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { ScreenMockup } from "@/components/ScreenMockup";
+import type { Scene } from "@/lib/pipeline/splitScenes";
+import type { ScreenTypeAssignment } from "@/lib/pipeline/selectScreenTypes";
+import type { VisualDesign } from "@/lib/pipeline/designVisuals";
+
+export function PreviewViewer({
+  projectId,
+  projectTitle,
+  scenes,
+  screenTypes,
+  visualDesigns,
+  imageIds,
+}: {
+  projectId: string;
+  projectTitle: string;
+  scenes: Scene[];
+  screenTypes: Record<string, ScreenTypeAssignment>;
+  visualDesigns: Record<string, VisualDesign>;
+  imageIds: string[];
+}) {
+  const imageIdSet = new Set(imageIds);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [downloading, setDownloading] = useState(false);
+  const sectionRefs = useRef<Record<string, HTMLElement | null>>({});
+  const exportRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries.filter((e) => e.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
+        if (visible[0]) {
+          const index = scenes.findIndex((s) => s.id === visible[0].target.id);
+          if (index >= 0) setActiveIndex(index);
+        }
+      },
+      { rootMargin: "-10% 0px -70% 0px" }
+    );
+    for (const scene of scenes) {
+      const el = sectionRefs.current[scene.id];
+      if (el) observer.observe(el);
+    }
+    return () => observer.disconnect();
+  }, [scenes]);
+
+  function scrollToIndex(index: number) {
+    const scene = scenes[index];
+    if (!scene) return;
+    // Update immediately rather than waiting for the IntersectionObserver to
+    // catch up once the smooth-scroll animation finishes — otherwise the TOC
+    // highlight and counter visibly lag behind the click/tap that caused them.
+    setActiveIndex(index);
+    sectionRefs.current[scene.id]?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  function handlePrint() {
+    window.print();
+  }
+
+  // Produces a standalone HTML snapshot of the preview (image + mockup + text per
+  // scene) that opens without the app running. Images are inlined as base64 data
+  // URIs; page CSS is copied from the live stylesheets so the layout matches what's
+  // on screen. Fonts loaded from /_next/static (next/font) stay as relative URLs, so
+  // they only render correctly while this dev/prod server is still reachable —
+  // acceptable for a quick offline snapshot, not pursued further here.
+  async function handleDownloadHtml() {
+    if (!exportRef.current) return;
+    setDownloading(true);
+    try {
+      const clone = exportRef.current.cloneNode(true) as HTMLElement;
+
+      const imgs = Array.from(clone.querySelectorAll("img"));
+      await Promise.all(
+        imgs.map(async (img) => {
+          try {
+            const res = await fetch(img.src);
+            const blob = await res.blob();
+            const dataUrl = await new Promise<string>((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onloadend = () => resolve(reader.result as string);
+              reader.onerror = reject;
+              reader.readAsDataURL(blob);
+            });
+            img.setAttribute("src", dataUrl);
+          } catch {
+            // Leave the original src if the fetch fails — the offline copy just won't show that image.
+          }
+        })
+      );
+
+      let css = "";
+      for (const sheet of Array.from(document.styleSheets)) {
+        try {
+          for (const rule of Array.from(sheet.cssRules)) {
+            css += rule.cssText + "\n";
+          }
+        } catch {
+          // Cross-origin stylesheet we can't read the rules of — skip it.
+        }
+      }
+
+      const html = `<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>${projectTitle} 스토리보드</title>
+<style>${css}</style>
+</head>
+<body class="bg-background text-foreground">
+${clone.outerHTML}
+</body>
+</html>`;
+
+      const blob = new Blob([html], { type: "text/html" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${projectTitle.replace(/[\\/:*?"<>|]/g, "_")}-스토리보드.html`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setDownloading(false);
+    }
+  }
+
+  return (
+    <div className="min-h-screen bg-muted">
+      <div className="mx-auto flex max-w-[1400px]">
+        <aside className="sticky top-0 hidden h-screen w-56 shrink-0 overflow-y-auto border-r bg-background p-4 md:block print:hidden">
+          <Link href={`/projects/${projectId}/storyboard`} className="mb-4 block text-sm font-medium text-muted-foreground hover:text-foreground">
+            ← {projectTitle}
+          </Link>
+          <nav className="space-y-0.5">
+            {scenes.map((scene, index) => (
+              <a
+                key={scene.id}
+                href={`#${scene.id}`}
+                onClick={(e) => {
+                  e.preventDefault();
+                  scrollToIndex(index);
+                }}
+                className={`block truncate rounded-lg px-2.5 py-1.5 text-sm transition-colors ${
+                  index === activeIndex ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                }`}
+              >
+                {index + 1}. {scene.narrationText}
+              </a>
+            ))}
+            {scenes.length === 0 && <p className="text-sm text-muted-foreground">씬 데이터가 없습니다.</p>}
+          </nav>
+        </aside>
+
+        <main className="min-h-screen flex-1 bg-background p-6 pb-24 md:p-10 md:pb-24">
+          <Link
+            href={`/projects/${projectId}/storyboard`}
+            className="mb-2 block text-sm font-medium text-muted-foreground hover:text-foreground md:hidden print:hidden"
+          >
+            ← {projectTitle}
+          </Link>
+          <div className="mb-6 flex flex-wrap justify-end gap-2 print:hidden">
+            <Button variant="outline" onClick={handleDownloadHtml} disabled={downloading}>
+              {downloading ? "다운로드 준비 중..." : "HTML로 다운로드"}
+            </Button>
+            <Button variant="outline" onClick={handlePrint}>
+              PDF로 저장
+            </Button>
+          </div>
+          <div ref={exportRef} className="space-y-4">
+          <h1 className="mb-6 text-3xl font-semibold tracking-tight">{projectTitle} — 미리보기</h1>
+          {scenes.map((scene, index) => {
+            const screenType = screenTypes[scene.id];
+            const design = visualDesigns[scene.id];
+            const hasImage = imageIdSet.has(scene.id);
+            return (
+              <Card
+                key={scene.id}
+                id={scene.id}
+                ref={(el) => {
+                  sectionRefs.current[scene.id] = el;
+                }}
+                className="scroll-mt-6 gap-0 p-0"
+              >
+                <div className="flex items-center gap-2 border-b p-4">
+                  <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-muted-foreground">
+                    {index + 1}
+                  </span>
+                  <span className="text-sm text-muted-foreground">
+                    {screenType?.screenType ?? "화면 유형 미지정"} · {scene.estimatedDurationSec}초
+                  </span>
+                </div>
+                <div className="grid gap-5 p-5 md:grid-cols-2">
+                  <div>
+                    <p className="mb-1.5 text-xs font-medium text-muted-foreground">이미지</p>
+                    {hasImage ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={`/api/projects/${projectId}/images/${scene.id}`}
+                        alt={design?.caption ?? scene.narrationText}
+                        className="aspect-[3/2] w-full rounded-lg border object-cover"
+                      />
+                    ) : (
+                      <div className="flex aspect-[3/2] items-center justify-center rounded-lg border border-dashed text-sm text-muted-foreground">
+                        생성된 이미지가 없습니다
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <p className="mb-1.5 text-xs font-medium text-muted-foreground">화면 설계 목업</p>
+                    <ScreenMockup screenType={screenType?.screenType} design={design} />
+                  </div>
+                </div>
+                <div className="space-y-2 border-t p-5 text-sm">
+                  <p className="font-medium">{design?.caption ?? "(자막 없음)"}</p>
+                  <p className="text-muted-foreground">{design?.imageOrDiagramDescription}</p>
+                  <p className="text-muted-foreground">배치: {design?.objectPlacement}</p>
+                  {design?.keywords && design.keywords.length > 0 && (
+                    <div className="flex flex-wrap gap-1">
+                      {design.keywords.map((kw) => (
+                        <Badge key={kw} variant="outline">
+                          {kw}
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <p className="border-t bg-muted/40 px-5 py-3 text-sm text-muted-foreground">{scene.narrationText}</p>
+              </Card>
+            );
+          })}
+          </div>
+        </main>
+      </div>
+
+      <footer className="fixed bottom-0 left-0 right-0 border-t bg-background md:pl-56 print:hidden">
+        <div className="mx-auto flex max-w-[1400px] items-center justify-between px-6 py-3">
+          <Button variant="outline" onClick={() => scrollToIndex(activeIndex - 1)} disabled={activeIndex <= 0}>
+            ← 이전 씬
+          </Button>
+          <span className="text-sm text-muted-foreground">
+            {scenes.length > 0 ? `${activeIndex + 1} / ${scenes.length}` : "0 / 0"}
+          </span>
+          <Button
+            variant="outline"
+            onClick={() => scrollToIndex(activeIndex + 1)}
+            disabled={activeIndex >= scenes.length - 1}
+          >
+            다음 씬 →
+          </Button>
+        </div>
+      </footer>
+    </div>
+  );
+}

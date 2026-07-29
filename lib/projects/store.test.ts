@@ -11,6 +11,9 @@ import {
   writeProjectFile,
   readProjectFile,
   mergeProjectJsonMap,
+  writeProjectImage,
+  readProjectImage,
+  listProjectImageIds,
 } from "./store";
 
 let tempRoot: string;
@@ -99,6 +102,44 @@ describe("project store", () => {
   it("rejects path-traversal attempts in filename", async () => {
     const project = await createProject("경로 검증", "script");
     await expect(writeProjectFile(project.id, "../../evil.txt", "bad")).rejects.toThrow();
+  });
+});
+
+describe("project images", () => {
+  it("writes and reads back a scene image", async () => {
+    const project = await createProject("이미지 테스트", "script");
+    const buffer = Buffer.from([1, 2, 3, 4]);
+
+    await writeProjectImage(project.id, "scene-001", buffer);
+    const read = await readProjectImage(project.id, "scene-001");
+
+    expect(read).toEqual(buffer);
+  });
+
+  it("returns null for a scene with no image yet", async () => {
+    const project = await createProject("이미지 없음", "script");
+    const read = await readProjectImage(project.id, "scene-001");
+    expect(read).toBeNull();
+  });
+
+  it("lists only scene ids that have a saved image", async () => {
+    const project = await createProject("이미지 목록", "script");
+    await writeProjectImage(project.id, "scene-001", Buffer.from([1]));
+    await writeProjectImage(project.id, "scene-002", Buffer.from([2]));
+
+    const ids = await listProjectImageIds(project.id);
+
+    expect(ids.sort()).toEqual(["scene-001", "scene-002"]);
+  });
+
+  it("returns an empty list when the images directory doesn't exist yet", async () => {
+    const project = await createProject("이미지 빈 목록", "script");
+    expect(await listProjectImageIds(project.id)).toEqual([]);
+  });
+
+  it("rejects an unsafe scene id", async () => {
+    const project = await createProject("이미지 경로 검증", "script");
+    await expect(writeProjectImage(project.id, "../evil", Buffer.from([1]))).rejects.toThrow();
   });
 });
 

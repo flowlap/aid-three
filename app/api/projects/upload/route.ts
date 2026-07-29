@@ -8,16 +8,24 @@ import type { ScriptType } from "@/lib/projects/types";
 export async function POST(req: NextRequest) {
   const formData = await req.formData();
   const file = formData.get("file") as File | null;
+  const pastedText = formData.get("text") as string | null;
+  const text = pastedText?.trim() ?? "";
   const rawTitle = formData.get("title") as string | null;
   const title = rawTitle?.trim() ?? "";
   const scriptType = formData.get("scriptType") as ScriptType | null;
 
-  if (!file || !title || !scriptType) {
-    return NextResponse.json({ error: "file, title, scriptType는 필수입니다" }, { status: 400 });
+  if ((!file && !text) || !title || !scriptType) {
+    return NextResponse.json({ error: "file 또는 text, title, scriptType는 필수입니다" }, { status: 400 });
   }
 
   if (scriptType !== "script" && scriptType !== "narration") {
     return NextResponse.json({ error: "scriptType은 script 또는 narration이어야 합니다" }, { status: 400 });
+  }
+
+  if (!file) {
+    const project = await createProject(title, scriptType);
+    await writeProjectFile(project.id, "extracted.txt", text);
+    return NextResponse.json({ project });
   }
 
   // file.name is client-supplied and untrusted; strip any directory

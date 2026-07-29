@@ -3,8 +3,7 @@ import { readProjectFile } from "@/lib/projects/store";
 import { getJob, cancelJob, isPipelineJobStep } from "@/lib/jobs/registry";
 
 const PARTIAL_DATA_FILES: Record<string, { filename: string; topLevelKey: string }> = {
-  "screen-types": { filename: "screen-types.json", topLevelKey: "screenTypes" },
-  "visual-design": { filename: "visual-design.json", topLevelKey: "visualDesigns" },
+  "screen-design": { filename: "screen-design.json", topLevelKey: "screenTypes" },
 };
 
 export async function GET(

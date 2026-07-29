@@ -17,6 +17,14 @@ function assertSafeFilename(filename: string): void {
   }
 }
 
+const SCENE_ID_PATTERN = /^[a-zA-Z0-9_-]+$/;
+
+function assertSafeSceneId(sceneId: string): void {
+  if (!SCENE_ID_PATTERN.test(sceneId)) {
+    throw new Error(`Invalid scene id: ${sceneId}`);
+  }
+}
+
 function getProjectsRoot(): string {
   return process.env.PROJECTS_DATA_DIR || path.join(process.cwd(), "data", "projects");
 }
@@ -28,6 +36,10 @@ function projectDir(id: string): string {
 
 export function projectSourceDir(id: string): string {
   return path.join(projectDir(id), "source");
+}
+
+export function projectImagesDir(id: string): string {
+  return path.join(projectDir(id), "images");
 }
 
 export async function createProject(title: string, scriptType: ScriptType): Promise<ProjectMeta> {
@@ -75,6 +87,14 @@ export async function updateProjectStep(id: string, step: PipelineStep): Promise
   await fs.writeFile(path.join(projectDir(id), "project.json"), JSON.stringify(meta, null, 2), "utf-8");
 }
 
+export async function updateProjectTitle(id: string, title: string): Promise<ProjectMeta> {
+  const meta = await readProject(id);
+  if (!meta) throw new Error(`Project not found: ${id}`);
+  meta.title = title;
+  await fs.writeFile(path.join(projectDir(id), "project.json"), JSON.stringify(meta, null, 2), "utf-8");
+  return meta;
+}
+
 export async function deleteProject(id: string): Promise<void> {
   await fs.rm(projectDir(id), { recursive: true, force: true });
 }
@@ -90,6 +110,30 @@ export async function readProjectFile(id: string, filename: string): Promise<str
     return await fs.readFile(path.join(projectDir(id), filename), "utf-8");
   } catch {
     return null;
+  }
+}
+
+export async function writeProjectImage(id: string, sceneId: string, buffer: Buffer): Promise<void> {
+  assertSafeSceneId(sceneId);
+  await fs.mkdir(projectImagesDir(id), { recursive: true });
+  await fs.writeFile(path.join(projectImagesDir(id), `${sceneId}.png`), buffer);
+}
+
+export async function readProjectImage(id: string, sceneId: string): Promise<Buffer | null> {
+  try {
+    assertSafeSceneId(sceneId);
+    return await fs.readFile(path.join(projectImagesDir(id), `${sceneId}.png`));
+  } catch {
+    return null;
+  }
+}
+
+export async function listProjectImageIds(id: string): Promise<string[]> {
+  try {
+    const entries = await fs.readdir(projectImagesDir(id));
+    return entries.filter((name) => name.endsWith(".png")).map((name) => name.slice(0, -".png".length));
+  } catch {
+    return [];
   }
 }
 

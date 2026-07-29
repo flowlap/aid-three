@@ -23,9 +23,8 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ pr
   if (!project) return NextResponse.json({ error: "프로젝트를 찾을 수 없습니다" }, { status: 404 });
 
   const scenesRaw = await readProjectFile(projectId, "scenes.json");
-  const screenTypesRaw = await readProjectFile(projectId, "screen-types.json");
-  const visualDesignRaw = await readProjectFile(projectId, "visual-design.json");
-  if (!scenesRaw || !screenTypesRaw || !visualDesignRaw) {
+  const screenDesignRaw = await readProjectFile(projectId, "screen-design.json");
+  if (!scenesRaw || !screenDesignRaw) {
     return NextResponse.json({ error: "이전 단계 데이터가 모두 필요합니다" }, { status: 400 });
   }
 
@@ -34,8 +33,9 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ pr
   let visualDesigns: Record<string, VisualDesign>;
   try {
     scenes = JSON.parse(scenesRaw).scenes;
-    screenTypes = JSON.parse(screenTypesRaw).screenTypes;
-    visualDesigns = JSON.parse(visualDesignRaw).visualDesigns;
+    const screenDesign = JSON.parse(screenDesignRaw);
+    screenTypes = screenDesign.screenTypes;
+    visualDesigns = screenDesign.visualDesigns;
   } catch (err) {
     console.error("이전 단계 데이터 파싱 실패:", err);
     return NextResponse.json({ error: "이전 단계 데이터 형식이 올바르지 않습니다" }, { status: 400 });

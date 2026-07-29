@@ -36,7 +36,7 @@ describe("job registry", () => {
     const projectId = newProjectId();
     startJob(projectId, "scenes");
 
-    expect(() => startJob(projectId, "screen-types")).not.toThrow();
+    expect(() => startJob(projectId, "screen-design")).not.toThrow();
   });
 
   it("treats the same step for different projects as independent", () => {
@@ -91,11 +91,11 @@ describe("job registry", () => {
 
   it("recordProgress updates the job's progress", () => {
     const projectId = newProjectId();
-    startJob(projectId, "screen-types");
+    startJob(projectId, "screen-design");
 
-    recordProgress(projectId, "screen-types", 2, 5);
+    recordProgress(projectId, "screen-design", 2, 5);
 
-    expect(getJob(projectId, "screen-types")?.progress).toEqual({ index: 2, total: 5 });
+    expect(getJob(projectId, "screen-design")?.progress).toEqual({ index: 2, total: 5 });
   });
 
   it("isPipelineJobStep validates known steps only", () => {

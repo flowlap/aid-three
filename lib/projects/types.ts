@@ -4,9 +4,9 @@ export type PipelineStep =
   | "upload"
   | "markdown"
   | "scenes"
-  | "screen-types"
-  | "visual-design"
+  | "screen-design"
   | "review"
+  | "images"
   | "storyboard";
 
 export interface ProjectMeta {

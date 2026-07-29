@@ -3,7 +3,12 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Button } from "@/components/ui/button";
+import { Trash2 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Card } from "@/components/ui/card";
+import { EditableProjectTitle } from "@/components/EditableProjectTitle";
+import { cn } from "@/lib/utils";
+import { getProjectStatus, PROJECT_STATUS_BADGE_CLASS, PROJECT_STATUS_LABEL } from "@/lib/projects/pipelineStatus";
 import type { ProjectMeta } from "@/lib/projects/types";
 
 export function ProjectListItem({ project }: { project: ProjectMeta }) {
@@ -29,20 +34,41 @@ export function ProjectListItem({ project }: { project: ProjectMeta }) {
     }
   }
 
+  const status = getProjectStatus(project.currentStep);
+
   return (
-    <li className="flex items-center justify-between rounded border p-4">
-      <div>
-        <Link href={`/projects/${project.id}/markdown`} className="font-medium hover:underline">
-          {project.title}
-        </Link>
-        <p className="text-sm text-gray-500">
-          현재 단계: {project.currentStep} · 생성일:{" "}
-          {new Date(project.createdAt).toLocaleDateString("ko-KR")}
-        </p>
-      </div>
-      <Button variant="destructive" size="sm" onClick={handleDelete} disabled={deleting}>
-        {deleting ? "삭제 중..." : "삭제"}
-      </Button>
+    <li>
+      <Card className="group relative gap-3 p-5 transition-shadow hover:shadow-[0_1px_2px_rgba(15,15,15,0.04),0_4px_12px_rgba(15,15,15,0.06)]">
+        <Link
+          href={`/projects/${project.id}/markdown`}
+          className="absolute inset-0 rounded-[inherit]"
+          aria-label={project.title}
+        />
+        <div className="flex items-start justify-between gap-2">
+          <Badge className={cn("border-transparent font-medium", PROJECT_STATUS_BADGE_CLASS[status])}>
+            {PROJECT_STATUS_LABEL[status]}
+          </Badge>
+          <button
+            type="button"
+            onClick={handleDelete}
+            disabled={deleting}
+            aria-label="프로젝트 삭제"
+            className="relative z-10 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
+          >
+            <Trash2 className="size-4" />
+          </button>
+        </div>
+        <div>
+          <EditableProjectTitle
+            projectId={project.id}
+            title={project.title}
+            className="relative z-10 font-semibold text-foreground group-hover:text-primary"
+          />
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            {new Date(project.createdAt).toLocaleDateString("ko-KR")}
+          </p>
+        </div>
+      </Card>
     </li>
   );
 }

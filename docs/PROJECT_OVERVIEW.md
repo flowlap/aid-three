@@ -11,31 +11,33 @@
 - 상세 요구사항/설계 배경: [`docs/superpowers/specs/2026-07-27-elearning-storyboard-generator-design.md`](superpowers/specs/2026-07-27-elearning-storyboard-generator-design.md)
 - 구현 계획(13개 태스크 상세 스펙): [`docs/superpowers/plans/2026-07-28-elearning-storyboard-generator.md`](superpowers/plans/2026-07-28-elearning-storyboard-generator.md)
 
-## 2. 파이프라인 흐름
+## 2. 파이프라인 흐름 (v2, Phase 7 이후)
 
 ```
-업로드(pdf/txt) → 1단계 마크다운 변환 → 2단계 씬 분할 → 3단계 화면 유형 선정
-→ 4단계 비주얼 설계 → 5단계 일관성 검수 → 6단계 최종 스토리보드 뷰
+업로드(pdf/txt/텍스트 붙여넣기) → 1단계 원고 변환 → 2단계 씬 분할 → 3단계 화면 설계
+→ 4단계 일관성 검수 → 5단계 이미지 생성(선택) → 6단계 최종 스토리보드 뷰 → (선택) 미리보기
 ```
 
-각 단계는 "AI 생성 → 사용자 검토/수정 → 다음 단계" 패턴을 따르는 선형 마법사(wizard) UI로 구현되어 있다. 단계별 정확한 입출력 계약은 [`docs/reference/pipeline-steps.md`](reference/pipeline-steps.md) 참고.
+각 단계는 "AI 생성 → 사용자 검토/수정 → 다음 단계" 패턴을 따르는 선형 마법사(wizard) UI로 구현되어 있다. 1단계에서 "자동 진행" 버튼을 누르면 이후 단계들이 각자 도착 시 자동으로 생성을 트리거하고, 결과가 무결성 문제 없이 완전하면 자동으로 다음 단계까지 넘어간다(URL의 `?auto=1`로 전파) — 단, 씬 분할 무결성 경고나 일관성 검수 이슈가 발견되면 그 자리에서 자동 진행이 멈추고 사용자 확인을 기다린다. **자동진행은 4단계(일관성 검수)에서 끝나고 5단계(이미지 생성)로는 넘어가지 않는다** — 이미지 생성은 실제 과금되는 OpenAI 호출이라 사용자의 명시적 클릭이 항상 필요하도록 의도적으로 막아뒀다. 단계별 정확한 입출력 계약은 [`docs/reference/pipeline-steps.md`](reference/pipeline-steps.md) 참고.
 
 | 단계 | 산출물 파일 | AI 호출 | 사용자 편집 |
 |---|---|---|---|
-| 업로드 | `source/`, `extracted.txt` | 없음(텍스트 추출만) | - |
-| 1. 마크다운 변환 | `narration.md` | 있음 | 마크다운 직접 수정 |
-| 2. 씬 분할 | `scenes.json` | 있음 | 씬 경계/시간 수정 |
-| 3. 화면 유형 선정 | `screen-types.json` | 있음(씬별 1회 호출) | 화면 유형/레이아웃 수정 |
-| 4. 비주얼 설계 | `visual-design.json` | 있음(씬별 1회 호출) | 전 필드 편집 가능 |
-| 5. 일관성 검수 | `review.json` | 있음(결정적 검사 3종 + AI 검사 1종) | 편집 없음, 이슈 목록 확인 후 4단계로 이동 |
+| 업로드 | `source/`, `extracted.txt` | 없음(텍스트 추출만, 또는 텍스트 붙여넣기 시 추출 자체를 생략) | - |
+| 1. 원고 변환 | `narration.md` | 있음 | 마크다운 직접 수정 |
+| 2. 씬 분할 | `scenes.json` | 있음 | 씬 경계/시간 수정, 씬 삭제(인접 씬에 자동 병합)·인접 씬 병합 |
+| 3. 화면 설계 | `screen-design.json`(`screenTypes`+`visualDesigns` 한 파일) | 화면 유형 선정만 AI(씬별 1회 호출), 비주얼 설계는 `lib/visual-templates`의 코드 템플릿(AI 호출 없음) | 전 필드 편집 가능, 씬별 재생성 버튼 |
+| 4. 일관성 검수 | `review.json` | 있음(결정적 검사 3종 + AI 검사 1종) | 편집 없음, 이슈 목록 확인 후 다음 단계로 이동 |
+| 5. 이미지 생성(선택) | `images/{sceneId}.png`(바이너리, 인덱스 파일 없음) | 있음(OpenAI, 씬별 1회 호출, **실제 과금**) | 편집 불가, 씬별 재생성만 가능 — 필수 아님, 이미지 없이도 다음 단계 진행 가능 |
 | 6. 최종 스토리보드 뷰 | 없음(조합 렌더링) | 없음 | 읽기 전용 |
+| (선택) 미리보기 | 없음(조합 렌더링) | 없음 | 읽기 전용 — 좌측 씬 목차 + 구조화 화면/이미지 나란히 표시, `storyboard`에서 진입 |
 
 ## 3. 기술 스택 & 아키텍처
 
 - **앱**: Next.js 16 (App Router, TypeScript, Turbopack), 단일 프로세스, `npm run dev`로 로컬 실행
 - **UI**: React + shadcn/ui(Base UI 기반, Radix 아님 — `asChild` 대신 `render`/`nativeButton` prop 사용) + Tailwind CSS v4
-- **테스트**: Vitest — `lib/**/*.test.ts` (총 37개 테스트, 9개 파일)
-- **AI**: DeepSeek API 단독 사용. `deepseek-v4-pro`/`deepseek-v4-flash`만 유효(레거시 `deepseek-chat`/`deepseek-reasoner`는 2026-07-24 폐지됨). 상세: [`docs/reference/deepseek-api.md`](reference/deepseek-api.md)
+- **테스트**: Vitest — `lib/**/*.test.ts` (총 75개 테스트, 11개 파일)
+- **AI(텍스트)**: DeepSeek API. `deepseek-v4-pro`/`deepseek-v4-flash`만 유효(레거시 `deepseek-chat`/`deepseek-reasoner`는 2026-07-24 폐지됨). 상세: [`docs/reference/deepseek-api.md`](reference/deepseek-api.md)
+- **AI(이미지)**: OpenAI Images API, 모델명은 `lib/ai/openaiImageClient.ts`의 `OPENAI_IMAGE_MODELS.default`(`"gpt-image-2"`) 한 곳에서만 정의 — 실제 호출로 정상 동작 확인됨
 - **PDF 파싱**: `pdf-parse` v2.x (v1과 API가 완전히 다름 — `PDFParse` 클래스의 `getText()`, `import pdfParse from "pdf-parse"` 형태의 v1 코드는 동작하지 않음)
 - **저장소**: DB 없음. `data/projects/{project-id}/` 폴더 + JSON/markdown 파일 (전체 gitignore 대상)
 
@@ -44,13 +46,13 @@
 ```
 data/projects/{project-id}/
   project.json         # id, title, createdAt, scriptType, currentStep
-  source/               # 업로드 원본
-  extracted.txt          # 추출된 원본 텍스트
+  source/               # 업로드 원본 (텍스트 붙여넣기 시 없음)
+  extracted.txt          # 추출/붙여넣은 원본 텍스트
   narration.md
   scenes.json
-  screen-types.json
-  visual-design.json
+  screen-design.json    # { screenTypes, visualDesigns } — Phase 5에서 두 단계가 파일 하나로 통합됨
   review.json
+  images/{sceneId}.png  # Phase 7, 선택 사항 — 씬마다 있을 수도 없을 수도 있음, 인덱스 파일 없이 디렉터리 스캔으로 존재 확인
 ```
 
 `lib/projects/store.ts`가 모든 파일 CRUD를 담당하며, `id`는 반드시 UUID 형식이어야 하고(`assertValidProjectId`) `filename`은 경로 구분자/`..`를 포함할 수 없다(`assertSafeFilename`) — 경로 순회(path traversal) 방지를 위해 `projectDir()` 한 곳에서 검증하도록 설계되어 있다.
@@ -59,26 +61,36 @@ data/projects/{project-id}/
 
 ```
 lib/
-  projects/       # store.ts(CRUD), types.ts(ProjectMeta, PipelineStep, ScriptType)
-  ai/             # deepseekClient.ts(실제 구현), deepseekClient.mock.ts(테스트용)
+  projects/       # store.ts(CRUD + 이미지 바이너리 CRUD), types.ts(ProjectMeta, PipelineStep, ScriptType), pipelineStatus.ts(신호등 상태 매핑)
+  ai/             # deepseekClient.ts(+.mock), openaiImageClient.ts(+.mock) — 둘 다 실제구현/mock 분리 인터페이스 패턴
   pipeline/       # extractText, convertMarkdown, splitScenes, validateNarrationIntegrity,
-                  # selectScreenTypes, designVisuals, reviewConsistency
-                  # → 모두 (input) => Promise<output> 순수 함수형, DeepSeekClient를 인자로 주입받음
+                  # selectScreenTypes, designVisuals(VisualDesign 타입만, AI 함수는 Phase 5에서 제거됨), reviewConsistency, generateSceneImage
+                  # → 모두 (input) => Promise<output> 순수 함수형, AI 클라이언트를 인자로 주입받음
                   #   (향후 특정 모듈을 Python 프로세스로 교체할 수 있도록 설계, 아직 미구현)
+  visual-templates/  # Phase 5 신규 — computeVisualDesign(scene, screenType): AI 호출 없는 코드 기반 비주얼 설계 계산, SCREEN_TYPE_OPTIONS(10종)
+  jobs/           # registry.ts — AI 작업 레지스트리(중복 실행 방지/취소/진행률), PIPELINE_JOB_STEPS
+  client/         # useAiJob.ts(작업 폴링+스트림 훅), StepNavContext.tsx(셸 푸터 다음-버튼 등록), useAutoProgress.ts(?auto=1 자동진행)
 app/
-  page.tsx, ProjectListItem.tsx    # 홈: 프로젝트 목록 + 삭제
-  projects/new/page.tsx            # 업로드 폼
+  AppShell.tsx                     # 파이프라인 단계 전용 공용 셸: 1000px 중앙 컬럼, sticky 헤더(단계 배지)/푸터(이전·다음)
+  ThemeToggle.tsx                  # 다크모드 토글(우상단 고정), 루트 layout.tsx에서 전역 렌더
+  page.tsx, ProjectListItem.tsx    # 홈: 프로젝트 목록(신호등 상태 표시) + 삭제
+  projects/new/page.tsx            # 업로드 폼 (파일 업로드 / 텍스트 붙여넣기 토글)
   projects/[projectId]/
-    layout.tsx                     # 6단계 내비게이션 셸
-    markdown|scenes|screen-types|visual-design|review|storyboard/
-      page.tsx (서버 컴포넌트, 파일 읽기)
-      *Editor.tsx / *List.tsx (클라이언트 컴포넌트, "use client")
+    (pipeline)/                    # 라우트 그룹 — URL에는 안 나타남, AppShell을 쓰는 6개 선형 단계만 묶음
+      layout.tsx                   # AppShell 렌더 위임(서버 컴포넌트)
+      markdown|scenes|screen-design|review|images|storyboard/
+        page.tsx (서버 컴포넌트, 파일 읽기)
+        *Editor.tsx / *List.tsx (클라이언트 컴포넌트, "use client")
+    preview/                       # (pipeline) 밖의 형제 — AppShell 미상속, 독자적인 좌측 TOC+하단 씬이동 셸(Phase 6)
+      page.tsx, PreviewViewer.tsx
   api/projects/
-    route.ts (GET 목록), upload/route.ts (POST 업로드)
+    route.ts (GET 목록), upload/route.ts (POST 업로드, file 또는 text 필드)
     [projectId]/route.ts (DELETE)
-    [projectId]/{markdown,scenes,screen-types,visual-design}/route.ts (POST 생성, PUT 저장)
+    [projectId]/jobs/[step]/route.ts (GET 상태 폴링, DELETE 취소)
+    [projectId]/{markdown,scenes,screen-design,images}/route.ts (POST 생성, PUT 저장 — images는 PUT 없음)
+    [projectId]/screen-design/[sceneId]/route.ts, [projectId]/images/[sceneId]/route.ts (POST 씬 하나만 재생성, 작업 레지스트리 미사용 / images는 GET도 있음 — PNG 서빙)
     [projectId]/review/route.ts (POST만)
-    [projectId]/storyboard/route.ts (POST — currentStep을 storyboard로 기록만 함)
+    [projectId]/storyboard/route.ts (POST — currentStep을 storyboard로 기록만 함, images 단계의 "다음 단계"가 호출)
 ```
 
 ### 확립된 코딩 패턴 (새 기능 추가 시 따를 것)
@@ -101,25 +113,24 @@ npx tsc --noEmit               # 타입 체크 (테스트에 안 걸리는 실�
 
 ## 5. 현재 상태 (2026-07-29 기준)
 
-- v1 전체 파이프라인 구현 완료, `master`에 병합 및 GitHub push 완료.
-- 13개 구현 태스크 + 최종 전체 브랜치 리뷰까지 모두 통과 (subagent-driven-development로 진행, 태스크별 리뷰 + 전체 통합 리뷰 2단계).
-- 실제 DeepSeek API 키로 한국어 샘플 원고를 이용한 전체 흐름 라이브 E2E 검증 완료 (업로드 → 6단계까지 실제 클릭 경로로 확인).
-- 테스트 37/37 통과, `tsc`/`eslint` 클린.
-- 구현 중 실제로 발견되어 수정된 보안 이슈:
+- v1 전체 파이프라인 구현 완료 후, 같은 세션에서 사용자가 요청한 v2 전면 개편(Phase 0~7)을 전부 구현 완료 — 더 이상 미착수 Phase 없음. 상세는 [`docs/superpowers/plans/2026-07-29-v2-redesign-roadmap.md`](superpowers/plans/2026-07-29-v2-redesign-roadmap.md).
+- v2에서 바뀐 것: AI 모델 이원화(1·2단계 pro / 3·4단계 flash), 작업 엔진(중복실행 방지·진행률·취소·재진입 유지), 디자인 셸(1000px+sticky 헤더/푸터), 홈 신호등 상태+텍스트 붙여넣기, 1단계 자동진행+2단계 씬 삭제/병합, 3-4단계를 "화면 설계" 한 단계로 통합(비주얼 설계는 AI 대신 코드 템플릿), OpenAI 이미지 생성(선택 단계, 자동진행 범위 밖), 씬별 미리보기 화면(독자적 셸).
+- 각 Phase마다 실제 DeepSeek/OpenAI API 키로 Playwright(headless Chromium) E2E 검증(이미지 생성은 실제 API 호출로 생성물까지 육안 확인) + `tsc`/`eslint`/`npm test`/`next build` 통과를 거쳐 완료 처리함.
+- 구현 중 실제로 발견되어 수정된 보안 이슈(v1):
   - 경로 순회(path traversal): `lib/projects/store.ts`의 `id`/`filename`이 검증 없이 파일 경로에 사용되던 문제 → UUID/파일명 검증으로 해결
   - 정보 노출: AI 호출 실패 시 업스트림(DeepSeek) 응답 원문이 클라이언트에 그대로 노출되던 문제 → 전 라우트에서 일반 메시지로 통일
 
 ## 6. 알려진 제약 / 남은 개선 여지
 
-최종 전체 브랜치 리뷰(2026-07-29)에서 발견되었고 우선순위가 낮아 의도적으로 보류(park)된 항목들. 심각도는 "로컬 1인 사용 도구" 기준. 자세한 우선순위와 제안은 [`docs/ROADMAP.md`](ROADMAP.md) 참고.
+우선순위가 낮아 의도적으로 보류(park)된 항목들. 심각도는 "로컬 1인 사용 도구" 기준. 자세한 우선순위와 제안은 [`docs/ROADMAP.md`](ROADMAP.md) 참고. (2026-07-29: [`docs/DESIGN_REVIEW.md`](DESIGN_REVIEW.md)의 D1~D8 개선 작업으로 모바일 레이아웃 버그 3건, 정보 위계, 검수 이슈 표시, 이미지 규격, 다크모드, 컴포넌트 일관성, 마이그레이션 안전망, 미리보기 하이라이트 지연을 전부 해결함 — 이 목록은 그 이후에도 남아있는 낮은 우선순위 항목만 정리.)
 
-- 화면 유형 선정 UI가 자유 텍스트 입력이라, AI가 고르는 화면 유형 목록(`lib/pipeline/selectScreenTypes.ts`의 `AVAILABLE_SCREEN_TYPES`)과 사용자 입력이 일치하지 않을 수 있음(스펙은 드롭다운을 의도)
+- 화면 설계 UI(`ScreenDesignEditor.tsx`)가 화면 유형 필드를 여전히 자유 텍스트 `Input`으로 받음 — `lib/visual-templates`의 `SCREEN_TYPE_OPTIONS`(10종)와 `components/ui/select.tsx`(D6에서 추가됨)가 모두 준비되어 있으니 `Select`로 교체하는 것만 남음.
 - 일관성 검수 7개 항목 중 "중복 화면 확인"(화면 자체의 중복, 레이아웃 중복과는 별개)은 미구현
-- `screen-types` PUT 라우트는 요청 바디가 `null`일 때 처리되지 않은 예외를 던짐(형제 라우트들은 이미 방어됨) — `app/api/projects/[projectId]/screen-types/route.ts:59-67`
 - `splitScenes.ts`는 AI 응답의 배열 유무만 검증하고 각 씬 객체의 필드 형태는 검증하지 않음(형제 모듈들은 요소 단위까지 검증)
-- 5개 서버 페이지가 `JSON.parse`를 가드 없이 호출 — 손상된 JSON 파일이 있으면 Next 에러 화면이 뜸(500이 아니라 사용자 친화적 처리로 개선 여지)
+- 6개 서버 페이지가 `JSON.parse`를 가드 없이 호출 — 손상된 JSON 파일이 있으면 Next 에러 화면이 뜸(500이 아니라 사용자 친화적 처리로 개선 여지)
 - `next dev`가 모든 인터페이스에 바인딩됨 — 로컬 1인 도구 특성상 `-H 127.0.0.1`로 제한하는 게 더 안전
-- `app/layout.tsx`가 `lang="en"`으로 남아 있음(UI는 전부 한국어)
+- `currentStep`은 각 단계의 저장(PUT)이 아니라 AI 생성(POST) 성공 시에만 갱신됨 — 홈 신호등 상태가 "AI 생성을 완료한 단계"를 반영하는 것이지 "사용자가 검토를 마친 단계"가 아님(단, 알 수 없는 과거 단계 값이 와도 화면이 깨지지는 않도록 `getProjectStatus`에 폴백은 추가됨 — D7)
+- 콘텐츠가 짧은 파이프라인 단계(원고 변환/씬 분할 등)에서 화면 하단 여백이 큼 — 없애는 게 나은지 여백으로 유지하는 게 나은지 디자인 판단이 필요해 보류(`DESIGN_REVIEW.md` 항목 12)
 
 ## 7. 참고 문서 인덱스
 
@@ -129,4 +140,5 @@ npx tsc --noEmit               # 타입 체크 (테스트에 안 걸리는 실�
 - [파이프라인 단계별 입출력 계약](reference/pipeline-steps.md)
 - [DeepSeek API 레퍼런스](reference/deepseek-api.md)
 - [향후 개발 계획](ROADMAP.md)
+- [디자인 평가 및 개선 계획 (2026-07-29)](DESIGN_REVIEW.md) — v2 개편 직후 전체 화면 스크린샷 기반 평가, 모바일 레이아웃 버그 3건 포함
 - 루트 [`CLAUDE.md`](../CLAUDE.md) — Claude Code 세션용 빠른 요약(이 문서와 중복 최소화, 여기 문서를 정본으로 참조)

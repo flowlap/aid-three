@@ -1,4 +1,4 @@
-export const PIPELINE_JOB_STEPS = ["markdown", "scenes", "screen-types", "visual-design", "review"] as const;
+export const PIPELINE_JOB_STEPS = ["markdown", "scenes", "screen-design", "review", "images"] as const;
 export type PipelineJobStep = (typeof PIPELINE_JOB_STEPS)[number];
 
 export function isPipelineJobStep(value: string): value is PipelineJobStep {
