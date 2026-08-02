@@ -16,7 +16,19 @@
 
 ## 이 프로젝트에서의 사용처
 
-씬 분할, 화면 유형 선정, 비주얼 설계, 마크다운 변환 등 텍스트 분석 전 단계에서 공통으로 사용. 구현 시 모델 선택 기준(예: 정확도가 중요한 단계는 `-pro`, 단순 변환은 `-flash`)은 실제 응답 품질을 보면서 조정한다.
+파이프라인의 텍스트 분석 단계에서 공통으로 사용. 모델 선택 기준은 "원문 전체를 한 번에 다루며 원문 보존 같은 정밀도가 중요한가"(→ `-pro`) vs "짧은 판단/요약을 반복적으로 빠르게 처리하면 되는가"(→ `-flash`).
+
+| 모듈 | 단계 | 모델 | 이유 |
+|---|---|---|---|
+| `lib/pipeline/convertMarkdown.ts` | 원고 변환 | `-pro` | 원문 전체를 나레이션체 마크다운으로 재구성 |
+| `lib/pipeline/splitScenes.ts` | 씬 분할 | `-pro` | 전체 나레이션을 의미 단위로 정확히 분절 + 원문 보존 검증 필요 |
+| `lib/pipeline/summarizeDocument.ts` | 원고 변환 (부가) | `-flash` | 문서 전체를 3~5문장으로 요약하는 짧은 단발 작업 |
+| `lib/pipeline/selectScreenTypes.ts` | 화면 설계 | `-flash` | 씬 1개당 화면 유형 14종 중 하나를 고르는 반복적 분류 작업 |
+| `lib/pipeline/reviewConsistency.ts` | 일관성 검수 | `-flash` | 이미 만들어진 데이터를 검토하는 작업, 새로운 원문 생성 없음 |
+
+`deepseekClient.ts`의 `DEFAULT_MODEL`도 `-pro`로 기본 설정되어 있어, 호출부가 `model`을 명시하지 않으면 `-pro`가 쓰인다.
+
+비주얼 설계(레이아웃/캡션 템플릿 문구)는 AI 호출 없이 `lib/visual-templates`의 코드 템플릿으로 결정적으로 계산한다(위 표에 없는 이유) — `selectScreenTypes`가 고른 화면 유형만 넘겨받아 로컬에서 조합한다.
 
 ## 참고 사항
 

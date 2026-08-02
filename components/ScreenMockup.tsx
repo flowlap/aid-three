@@ -1,30 +1,60 @@
-import {
-  BarChart3,
-  Clock,
-  Columns2,
-  Image as ImageIcon,
-  ListChecks,
-  NotebookText,
-  Quote,
-  Type,
-  User,
-  Workflow,
-} from "lucide-react";
+import { Image as ImageIcon, Quote, User, ListChecks, Network } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { VisualDesign } from "@/lib/pipeline/designVisuals";
+import { TYPE_ICONS } from "./screenTypeIcons";
+import { NotebookLmMockup } from "./NotebookLmMockup";
+import { personGoesOnRight } from "@/lib/visual-templates";
+import { LAYOUT_POSITIONS, type LayoutElement, type LayoutPosition, type VisualDesign } from "@/lib/pipeline/designVisuals";
 
-const TYPE_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
-  "텍스트 강조형": Type,
-  "인물 등장형": User,
-  "이미지 설명형": ImageIcon,
-  "표/그래프형": BarChart3,
-  "절차 애니메이션형": Workflow,
-  "비교 대조형": Columns2,
-  "타임라인형": Clock,
-  "인용/사례형": Quote,
-  "체크리스트형": ListChecks,
-  "요약/정리형": NotebookText,
-};
+/**
+ * Renders the AI's `layoutElements` (see designVisuals.ts) as a 3x3 grid —
+ * a generic layout driven directly by this scene's own screen design,
+ * instead of the fixed per-screenType compositions below. Used whenever the
+ * screen design step actually produced structured placement data, which
+ * closes most of the gap between what the mockup shows and what the AI
+ * image (driven by the same objectPlacement text) actually draws.
+ */
+/**
+ * `caption` (the actual on-screen subtitle authored for this scene) is
+ * always rendered too — the grid alone was just abstract element-name chips
+ * ("배출권 ETF 카드") with no real scene content visible anywhere in the
+ * mockup.
+ */
+function LayoutElementsMockup({ elements, caption }: { elements: LayoutElement[]; caption: string }) {
+  const byPosition = new Map<LayoutPosition, string[]>();
+  for (const el of elements) {
+    const list = byPosition.get(el.position) ?? [];
+    list.push(el.label);
+    byPosition.set(el.position, list);
+  }
+
+  return (
+    <div className="flex h-full flex-col">
+      <div className="grid flex-1 grid-cols-3 grid-rows-3 gap-1 p-3">
+        {LAYOUT_POSITIONS.map((pos) => {
+          const labels = byPosition.get(pos);
+          return (
+            <div
+              key={pos}
+              className={cn(
+                "flex flex-col items-center justify-center gap-1 rounded-md p-1 text-center",
+                labels && "border border-dashed border-border/60 bg-muted/30"
+              )}
+            >
+              {labels?.map((label, i) => (
+                <span key={i} className="rounded-full bg-primary/10 px-2 py-0.5 text-[9px] leading-tight font-medium text-primary">
+                  {label}
+                </span>
+              ))}
+            </div>
+          );
+        })}
+      </div>
+      {caption && (
+        <p className="border-t bg-background/90 px-3 py-1.5 text-center text-xs font-semibold text-balance">{caption}</p>
+      )}
+    </div>
+  );
+}
 
 function IconBadge({
   icon: Icon,
@@ -55,36 +85,100 @@ function IconBadge({
  * Never truncates text with an ellipsis: `design.caption` is expected to
  * already be a short AI-written summary (see selectScreenTypes), so the
  * layouts below just wrap it instead of clamping/cutting it.
+ *
+ * `variantIndex` rotates through a few different compositions for the
+ * screen types most likely to repeat often in a deck (title cards, emphasis
+ * screens — see MOCKUP_VARIANT_COUNTS in lib/visual-templates), so scenes
+ * sharing a screenType don't all render as an identical box. Callers should
+ * pass the value from computeMockupVariantIndexes; types without a
+ * registered variant count just ignore it.
  */
 export function ScreenMockup({
   screenType,
   design,
   showTypeBadge = true,
+  variantIndex = 0,
   className,
+  style = "storyboard",
 }: {
   screenType?: string;
   design?: VisualDesign;
   showTypeBadge?: boolean;
+  variantIndex?: number;
   className?: string;
+  /** "storyboard" (default) is this file's dense per-type wireframe; "notebooklm" delegates to NotebookLmMockup's minimal warm-tone card. Same VisualDesign data, different rendering. */
+  style?: "storyboard" | "notebooklm";
 }) {
+  if (style === "notebooklm") {
+    return <NotebookLmMockup screenType={screenType} design={design} className={className} />;
+  }
+
   const caption = design?.caption ?? "";
   const items = design?.appearanceOrder ?? [];
   const keywords = design?.keywords ?? [];
   const Icon = (screenType && TYPE_ICONS[screenType]) || ImageIcon;
 
-  const body = (() => {
+  const body = design?.layoutElements?.length ? (
+    <LayoutElementsMockup elements={design.layoutElements} caption={caption} />
+  ) : (
+    (() => {
     switch (screenType) {
-      case "텍스트 강조형":
+      case "간지/타이틀형": {
+        if (variantIndex % 3 === 1) {
+          return (
+            <div className="flex h-full items-center gap-4 pr-6 pl-5">
+              <span className="h-16 w-1 shrink-0 rounded-full bg-primary" />
+              <p className="text-lg leading-snug font-bold text-balance">{caption || "챕터 제목"}</p>
+            </div>
+          );
+        }
+        if (variantIndex % 3 === 2) {
+          return (
+            <div className="flex h-full flex-col items-center justify-center gap-2 bg-primary px-6 text-center text-primary-foreground">
+              <Icon className="size-5 opacity-80" />
+              <p className="text-lg leading-snug font-bold text-balance">{caption || "챕터 제목"}</p>
+            </div>
+          );
+        }
+        return (
+          <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
+            <span className="h-px w-10 bg-border" />
+            <p className="text-lg leading-snug font-bold text-balance">{caption || "챕터 제목"}</p>
+            <span className="h-px w-10 bg-border" />
+          </div>
+        );
+      }
+
+      case "텍스트 강조형": {
+        if (variantIndex % 3 === 1) {
+          return (
+            <div className="flex h-full items-center gap-4 pr-6 pl-5">
+              <span className="h-14 w-1 shrink-0 rounded-full bg-primary" />
+              <p className="text-base leading-snug font-semibold text-balance">{caption || "핵심 문구"}</p>
+            </div>
+          );
+        }
+        if (variantIndex % 3 === 2) {
+          return (
+            <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1.5 text-primary">
+                <Icon className="size-3.5" />
+              </span>
+              <p className="text-base leading-snug font-semibold text-balance">{caption || "핵심 문구"}</p>
+            </div>
+          );
+        }
         return (
           <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
             <IconBadge icon={Icon} />
             <p className="text-base leading-snug font-semibold text-balance">{caption || "핵심 문구"}</p>
           </div>
         );
+      }
 
       case "인물 등장형":
         return (
-          <div className="flex h-full items-center gap-4 px-6">
+          <div className={cn("flex h-full items-center gap-4 px-6", personGoesOnRight(design?.objectPlacement ?? "") && "flex-row-reverse")}>
             <div className="flex size-16 shrink-0 flex-col items-center justify-center gap-1 rounded-full bg-primary/10 text-primary">
               <User className="size-6" />
             </div>
@@ -92,20 +186,61 @@ export function ScreenMockup({
           </div>
         );
 
-      case "표/그래프형":
+      case "표/그래프형": {
+        const heights = [40, 70, 55, 90, 30];
+        const labels = keywords.length ? keywords.slice(0, heights.length) : [];
         return (
           <div className="flex h-full flex-col gap-3 p-5">
             <div className="flex items-center gap-2">
               <IconBadge icon={Icon} className="size-6" />
               <p className="text-xs font-semibold">{caption || "제목"}</p>
             </div>
-            <div className="flex flex-1 items-end gap-2 border-b border-border/70 pb-0.5">
-              {[40, 70, 55, 90, 30].map((h, i) => (
-                <div key={i} className="flex-1 rounded-t bg-primary/25" style={{ height: `${h}%` }} />
+            <div className="flex flex-1 gap-2">
+              {heights.map((h, i) => (
+                <div key={i} className="flex flex-1 flex-col items-center gap-1">
+                  <div className="flex w-full flex-1 items-end">
+                    <div className="w-full rounded-t bg-primary/25" style={{ height: `${h}%` }} />
+                  </div>
+                  {labels[i] && (
+                    <span className="max-w-full truncate text-[9px] text-muted-foreground">{labels[i]}</span>
+                  )}
+                </div>
               ))}
             </div>
+            <div className="h-px bg-border/70" />
           </div>
         );
+      }
+
+      case "인포그래픽형": {
+        const nodes = keywords.length ? keywords.slice(0, 4) : items.slice(0, 4);
+        const fallbackNodes = nodes.length ? nodes : ["개념 A", "개념 B", "개념 C"];
+        const positions = [
+          { top: "10%", left: "50%" },
+          { top: "60%", left: "10%" },
+          { top: "60%", left: "90%" },
+          { top: "88%", left: "50%" },
+        ];
+        return (
+          <div className="relative h-full p-4">
+            <span className="absolute top-1/2 left-1/2 flex size-9 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-primary text-primary-foreground">
+              <Network className="size-4" />
+            </span>
+            {fallbackNodes.map((node, i) => {
+              const pos = positions[i] ?? positions[positions.length - 1];
+              return (
+                <span
+                  key={i}
+                  className="absolute max-w-20 -translate-x-1/2 -translate-y-1/2 rounded-full bg-background px-2 py-1 text-center text-[9px] text-foreground/80 ring-1 ring-border"
+                  style={pos}
+                >
+                  {node}
+                </span>
+              );
+            })}
+          </div>
+        );
+      }
 
       case "절차 애니메이션형": {
         const steps = items.length ? items.slice(0, 4) : ["1단계", "2단계", "3단계"];
@@ -129,21 +264,25 @@ export function ScreenMockup({
         );
       }
 
-      case "비교 대조형":
+      case "비교 대조형": {
+        const [leftLabel, rightLabel] = keywords.length >= 2 ? keywords : ["A", "B"];
         return (
           <div className="relative flex h-full">
-            <div className="flex flex-1 items-center justify-center p-4 text-center text-xs text-foreground/80">
-              {items[0] ?? "좌측 항목"}
+            <div className="flex flex-1 flex-col items-center justify-center gap-1.5 p-4 text-center">
+              <span className="text-[10px] font-semibold text-muted-foreground">{leftLabel}</span>
+              <span className="text-xs text-foreground/80">{items[0] ?? "좌측 항목"}</span>
             </div>
             <div className="w-px shrink-0 bg-border" />
-            <div className="flex flex-1 items-center justify-center p-4 text-center text-xs text-foreground/80">
-              {items[1] ?? "우측 항목"}
+            <div className="flex flex-1 flex-col items-center justify-center gap-1.5 p-4 text-center">
+              <span className="text-[10px] font-semibold text-muted-foreground">{rightLabel}</span>
+              <span className="text-xs text-foreground/80">{items[1] ?? "우측 항목"}</span>
             </div>
             <span className="absolute top-1/2 left-1/2 flex size-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-background text-[9px] font-bold text-muted-foreground ring-1 ring-border">
               VS
             </span>
           </div>
         );
+      }
 
       case "타임라인형": {
         const points = items.length ? items.slice(0, 5) : ["시작", "중간", "끝"];
@@ -164,6 +303,25 @@ export function ScreenMockup({
           </div>
         );
       }
+
+      case "용어 정의형": {
+        const term = keywords[0] ?? caption;
+        return (
+          <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
+            <p className="text-lg font-bold text-primary">{term}</p>
+            <span className="h-px w-10 bg-border" />
+            <p className="text-xs text-foreground/70">{caption}</p>
+          </div>
+        );
+      }
+
+      case "질문/퀴즈형":
+        return (
+          <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
+            <IconBadge icon={Icon} />
+            <p className="text-base leading-snug font-semibold text-balance">{caption || "질문"}</p>
+          </div>
+        );
 
       case "인용/사례형":
         return (
@@ -218,23 +376,19 @@ export function ScreenMockup({
           </div>
         );
     }
-  })();
+    })()
+  );
 
   return (
-    <div
-      className={cn(
-        "relative aspect-[3/2] w-full overflow-hidden rounded-lg border border-dashed bg-[radial-gradient(circle,var(--color-border)_1px,transparent_1px)] [background-size:14px_14px]",
-        className
+    <div className={cn("flex flex-col gap-1.5", className)}>
+      {showTypeBadge && screenType && (
+        <span className="w-fit rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground ring-1 ring-border">
+          {screenType}
+        </span>
       )}
-    >
-      <div className="absolute inset-0 bg-background/70" />
-      <div className="relative h-full">
-        {showTypeBadge && screenType && (
-          <span className="absolute top-2 left-2 z-10 rounded-full bg-background/90 px-2 py-0.5 text-[10px] font-medium text-muted-foreground ring-1 ring-border">
-            {screenType}
-          </span>
-        )}
-        {body}
+      <div className="relative aspect-[3/2] w-full overflow-hidden rounded-lg border border-dashed bg-[radial-gradient(circle,var(--color-border)_1px,transparent_1px)] [background-size:14px_14px]">
+        <div className="absolute inset-0 bg-background/70" />
+        <div className="relative h-full">{body}</div>
       </div>
     </div>
   );

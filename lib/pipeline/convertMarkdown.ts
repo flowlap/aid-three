@@ -1,8 +1,8 @@
-import { DEEPSEEK_MODELS, type ChatMessage, type DeepSeekClient } from "../ai/deepseekClient";
+import { DEEPSEEK_MODELS, LARGE_OUTPUT_MAX_TOKENS, type ChatMessage, type DeepSeekClient } from "../ai/deepseekClient";
 import type { ScriptType } from "../projects/types";
 
 function buildMarkdownMessages(rawText: string, scriptType: ScriptType): ChatMessage[] {
-  if (scriptType === "narration") {
+  if (scriptType !== "script") {
     const prompt = `다음 나레이션 텍스트의 내용은 절대 수정하지 말고, 형태만 읽기 좋은 마크다운 문서로 정리하세요. 문단 구분과 제목만 추가하세요.
 
 텍스트:
@@ -37,7 +37,11 @@ export async function convertToMarkdown(
   scriptType: ScriptType,
   signal?: AbortSignal
 ): Promise<string> {
-  return client.complete(buildMarkdownMessages(rawText, scriptType), { model: DEEPSEEK_MODELS.pro, signal });
+  return client.complete(buildMarkdownMessages(rawText, scriptType), {
+    model: DEEPSEEK_MODELS.pro,
+    maxTokens: LARGE_OUTPUT_MAX_TOKENS,
+    signal,
+  });
 }
 
 export async function convertToMarkdownStream(
@@ -48,6 +52,7 @@ export async function convertToMarkdownStream(
 ): Promise<AsyncIterable<string>> {
   return client.completeStream(buildMarkdownMessages(rawText, scriptType), {
     model: DEEPSEEK_MODELS.pro,
+    maxTokens: LARGE_OUTPUT_MAX_TOKENS,
     signal,
   });
 }

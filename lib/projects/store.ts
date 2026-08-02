@@ -42,6 +42,37 @@ export function projectImagesDir(id: string): string {
   return path.join(projectDir(id), "images");
 }
 
+export function projectAudioDir(id: string): string {
+  return path.join(projectDir(id), "audio");
+}
+
+export function projectVideoFramesDir(id: string): string {
+  return path.join(projectDir(id), "video-frames");
+}
+
+export function projectVideoClipsDir(id: string): string {
+  return path.join(projectDir(id), "video", "clips");
+}
+
+export function projectVideoPath(id: string): string {
+  return path.join(projectDir(id), "video", "final.mp4");
+}
+
+export function projectVideoClipPath(id: string, sceneId: string): string {
+  assertSafeSceneId(sceneId);
+  return path.join(projectVideoClipsDir(id), `${sceneId}.mp4`);
+}
+
+export function projectVideoFramePath(id: string, sceneId: string): string {
+  assertSafeSceneId(sceneId);
+  return path.join(projectVideoFramesDir(id), `${sceneId}.png`);
+}
+
+export function projectAudioPath(id: string, sceneId: string): string {
+  assertSafeSceneId(sceneId);
+  return path.join(projectAudioDir(id), `${sceneId}.wav`);
+}
+
 export async function createProject(title: string, scriptType: ScriptType): Promise<ProjectMeta> {
   const id = randomUUID();
   await fs.mkdir(projectSourceDir(id), { recursive: true });
@@ -134,6 +165,73 @@ export async function listProjectImageIds(id: string): Promise<string[]> {
     return entries.filter((name) => name.endsWith(".png")).map((name) => name.slice(0, -".png".length));
   } catch {
     return [];
+  }
+}
+
+export async function writeProjectAudio(id: string, sceneId: string, buffer: Buffer): Promise<void> {
+  assertSafeSceneId(sceneId);
+  await fs.mkdir(projectAudioDir(id), { recursive: true });
+  await fs.writeFile(path.join(projectAudioDir(id), `${sceneId}.wav`), buffer);
+}
+
+export async function readProjectAudio(id: string, sceneId: string): Promise<Buffer | null> {
+  try {
+    assertSafeSceneId(sceneId);
+    return await fs.readFile(path.join(projectAudioDir(id), `${sceneId}.wav`));
+  } catch {
+    return null;
+  }
+}
+
+export async function listProjectAudioIds(id: string): Promise<string[]> {
+  try {
+    const entries = await fs.readdir(projectAudioDir(id));
+    return entries.filter((name) => name.endsWith(".wav")).map((name) => name.slice(0, -".wav".length));
+  } catch {
+    return [];
+  }
+}
+
+export async function writeProjectVideoFrame(id: string, sceneId: string, buffer: Buffer): Promise<void> {
+  assertSafeSceneId(sceneId);
+  await fs.mkdir(projectVideoFramesDir(id), { recursive: true });
+  await fs.writeFile(path.join(projectVideoFramesDir(id), `${sceneId}.png`), buffer);
+}
+
+export async function readProjectVideoFrame(id: string, sceneId: string): Promise<Buffer | null> {
+  try {
+    assertSafeSceneId(sceneId);
+    return await fs.readFile(path.join(projectVideoFramesDir(id), `${sceneId}.png`));
+  } catch {
+    return null;
+  }
+}
+
+export async function listProjectVideoFrameIds(id: string): Promise<string[]> {
+  try {
+    const entries = await fs.readdir(projectVideoFramesDir(id));
+    return entries.filter((name) => name.endsWith(".png")).map((name) => name.slice(0, -".png".length));
+  } catch {
+    return [];
+  }
+}
+
+export async function listProjectVideoClipIds(id: string): Promise<string[]> {
+  try {
+    const entries = await fs.readdir(projectVideoClipsDir(id));
+    return entries.filter((name) => name.endsWith(".mp4")).map((name) => name.slice(0, -".mp4".length));
+  } catch {
+    return [];
+  }
+}
+
+export async function statProjectVideo(id: string): Promise<{ path: string; size: number } | null> {
+  try {
+    const filePath = projectVideoPath(id);
+    const stat = await fs.stat(filePath);
+    return { path: filePath, size: stat.size };
+  } catch {
+    return null;
   }
 }
 

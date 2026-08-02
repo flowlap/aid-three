@@ -3,6 +3,7 @@ import { readProject, readProjectFile, mergeProjectJsonMap } from "@/lib/project
 import { createDeepSeekClient } from "@/lib/ai/deepseekClient";
 import { selectScreenTypes } from "@/lib/pipeline/selectScreenTypes";
 import { computeVisualDesign } from "@/lib/visual-templates";
+import { DEFAULT_SCREEN_DESIGN_COMMON_PROMPT } from "@/lib/pipeline/commonPromptDefaults";
 import type { Scene } from "@/lib/pipeline/splitScenes";
 
 const FILENAME = "screen-design.json";
@@ -30,6 +31,10 @@ export async function POST(
   const scene = scenes.find((s) => s.id === sceneId);
   if (!scene) return NextResponse.json({ error: "씬을 찾을 수 없습니다" }, { status: 404 });
 
+  const documentSummary = (await readProjectFile(projectId, "document-summary.txt"))?.trim() || undefined;
+  const commonPrompt =
+    (await readProjectFile(projectId, "screen-design-common-prompt.txt"))?.trim() || DEFAULT_SCREEN_DESIGN_COMMON_PROMPT;
+
   let client;
   try {
     client = createDeepSeekClient();
@@ -40,7 +45,7 @@ export async function POST(
 
   let screenTypes;
   try {
-    screenTypes = await selectScreenTypes(client, [scene]);
+    screenTypes = await selectScreenTypes(client, [scene], { documentSummary, commonPrompt, allScenesForContext: scenes });
   } catch (err) {
     console.error("씬 재생성 실패:", err);
     return NextResponse.json({ error: "AI 화면 설계에 실패했습니다. 잠시 후 다시 시도해주세요." }, { status: 502 });

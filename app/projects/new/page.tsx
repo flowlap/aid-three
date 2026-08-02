@@ -12,16 +12,18 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { cn } from "@/lib/utils";
 
 type SourceMode = "file" | "text";
+type ScriptType = "script" | "narration" | "narration_pre_edited";
 
-const SCRIPT_TYPE_LABELS: Record<"script" | "narration", string> = {
+const SCRIPT_TYPE_LABELS: Record<ScriptType, string> = {
   script: "원고",
   narration: "나레이션",
+  narration_pre_edited: "나레이션(가편집)",
 };
 
 export default function NewProjectPage() {
   const router = useRouter();
   const [title, setTitle] = useState("");
-  const [scriptType, setScriptType] = useState<"script" | "narration">("script");
+  const [scriptType, setScriptType] = useState<ScriptType>("script");
   const [sourceMode, setSourceMode] = useState<SourceMode>("file");
   const [file, setFile] = useState<File | null>(null);
   const [text, setText] = useState("");
@@ -58,7 +60,9 @@ export default function NewProjectPage() {
       setError(data.error ?? "업로드에 실패했습니다");
       return;
     }
-    router.push(`/projects/${data.project.id}/markdown`);
+    // 가편집 나레이션은 원고 변환과 씬 분할이 업로드 시점에 이미 끝나 있으므로 씬 분할 화면으로 바로 이동.
+    const destination = scriptType === "narration_pre_edited" ? "scenes" : "markdown";
+    router.push(`/projects/${data.project.id}/${destination}`);
   }
 
   return (
@@ -86,17 +90,24 @@ export default function NewProjectPage() {
               </div>
               <div>
                 <label className="mb-1.5 block text-sm font-medium">타입</label>
-                <Select value={scriptType} onValueChange={(value) => setScriptType(value as "script" | "narration")}>
-                  <SelectTrigger className="w-full sm:w-32">
-                    <SelectValue>{(value: "script" | "narration") => SCRIPT_TYPE_LABELS[value]}</SelectValue>
+                <Select value={scriptType} onValueChange={(value) => setScriptType(value as ScriptType)}>
+                  <SelectTrigger className="w-full sm:w-44">
+                    <SelectValue>{(value: ScriptType) => SCRIPT_TYPE_LABELS[value]}</SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="script">{SCRIPT_TYPE_LABELS.script}</SelectItem>
                     <SelectItem value="narration">{SCRIPT_TYPE_LABELS.narration}</SelectItem>
+                    <SelectItem value="narration_pre_edited">{SCRIPT_TYPE_LABELS.narration_pre_edited}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
             </div>
+            {scriptType === "narration_pre_edited" && (
+              <p className="text-xs text-muted-foreground">
+                이미 완성된 나레이션으로 간주해 원고 변환 없이 그대로 사용하고, 빈 줄로 구분된 문단을 기준으로 씬을 자동 분리합니다.
+                씬 분할 화면에서 결과를 바로 검토·수정할 수 있습니다.
+              </p>
+            )}
           </Card>
 
           <Card className="gap-4 p-6">

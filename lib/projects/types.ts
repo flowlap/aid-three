@@ -1,4 +1,4 @@
-export type ScriptType = "script" | "narration";
+export type ScriptType = "script" | "narration" | "narration_pre_edited";
 
 export type PipelineStep =
   | "upload"

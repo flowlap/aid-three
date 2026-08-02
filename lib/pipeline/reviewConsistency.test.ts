@@ -18,9 +18,9 @@ describe("checkDuplicateLayouts", () => {
   it("flags three or more consecutive scenes with the same layout", () => {
     const scenes = [makeScene("scene-001", 1), makeScene("scene-002", 2), makeScene("scene-003", 3)];
     const screenTypes: Record<string, ScreenTypeAssignment> = {
-      "scene-001": { screenType: "텍스트 강조형", recommendedLayout: "중앙 텍스트", rationale: "", caption: "" },
-      "scene-002": { screenType: "텍스트 강조형", recommendedLayout: "중앙 텍스트", rationale: "", caption: "" },
-      "scene-003": { screenType: "텍스트 강조형", recommendedLayout: "중앙 텍스트", rationale: "", caption: "" },
+      "scene-001": { screenType: "텍스트 강조형", recommendedLayout: "중앙 텍스트", rationale: "", caption: "", keywords: [], imageOrDiagramDescription: "", objectPlacement: "" },
+      "scene-002": { screenType: "텍스트 강조형", recommendedLayout: "중앙 텍스트", rationale: "", caption: "", keywords: [], imageOrDiagramDescription: "", objectPlacement: "" },
+      "scene-003": { screenType: "텍스트 강조형", recommendedLayout: "중앙 텍스트", rationale: "", caption: "", keywords: [], imageOrDiagramDescription: "", objectPlacement: "" },
     };
 
     const issues = checkDuplicateLayouts(scenes, screenTypes);
@@ -33,8 +33,8 @@ describe("checkDuplicateLayouts", () => {
   it("does not flag two consecutive repeats", () => {
     const scenes = [makeScene("scene-001", 1), makeScene("scene-002", 2)];
     const screenTypes: Record<string, ScreenTypeAssignment> = {
-      "scene-001": { screenType: "텍스트 강조형", recommendedLayout: "중앙 텍스트", rationale: "", caption: "" },
-      "scene-002": { screenType: "텍스트 강조형", recommendedLayout: "중앙 텍스트", rationale: "", caption: "" },
+      "scene-001": { screenType: "텍스트 강조형", recommendedLayout: "중앙 텍스트", rationale: "", caption: "", keywords: [], imageOrDiagramDescription: "", objectPlacement: "" },
+      "scene-002": { screenType: "텍스트 강조형", recommendedLayout: "중앙 텍스트", rationale: "", caption: "", keywords: [], imageOrDiagramDescription: "", objectPlacement: "" },
     };
 
     expect(checkDuplicateLayouts(scenes, screenTypes)).toHaveLength(0);

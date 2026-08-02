@@ -1,5 +1,6 @@
 import { readProjectFile } from "@/lib/projects/store";
 import { ScreenDesignEditor } from "./ScreenDesignEditor";
+import { DEFAULT_SCREEN_DESIGN_COMMON_PROMPT } from "@/lib/pipeline/commonPromptDefaults";
 import type { Scene } from "@/lib/pipeline/splitScenes";
 import type { ScreenTypeAssignment } from "@/lib/pipeline/selectScreenTypes";
 import type { VisualDesign } from "@/lib/pipeline/designVisuals";
@@ -13,6 +14,8 @@ export default async function ScreenDesignPage({ params }: { params: Promise<{ p
   const parsed = screenDesignRaw ? JSON.parse(screenDesignRaw) : {};
   const initialScreenTypes: Record<string, ScreenTypeAssignment> = parsed.screenTypes ?? {};
   const initialDesigns: Record<string, VisualDesign> = parsed.visualDesigns ?? {};
+  const initialCommonPrompt =
+    (await readProjectFile(projectId, "screen-design-common-prompt.txt"))?.trim() || DEFAULT_SCREEN_DESIGN_COMMON_PROMPT;
 
   return (
     <>
@@ -22,6 +25,7 @@ export default async function ScreenDesignPage({ params }: { params: Promise<{ p
         scenes={scenes}
         initialScreenTypes={initialScreenTypes}
         initialDesigns={initialDesigns}
+        initialCommonPrompt={initialCommonPrompt}
       />
     </>
   );

@@ -1,4 +1,4 @@
-export const PIPELINE_JOB_STEPS = ["markdown", "scenes", "screen-design", "review", "images"] as const;
+export const PIPELINE_JOB_STEPS = ["markdown", "scenes", "screen-design", "review", "images", "tts", "video"] as const;
 export type PipelineJobStep = (typeof PIPELINE_JOB_STEPS)[number];
 
 export function isPipelineJobStep(value: string): value is PipelineJobStep {
@@ -39,6 +39,7 @@ const registry: Map<string, AiJob> = g.__aiJobRegistry ?? (g.__aiJobRegistry = n
 export function startJob(projectId: string, step: PipelineJobStep): AiJob {
   const existing = registry.get(key(projectId, step));
   if (existing && existing.status === "running") {
+    console.warn(`[Job] ${key(projectId, step)} 이미 실행 중인 작업에 대한 시작 요청 거부`);
     throw new JobAlreadyRunningError(projectId, step);
   }
 
@@ -52,6 +53,7 @@ export function startJob(projectId: string, step: PipelineJobStep): AiJob {
     partialRaw: "",
   };
   registry.set(key(projectId, step), job);
+  console.log(`[Job] ${key(projectId, step)} 시작`);
   return job;
 }
 
@@ -70,12 +72,15 @@ export function finishJob(
   job.status = status;
   job.finishedAt = new Date().toISOString();
   if (errorMessage) job.errorMessage = errorMessage;
+  const elapsedMs = new Date(job.finishedAt).getTime() - new Date(job.startedAt).getTime();
+  console.log(`[Job] ${key(projectId, step)} 종료 status=${status} elapsedMs=${elapsedMs}${errorMessage ? ` error="${errorMessage}"` : ""}`);
 }
 
 export function cancelJob(projectId: string, step: PipelineJobStep): boolean {
   const job = registry.get(key(projectId, step));
   if (!job || job.status !== "running") return false;
   job.controller.abort();
+  console.log(`[Job] ${key(projectId, step)} 취소 요청`);
   return true;
 }
 
@@ -89,4 +94,5 @@ export function recordProgress(projectId: string, step: PipelineJobStep, index: 
   const job = registry.get(key(projectId, step));
   if (!job) return;
   job.progress = { index, total };
+  console.log(`[Job] ${key(projectId, step)} 진행 ${index + 1}/${total}`);
 }

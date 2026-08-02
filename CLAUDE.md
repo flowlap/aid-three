@@ -39,6 +39,7 @@
 - [설계 문서](docs/superpowers/specs/2026-07-27-elearning-storyboard-generator-design.md) — 전체 아키텍처, 데이터 모델, 에러 처리, 테스트 전략
 - [구현 계획 (13개 태스크)](docs/superpowers/plans/2026-07-28-elearning-storyboard-generator.md)
 - [파이프라인 단계별 입출력 명세](docs/reference/pipeline-steps.md) — 각 단계 구현 시 참고할 상세 계약
+- [화면 유형 레퍼런스](docs/reference/screen-types.md) — 화면 설계 단계가 쓰는 14개 화면 유형의 설계 방향과 유형별 상세 가이드
 - [DeepSeek API 레퍼런스](docs/reference/deepseek-api.md) — 모델명, 엔드포인트, 사용 시 주의사항 (레거시 모델명 폐지 확인됨)
 
 ## 작업 시 유의사항

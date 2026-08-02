@@ -6,11 +6,13 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
+import { AiJobStatus } from "@/components/AiJobStatus";
 import { cn } from "@/lib/utils";
 import { DETERMINISTIC_ISSUE_LABELS, type ReviewIssue } from "@/lib/pipeline/reviewConsistency";
 import { useAiJob } from "@/lib/client/useAiJob";
 import { useNextStepAction } from "@/lib/client/StepNavContext";
 import { useAutoProgressFlag } from "@/lib/client/useAutoProgress";
+import { estimateSecondsForScenes } from "@/lib/client/estimateAiDuration";
 
 const SEVERITY_LABELS: Record<ReviewIssue["severity"], string> = {
   info: "정보",
@@ -40,9 +42,11 @@ type ReviewStreamEvent =
 export function ReviewIssueList({
   projectId,
   initialIssues,
+  sceneCount,
 }: {
   projectId: string;
   initialIssues: ReviewIssue[];
+  sceneCount: number;
 }) {
   const router = useRouter();
   const auto = useAutoProgressFlag();
@@ -50,7 +54,7 @@ export function ReviewIssueList({
   const [rawPreview, setRawPreview] = useState("");
   const [navigatingNext, setViewingStoryboard] = useState(false);
 
-  const { loading, discoveredRunning, error, start, cancel } = useAiJob<ReviewStreamEvent>({
+  const { loading, discoveredRunning, error, startedAt, start, cancel } = useAiJob<ReviewStreamEvent>({
     projectId,
     step: "review",
     onEvent: (event) => {
@@ -106,11 +110,13 @@ export function ReviewIssueList({
             <span className="ml-auto text-xs font-medium text-muted-foreground">총 {issues.length}개 이슈</span>
           )}
         </div>
-        {loading && (
-          <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-lg border bg-muted p-3 text-xs text-muted-foreground">
-            {rawPreview || "AI 검수 준비 중..."}
-          </pre>
-        )}
+        <AiJobStatus
+          loading={loading}
+          label={discoveredRunning ? "다른 곳에서 시작된 검수가 진행 중입니다" : "AI가 일관성을 검수하는 중입니다"}
+          startedAt={startedAt}
+          estimateSeconds={estimateSecondsForScenes(sceneCount, 0.5)}
+          activityLines={rawPreview ? [rawPreview] : []}
+        />
       </Card>
 
       {error && (

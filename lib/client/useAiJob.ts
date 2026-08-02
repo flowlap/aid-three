@@ -37,7 +37,9 @@ export interface UseAiJobResult {
   discoveredRunning: boolean;
   error: string | null;
   progress: { index: number; total: number } | null;
-  start: () => Promise<void>;
+  /** ISO timestamp of when the current/last run started — drives an elapsed-time display while `loading`. */
+  startedAt: string | null;
+  start: (options?: { body?: unknown }) => Promise<void>;
   cancel: () => Promise<void>;
 }
 
@@ -49,6 +51,7 @@ export function useAiJob<TEvent>(opts: UseAiJobOptions<TEvent>): UseAiJobResult 
   const [discoveredRunning, setDiscoveredRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<{ index: number; total: number } | null>(null);
+  const [startedAt, setStartedAt] = useState<string | null>(null);
 
   const pollHandle = useRef<ReturnType<typeof setInterval> | null>(null);
   const streamingLocally = useRef(false);
@@ -66,6 +69,7 @@ export function useAiJob<TEvent>(opts: UseAiJobOptions<TEvent>): UseAiJobResult 
     const status = (await res.json()) as JobStatusResponse;
     onPollUpdate?.(status);
     if (status.progress) setProgress(status.progress);
+    if (status.startedAt) setStartedAt(status.startedAt);
     if (!status.running) {
       stopPolling();
       setLoading(false);
@@ -93,6 +97,7 @@ export function useAiJob<TEvent>(opts: UseAiJobOptions<TEvent>): UseAiJobResult 
       if (stale || !status.running) return;
       onPollUpdate?.(status);
       if (status.progress) setProgress(status.progress);
+      if (status.startedAt) setStartedAt(status.startedAt);
       setLoading(true);
       setDiscoveredRunning(true);
       beginPolling();
@@ -104,16 +109,21 @@ export function useAiJob<TEvent>(opts: UseAiJobOptions<TEvent>): UseAiJobResult 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, step]);
 
-  const start = useCallback(async () => {
+  const start = useCallback(async (options?: { body?: unknown }) => {
     stopPolling();
     streamingLocally.current = true;
     setLoading(true);
     setDiscoveredRunning(false);
     setError(null);
     setProgress(null);
+    setStartedAt(new Date().toISOString());
 
     try {
-      const res = await fetch(`/api/projects/${projectId}/${step}`, { method: "POST" });
+      const res = await fetch(`/api/projects/${projectId}/${step}`, {
+        method: "POST",
+        headers: options?.body ? { "Content-Type": "application/json" } : undefined,
+        body: options?.body ? JSON.stringify(options.body) : undefined,
+      });
 
       if (res.status === 409) {
         // Someone else (another tab) already started this job — join it via
@@ -155,5 +165,5 @@ export function useAiJob<TEvent>(opts: UseAiJobOptions<TEvent>): UseAiJobResult 
     await fetch(statusUrl, { method: "DELETE" });
   }, [statusUrl]);
 
-  return { loading, discoveredRunning, error, progress, start, cancel };
+  return { loading, discoveredRunning, error, progress, startedAt, start, cancel };
 }

@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readProject, readProjectFile, readProjectImage, writeProjectImage } from "@/lib/projects/store";
 import { createOpenAiImageClient } from "@/lib/ai/openaiImageClient";
-import { generateSceneImage } from "@/lib/pipeline/generateSceneImage";
+import { generateSceneImage, buildRelatedScenesContext } from "@/lib/pipeline/generateSceneImage";
+import { DEFAULT_IMAGE_COMMON_PROMPT } from "@/lib/pipeline/commonPromptDefaults";
 import type { Scene } from "@/lib/pipeline/splitScenes";
+import type { ScreenTypeAssignment } from "@/lib/pipeline/selectScreenTypes";
 import type { VisualDesign } from "@/lib/pipeline/designVisuals";
 
 export async function GET(
@@ -32,12 +34,16 @@ export async function POST(
   if (!scenesRaw || !screenDesignRaw) {
     return NextResponse.json({ error: "씬 또는 화면 설계 데이터가 없습니다" }, { status: 400 });
   }
+  const commonPrompt = (await readProjectFile(projectId, "image-common-prompt.txt"))?.trim() || DEFAULT_IMAGE_COMMON_PROMPT;
+  const presenterEnabled = (await readProjectFile(projectId, "image-presenter-enabled.txt"))?.trim() === "true";
 
   let scenes: Scene[];
   let visualDesigns: Record<string, VisualDesign>;
+  let screenTypes: Record<string, ScreenTypeAssignment>;
   try {
     scenes = JSON.parse(scenesRaw).scenes;
     visualDesigns = JSON.parse(screenDesignRaw).visualDesigns;
+    screenTypes = JSON.parse(screenDesignRaw).screenTypes ?? {};
   } catch (err) {
     console.error("씬 재생성 실패:", err);
     return NextResponse.json({ error: "씬 또는 화면 설계 데이터 형식이 올바르지 않습니다" }, { status: 400 });
@@ -56,7 +62,13 @@ export async function POST(
   }
 
   try {
-    const buffer = await generateSceneImage(client, scene, design);
+    const buffer = await generateSceneImage(client, scene, design, {
+      screenType: screenTypes[sceneId]?.screenType,
+      commonPrompt,
+      presenterEnabled,
+      presenterPosition: design.presenterPosition,
+      relatedScenes: buildRelatedScenesContext(scene, visualDesigns),
+    });
     await writeProjectImage(projectId, sceneId, buffer);
   } catch (err) {
     console.error("씬 이미지 재생성 실패:", err);

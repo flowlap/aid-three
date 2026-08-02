@@ -1,14 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ScreenMockup } from "@/components/ScreenMockup";
+import { PptxQuickExportButton, PptxTemplateSection } from "@/components/PptxExportButton";
+import { computeMockupVariantIndexes } from "@/lib/visual-templates";
+import { cn } from "@/lib/utils";
 import type { Scene } from "@/lib/pipeline/splitScenes";
 import type { ScreenTypeAssignment } from "@/lib/pipeline/selectScreenTypes";
 import type { VisualDesign } from "@/lib/pipeline/designVisuals";
+
+type MockupStyle = "storyboard" | "notebooklm";
 
 export function PreviewViewer({
   projectId,
@@ -26,8 +31,10 @@ export function PreviewViewer({
   imageIds: string[];
 }) {
   const imageIdSet = new Set(imageIds);
+  const mockupVariants = useMemo(() => computeMockupVariantIndexes(scenes, screenTypes), [scenes, screenTypes]);
   const [activeIndex, setActiveIndex] = useState(0);
   const [downloading, setDownloading] = useState(false);
+  const [mockupStyle, setMockupStyle] = useState<MockupStyle>("storyboard");
   const sectionRefs = useRef<Record<string, HTMLElement | null>>({});
   const exportRef = useRef<HTMLDivElement>(null);
 
@@ -164,13 +171,49 @@ ${clone.outerHTML}
           >
             ← {projectTitle}
           </Link>
-          <div className="mb-6 flex flex-wrap justify-end gap-2 print:hidden">
-            <Button variant="outline" onClick={handleDownloadHtml} disabled={downloading}>
-              {downloading ? "다운로드 준비 중..." : "HTML로 다운로드"}
-            </Button>
-            <Button variant="outline" onClick={handlePrint}>
-              PDF로 저장
-            </Button>
+          <div className="mb-6 flex flex-col gap-3 print:hidden">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="inline-flex rounded-full border bg-muted p-1">
+                {([
+                  { value: "storyboard", label: "스토리보드" },
+                  { value: "notebooklm", label: "노트북LM" },
+                ] as const).map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => setMockupStyle(option.value)}
+                    className={cn(
+                      "rounded-full px-3.5 py-1.5 text-xs font-medium transition-colors",
+                      mockupStyle === option.value
+                        ? "bg-background text-foreground shadow-[0_1px_2px_rgba(15,15,15,0.06)]"
+                        : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+              <div className="flex flex-wrap items-start justify-end gap-2">
+                <div className="flex flex-col items-end gap-1">
+                  <span className="text-[11px] font-medium text-muted-foreground">다운로드</span>
+                  <div className="flex flex-wrap justify-end gap-2">
+                    <Button variant="outline" onClick={handleDownloadHtml} disabled={downloading}>
+                      {downloading ? "다운로드 준비 중..." : "HTML로 다운로드"}
+                    </Button>
+                    <Button variant="outline" onClick={handlePrint}>
+                      PDF로 저장
+                    </Button>
+                    <PptxQuickExportButton projectId={projectId} mockupStyle={mockupStyle} />
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="flex justify-end">
+              <div className="flex flex-col items-end gap-1 border-t pt-3">
+                <span className="text-[11px] font-medium text-muted-foreground">템플릿 등록</span>
+                <PptxTemplateSection projectId={projectId} mockupStyle={mockupStyle} />
+              </div>
+            </div>
           </div>
           <div ref={exportRef} className="space-y-4">
           <h1 className="mb-6 text-3xl font-semibold tracking-tight">{projectTitle} — 미리보기</h1>
@@ -213,7 +256,12 @@ ${clone.outerHTML}
                   </div>
                   <div>
                     <p className="mb-1.5 text-xs font-medium text-muted-foreground">화면 설계 목업</p>
-                    <ScreenMockup screenType={screenType?.screenType} design={design} />
+                    <ScreenMockup
+                      screenType={screenType?.screenType}
+                      design={design}
+                      variantIndex={mockupVariants[scene.id] ?? 0}
+                      style={mockupStyle}
+                    />
                   </div>
                 </div>
                 <div className="space-y-2 border-t p-5 text-sm">

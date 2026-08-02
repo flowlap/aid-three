@@ -6,12 +6,16 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { AiJobStatus } from "@/components/AiJobStatus";
+import { CommonPromptField } from "@/components/CommonPromptField";
 import type { Scene } from "@/lib/pipeline/splitScenes";
 import type { ScreenTypeAssignment } from "@/lib/pipeline/selectScreenTypes";
 import type { VisualDesign } from "@/lib/pipeline/designVisuals";
 import { useAiJob } from "@/lib/client/useAiJob";
 import { useNextStepAction } from "@/lib/client/StepNavContext";
 import { useAutoProgressFlag, withAutoProgress } from "@/lib/client/useAutoProgress";
+import { estimateSecondsForScenes } from "@/lib/client/estimateAiDuration";
+import { DEFAULT_SCREEN_DESIGN_COMMON_PROMPT } from "@/lib/pipeline/commonPromptDefaults";
 
 type ScreenDesignStreamEvent =
   | { type: "scene"; sceneId: string; index: number; total: number; screenType: ScreenTypeAssignment; visualDesign: VisualDesign }
@@ -24,11 +28,13 @@ export function ScreenDesignEditor({
   scenes,
   initialScreenTypes,
   initialDesigns,
+  initialCommonPrompt,
 }: {
   projectId: string;
   scenes: Scene[];
   initialScreenTypes: Record<string, ScreenTypeAssignment>;
   initialDesigns: Record<string, VisualDesign>;
+  initialCommonPrompt: string;
 }) {
   const router = useRouter();
   const auto = useAutoProgressFlag();
@@ -38,14 +44,19 @@ export function ScreenDesignEditor({
   const [saveError, setSaveError] = useState<string | null>(null);
   const [regeneratingIds, setRegeneratingIds] = useState<Set<string>>(new Set());
   const [regenerateError, setRegenerateError] = useState<string | null>(null);
+  const [activityLines, setActivityLines] = useState<string[]>([]);
 
-  const { loading, discoveredRunning, error, progress, start, cancel } = useAiJob<ScreenDesignStreamEvent>({
+  const { loading, discoveredRunning, error, progress, startedAt, start, cancel } = useAiJob<ScreenDesignStreamEvent>({
     projectId,
     step: "screen-design",
     onEvent: (event) => {
       if (event.type === "scene") {
         setScreenTypes((prev) => ({ ...prev, [event.sceneId]: event.screenType }));
         setDesigns((prev) => ({ ...prev, [event.sceneId]: event.visualDesign }));
+        setActivityLines((prev) => [
+          ...prev,
+          `[${event.index + 1}/${event.total}] ${event.sceneId} → ${event.screenType.screenType}`,
+        ]);
       } else if (event.type === "result") {
         setScreenTypes(event.screenTypes);
         setDesigns(event.visualDesigns);
@@ -61,15 +72,30 @@ export function ScreenDesignEditor({
     onSettled: () => router.refresh(),
   });
 
-  async function handleGenerate() {
-    setScreenTypes({});
-    setDesigns({});
-    await start();
+  async function handleGenerate(mode: "full" | "resume") {
+    if (mode === "full") {
+      setScreenTypes({});
+      setDesigns({});
+    }
+    setActivityLines([]);
+    await start({ body: { mode } });
   }
+
+  const completedCount = scenes.filter((s) => screenTypes[s.id]).length;
+  const remainingCount = scenes.length - completedCount;
+  const isPartial = completedCount > 0 && remainingCount > 0;
 
   function updateScreenType(sceneId: string, patch: Partial<ScreenTypeAssignment>) {
     setScreenTypes((prev) => {
-      const defaults: ScreenTypeAssignment = { screenType: "", recommendedLayout: "", rationale: "", caption: "" };
+      const defaults: ScreenTypeAssignment = {
+        screenType: "",
+        recommendedLayout: "",
+        rationale: "",
+        caption: "",
+        keywords: [],
+        imageOrDiagramDescription: "",
+        objectPlacement: "",
+      };
       return { ...prev, [sceneId]: { ...(prev[sceneId] ?? defaults), ...patch } };
     });
   }
@@ -150,7 +176,7 @@ export function ScreenDesignEditor({
   useEffect(() => {
     if (auto && !autoStartedRef.current && Object.keys(screenTypes).length === 0) {
       autoStartedRef.current = true;
-      handleGenerate();
+      handleGenerate("full");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -172,26 +198,50 @@ export function ScreenDesignEditor({
 
   return (
     <div className="space-y-4">
+      <CommonPromptField
+        saveUrl={`/api/projects/${projectId}/screen-design/common-prompt`}
+        initialValue={initialCommonPrompt}
+        label="공통 프롬프트 (모든 씬에 적용)"
+        helperText="이 콘텐츠 전반에 적용할 맥락이나 원칙을 적어두면 AI가 씬마다 화면 유형·자막·키워드를 정할 때 함께 참고합니다."
+        placeholder={DEFAULT_SCREEN_DESIGN_COMMON_PROMPT}
+      />
       <Card className="gap-3 p-4">
         <div className="flex flex-wrap items-center gap-2">
-          <Button onClick={handleGenerate} disabled={loading}>
+          <Button onClick={() => handleGenerate(isPartial ? "resume" : "full")} disabled={loading}>
             {loading
               ? discoveredRunning
                 ? `이미 실행 중...${progress ? ` (${progress.index}/${progress.total})` : ""}`
                 : progress
                   ? `설계 중... (${progress.index}/${progress.total})`
                   : "설계 중..."
-              : Object.keys(screenTypes).length
-                ? "다시 생성"
-                : "AI로 화면 설계"}
+              : isPartial
+                ? `이어서 생성 (${remainingCount}개 남음)`
+                : completedCount > 0
+                  ? "다시 생성"
+                  : "AI로 화면 설계"}
           </Button>
+          {!loading && isPartial && (
+            <Button variant="outline" onClick={() => handleGenerate("full")}>
+              전체 다시 생성
+            </Button>
+          )}
           {loading && (
             <Button variant="outline" onClick={cancel}>
               취소
             </Button>
           )}
-          <span className="ml-auto text-xs font-medium text-muted-foreground">총 {scenes.length}개 씬</span>
+          <span className="ml-auto text-xs font-medium text-muted-foreground">
+            {completedCount} / {scenes.length}개 씬 완료
+          </span>
         </div>
+        <AiJobStatus
+          loading={loading}
+          label={discoveredRunning ? "다른 곳에서 시작된 화면 설계가 진행 중입니다" : "AI가 씬별 화면 유형을 설계하는 중입니다"}
+          startedAt={startedAt}
+          progress={progress}
+          estimateSeconds={estimateSecondsForScenes(scenes.length, 15)}
+          activityLines={activityLines}
+        />
       </Card>
 
       {error && (

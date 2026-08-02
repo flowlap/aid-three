@@ -5,8 +5,11 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
+import { AiJobStatus } from "@/components/AiJobStatus";
 import { useAiJob } from "@/lib/client/useAiJob";
 import { useNextStepAction } from "@/lib/client/StepNavContext";
+import { estimateSecondsForChars } from "@/lib/client/estimateAiDuration";
+import type { ScriptType } from "@/lib/projects/types";
 
 type MarkdownStreamEvent =
   | { type: "chunk"; text: string }
@@ -17,16 +20,21 @@ type MarkdownStreamEvent =
 export function MarkdownEditor({
   projectId,
   initialMarkdown,
+  rawTextLength,
+  scriptType,
 }: {
   projectId: string;
   initialMarkdown: string | null;
+  rawTextLength: number;
+  scriptType: ScriptType;
 }) {
+  const isPreEditedNarration = scriptType === "narration_pre_edited";
   const router = useRouter();
   const [markdown, setMarkdown] = useState(initialMarkdown ?? "");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  const { loading, discoveredRunning, error, start, cancel } = useAiJob<MarkdownStreamEvent>({
+  const { loading, discoveredRunning, error, startedAt, start, cancel } = useAiJob<MarkdownStreamEvent>({
     projectId,
     step: "markdown",
     onEvent: (event) => {
@@ -83,13 +91,21 @@ export function MarkdownEditor({
     <div className="space-y-4">
       <Card className="gap-0 p-0">
         <div className="flex flex-wrap items-center gap-2 border-b p-4">
-          <Button onClick={handleGenerate} disabled={loading}>
-            {loading ? (discoveredRunning ? "이미 실행 중..." : "변환 중...") : markdown ? "다시 생성" : "AI로 변환"}
-          </Button>
-          {loading && (
-            <Button variant="outline" onClick={cancel}>
-              취소
-            </Button>
+          {isPreEditedNarration ? (
+            <p className="text-sm text-muted-foreground">
+              나레이션(가편집) 프로젝트는 이미 완성된 나레이션을 그대로 사용하므로 AI 변환을 다시 실행할 수 없습니다.
+            </p>
+          ) : (
+            <>
+              <Button onClick={handleGenerate} disabled={loading}>
+                {loading ? (discoveredRunning ? "이미 실행 중..." : "변환 중...") : markdown ? "다시 생성" : "AI로 변환"}
+              </Button>
+              {loading && (
+                <Button variant="outline" onClick={cancel}>
+                  취소
+                </Button>
+              )}
+            </>
           )}
           <Button
             variant="outline"
@@ -100,6 +116,16 @@ export function MarkdownEditor({
             자동 진행 (2~6단계)
           </Button>
         </div>
+        {loading && (
+          <div className="border-b p-3">
+            <AiJobStatus
+              loading={loading}
+              label={discoveredRunning ? "다른 곳에서 시작된 변환이 진행 중입니다" : "AI가 원고를 마크다운으로 변환하는 중입니다"}
+              startedAt={startedAt}
+              estimateSeconds={estimateSecondsForChars(rawTextLength)}
+            />
+          </div>
+        )}
         <div className="p-4">
           <Textarea
             rows={20}

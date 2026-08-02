@@ -18,6 +18,7 @@
 - `narration.md`: 나레이션체 마크다운 문서
   - `script` 타입: 내용을 나레이션체로 변환
   - `narration` 타입: 내용 수정 없이 형태만 마크다운으로 정리
+- `document-summary.txt`: 문서 전체를 3~5문장으로 요약한 개요 (`lib/pipeline/summarizeDocument.ts`, flash 모델 1회 호출). 마크다운 변환 완료 직후 생성하며, **실패해도 마크다운 단계 자체는 실패시키지 않는다**(로그만 남기고 건너뜀) — 단계 3(화면 설계)에서 씬별 AI 판단에 문서 전체 맥락을 주기 위한 보조 자료일 뿐, 필수 산출물이 아니기 때문.
 
 ## 단계 2 — 씬 분할
 
@@ -62,7 +63,10 @@
 
 **입력**
 - 씬 나레이션 (해당 씬) + 앞뒤 씬 정보 (컨텍스트용, 화면 유형 선정에만 사용)
-- 사용 가능한 화면 유형 목록: `lib/visual-templates`의 `SCREEN_TYPE_OPTIONS` 10종(텍스트 강조형/인물 등장형/이미지 설명형/표·그래프형/절차 애니메이션형/비교 대조형/타임라인형/인용·사례형/체크리스트형/요약·정리형) — AI(flash 모델)는 이 중 하나를 정확히 선택만 하고, 그 결과를 `computeVisualDesign(scene, screenType)`(AI 호출 없는 순수 함수)에 넘겨 비주얼 설계를 코드로 계산한다.
+- `document-summary.txt` (있는 경우): 문서 전체 개요를 모든 씬 프롬프트에 공통 컨텍스트로 포함 — 특히 문서 앞/뒤쪽이라 이웃 씬만으로는 맥락이 부족한 씬에서 유용하다.
+- 사용 가능한 화면 유형 목록: `lib/visual-templates`의 `SCREEN_TYPE_OPTIONS` 14종. 각 유형마다 `SCREEN_TYPE_INFO`의 설명 문구를 프롬프트에 함께 제공한다(이름만으로는 AI가 유형을 오판하기 쉬워서, 특히 간지/타이틀형 vs 요약/정리형처럼 헷갈리는 쌍). 전체 유형 목록과 상세 가이드는 [화면 유형 레퍼런스](screen-types.md) 참고.
+- 직전 1~2개 씬의 화면 유형: 같은 유형이 3연속 반복되지 않도록 프롬프트에 다양성 유도 문구를 동적으로 추가한다(2연속 반복 시에는 해당 유형을 명시적으로 배제).
+- AI(flash 모델)는 화면 유형 중 하나를 정확히 선택하고, 그 결과(`screenType`/`recommendedLayout`/`rationale`/`caption`/`keywords`)를 `computeVisualDesign(scene, screenType)`(AI 호출 없는 순수 함수)에 넘겨 나머지 비주얼 설계 필드(레이아웃 템플릿 문구)를 코드로 계산한다. `caption`(화면 자막)과 `keywords`(핵심 키워드)는 AI가 나레이션 전체를 검토해 직접 작성/선정한 값이며 — 나레이션을 앞에서부터 자르거나(caption) 등장 순서로 단어를 줍는(keywords) 로컬 휴리스틱이 아니다. 그 로컬 휴리스틱은 AI가 값을 안 줬을 때만 쓰이는 폴백으로 남아 있다.
 
 **출력** (`screen-design.json`, 씬 id 기준 매핑 — 화면 유형과 비주얼 설계를 한 파일에 저장)
 ```json
@@ -71,12 +75,14 @@
     "scene-001": {
       "screenType": "텍스트 강조형",
       "recommendedLayout": "중앙 큰 텍스트 + 하단 서브카피",
-      "rationale": "핵심 정의를 강조하는 문장이므로"
+      "rationale": "핵심 정의를 강조하는 문장이므로",
+      "caption": "화면 하단 자막 (AI가 새로 요약, 말줄임표 없음)",
+      "keywords": ["핵심키워드1", "핵심키워드2"]
     }
   },
   "visualDesigns": {
     "scene-001": {
-      "caption": "화면에 표시될 자막",
+      "caption": "화면 하단 자막 (AI가 새로 요약, 말줄임표 없음)",
       "keywords": ["핵심키워드1", "핵심키워드2"],
       "imageOrDiagramDescription": "이미지 또는 도식에 대한 설명(제작 지시용, 이미지 자체는 생성하지 않음)",
       "objectPlacement": "좌측 인물 아이콘, 우측 텍스트 박스",
@@ -87,7 +93,11 @@
 }
 ```
 
+`visualDesigns[id].caption`/`keywords`는 `screenTypes[id]`의 동일 필드를 그대로 복사한 값이다(`computeVisualDesign`이 AI 응답을 그대로 통과시킴) — 두 곳에 있는 이유는 `screenTypes`가 AI 원본 응답을, `visualDesigns`가 화면 구성에 필요한 전체 필드를 한데 모은 최종 산출물을 나타내기 때문.
+
 씬별 재생성은 `POST /api/projects/{id}/screen-design/{sceneId}`로 해당 씬만 AI 재호출 + 코드 재계산한다(작업 레지스트리를 쓰지 않는 단발성 요청 — 전체 재생성만 Phase 1의 작업 엔진을 사용).
+
+**화면 유형별 목업 베리에이션**: 반복이 잦은 유형(간지/타이틀형, 텍스트 강조형)은 `computeMockupVariantIndexes`가 같은 유형이 연속으로 몇 번째 등장인지 세어, `ScreenMockup`이 2-3가지 레이아웃을 순환하며 보여준다 — 같은 화면 유형이 여러 씬에 걸쳐 반복돼도 목업이 전부 똑같아 보이지 않도록. 이미지 생성/최종 스토리보드/미리보기 세 화면 모두 이 로직을 공유한다.
 
 ## 단계 4 — 일관성 검수
 

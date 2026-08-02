@@ -3,7 +3,8 @@ import { readProjectFile, listProjectImageIds } from "@/lib/projects/store";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ScreenMockup } from "@/components/ScreenMockup";
-import { PptxExportButton } from "./PptxExportButton";
+import { PptxExportButton } from "@/components/PptxExportButton";
+import { computeMockupVariantIndexes } from "@/lib/visual-templates";
 import type { Scene } from "@/lib/pipeline/splitScenes";
 import type { ScreenTypeAssignment } from "@/lib/pipeline/selectScreenTypes";
 import type { VisualDesign } from "@/lib/pipeline/designVisuals";
@@ -18,6 +19,7 @@ export default async function StoryboardPage({ params }: { params: Promise<{ pro
   const screenTypes: Record<string, ScreenTypeAssignment> = screenDesign.screenTypes ?? {};
   const visualDesigns: Record<string, VisualDesign> = screenDesign.visualDesigns ?? {};
   const imageIds = new Set(await listProjectImageIds(projectId));
+  const mockupVariants = computeMockupVariantIndexes(scenes, screenTypes);
 
   return (
     <>
@@ -28,6 +30,11 @@ export default async function StoryboardPage({ params }: { params: Promise<{ pro
         </div>
         <div className="flex items-start gap-2">
           <PptxExportButton projectId={projectId} />
+          <Button
+            variant="outline"
+            nativeButton={false}
+            render={<Link href={`/projects/${projectId}/narration-audio`}>내레이션 음성 생성</Link>}
+          />
           <Button nativeButton={false} render={<Link href={`/projects/${projectId}/preview`}>미리보기로 보기</Link>} />
         </div>
       </div>
@@ -52,6 +59,7 @@ export default async function StoryboardPage({ params }: { params: Promise<{ pro
                     screenType={screenType?.screenType}
                     design={design}
                     showTypeBadge={false}
+                    variantIndex={mockupVariants[scene.id] ?? 0}
                     className="w-32 shrink-0"
                   />
                 </div>

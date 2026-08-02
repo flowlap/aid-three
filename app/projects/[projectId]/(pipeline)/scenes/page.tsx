@@ -6,11 +6,12 @@ export default async function ScenesPage({ params }: { params: Promise<{ project
   const { projectId } = await params;
   const raw = await readProjectFile(projectId, "scenes.json");
   const initialScenes: Scene[] = raw ? JSON.parse(raw).scenes : [];
+  const narration = await readProjectFile(projectId, "narration.md");
 
   return (
     <>
       <h1 className="mb-6 text-3xl font-semibold tracking-tight">씬 분할</h1>
-      <SceneListEditor projectId={projectId} initialScenes={initialScenes} />
+      <SceneListEditor projectId={projectId} initialScenes={initialScenes} narrationLength={narration?.length ?? 0} />
     </>
   );
 }

@@ -7,17 +7,40 @@ import type { VisualDesign } from "@/lib/pipeline/designVisuals";
 import type { Scene } from "@/lib/pipeline/splitScenes";
 import { createResilientStream } from "@/lib/http/resilientStream";
 import { startJob, finishJob, recordProgress, getJob, JobAlreadyRunningError } from "@/lib/jobs/registry";
+import { DEFAULT_SCREEN_DESIGN_COMMON_PROMPT } from "@/lib/pipeline/commonPromptDefaults";
 
 const STEP = "screen-design" as const;
 const FILENAME = "screen-design.json";
 
-export async function POST(_req: NextRequest, { params }: { params: Promise<{ projectId: string }> }) {
+export async function POST(req: NextRequest, { params }: { params: Promise<{ projectId: string }> }) {
   const { projectId } = await params;
   const project = await readProject(projectId);
   if (!project) return NextResponse.json({ error: "프로젝트를 찾을 수 없습니다" }, { status: 404 });
 
+  const body = await req.json().catch(() => ({}));
+  const resume = body?.mode === "resume";
+
   const raw = await readProjectFile(projectId, "scenes.json");
   if (!raw) return NextResponse.json({ error: "씬 데이터가 없습니다" }, { status: 400 });
+
+  const documentSummary = (await readProjectFile(projectId, "document-summary.txt"))?.trim() || undefined;
+  const commonPrompt =
+    (await readProjectFile(projectId, "screen-design-common-prompt.txt"))?.trim() || DEFAULT_SCREEN_DESIGN_COMMON_PROMPT;
+
+  let existingScreenTypes: Record<string, ScreenTypeAssignment> = {};
+  let existingVisualDesigns: Record<string, VisualDesign> = {};
+  if (resume) {
+    const existingRaw = await readProjectFile(projectId, FILENAME);
+    if (existingRaw) {
+      try {
+        const parsed = JSON.parse(existingRaw);
+        existingScreenTypes = parsed.screenTypes ?? {};
+        existingVisualDesigns = parsed.visualDesigns ?? {};
+      } catch (err) {
+        console.error("기존 화면 설계 데이터 파싱 실패 (처음부터 진행):", err);
+      }
+    }
+  }
 
   let scenes: Scene[];
   try {
@@ -53,15 +76,20 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ pr
   }
 
   const stream = createResilientStream(async (emit) => {
-    // Clear any leftover entries from a previous run so a second tab polling
-    // mid-regenerate never sees a mix of old-run and new-run scenes.
-    await writeProjectFile(projectId, FILENAME, JSON.stringify({ screenTypes: {}, visualDesigns: {} }, null, 2));
+    if (!resume) {
+      // Clear any leftover entries from a previous run so a second tab polling
+      // mid-regenerate never sees a mix of old-run and new-run scenes.
+      await writeProjectFile(projectId, FILENAME, JSON.stringify({ screenTypes: {}, visualDesigns: {} }, null, 2));
+    }
 
     let screenTypes: Record<string, ScreenTypeAssignment>;
-    const visualDesigns: Record<string, VisualDesign> = {};
+    const visualDesigns: Record<string, VisualDesign> = { ...existingVisualDesigns };
     try {
       screenTypes = await selectScreenTypes(client, scenes, {
         signal: job.controller.signal,
+        documentSummary,
+        commonPrompt,
+        existingAssignments: resume ? existingScreenTypes : undefined,
         onProgress: async (sceneId, index, total, screenType) => {
           const scene = scenes.find((s) => s.id === sceneId);
           const visualDesign = computeVisualDesign(scene!, screenType);

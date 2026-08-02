@@ -1,14 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readProject, readProjectFile } from "@/lib/projects/store";
 import { buildScenePptx, type PptxPlaceholderData } from "@/lib/pptx/exportPptx";
+import { buildDefaultPptxTemplate, buildNotebookLmPptxTemplate } from "@/lib/pptx/defaultTemplate";
 import type { Scene } from "@/lib/pipeline/splitScenes";
 import type { ScreenTypeAssignment } from "@/lib/pipeline/selectScreenTypes";
 import type { VisualDesign } from "@/lib/pipeline/designVisuals";
 
 /**
- * Uploads a .pptx template (first slide = the per-scene layout, with
- * {{과정명}}, {{나레이션}}, etc. placeholders) and returns a .pptx with that
- * slide duplicated once per scene, placeholders filled in. Text only — the
+ * Fills in the per-scene pptx template — either one the user uploaded
+ * (first slide = the per-scene layout, with {{과정명}}, {{나레이션}}, etc.
+ * placeholders), or, if no file is attached, the bundled default/노트북LM
+ * template for a one-click "PPTX로 저장" with no upload step. Text only — the
  * template's own images/design are left untouched.
  */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ projectId: string }> }) {
@@ -18,11 +20,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
 
   const formData = await req.formData();
   const template = formData.get("template") as File | null;
-  if (!template) {
-    return NextResponse.json({ error: "pptx 템플릿 파일이 필요합니다" }, { status: 400 });
-  }
-  if (!template.name.toLowerCase().endsWith(".pptx")) {
-    return NextResponse.json({ error: "pptx 파일만 업로드 가능합니다" }, { status: 400 });
+  const style = formData.get("style") as string | null;
+
+  let templateBytes: Buffer;
+  if (template) {
+    if (!template.name.toLowerCase().endsWith(".pptx")) {
+      return NextResponse.json({ error: "pptx 파일만 업로드 가능합니다" }, { status: 400 });
+    }
+    templateBytes = Buffer.from(await template.arrayBuffer());
+  } else {
+    templateBytes = style === "notebooklm" ? await buildNotebookLmPptxTemplate() : await buildDefaultPptxTemplate();
   }
 
   const scenesRaw = await readProjectFile(projectId, "scenes.json");
@@ -57,7 +64,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
 
   let output: Buffer;
   try {
-    const templateBytes = Buffer.from(await template.arrayBuffer());
     output = await buildScenePptx(templateBytes, perSlideData);
   } catch (err) {
     console.error("pptx 생성 실패:", err);

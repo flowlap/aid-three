@@ -1,5 +1,6 @@
 import { readProjectFile, listProjectImageIds } from "@/lib/projects/store";
 import { ImagesEditor } from "./ImagesEditor";
+import { DEFAULT_IMAGE_COMMON_PROMPT } from "@/lib/pipeline/commonPromptDefaults";
 import type { Scene } from "@/lib/pipeline/splitScenes";
 import type { ScreenTypeAssignment } from "@/lib/pipeline/selectScreenTypes";
 import type { VisualDesign } from "@/lib/pipeline/designVisuals";
@@ -15,10 +16,13 @@ export default async function ImagesPage({ params }: { params: Promise<{ project
   const visualDesigns: Record<string, VisualDesign> = screenDesign.visualDesigns ?? {};
 
   const initialImageIds = await listProjectImageIds(projectId);
+  const initialCommonPrompt =
+    (await readProjectFile(projectId, "image-common-prompt.txt"))?.trim() || DEFAULT_IMAGE_COMMON_PROMPT;
+  const initialPresenterEnabled = (await readProjectFile(projectId, "image-presenter-enabled.txt"))?.trim() === "true";
 
   return (
     <>
-      <h1 className="mb-1 text-3xl font-semibold tracking-tight">이미지 생성</h1>
+      <h1 className="mb-1 text-3xl font-semibold tracking-tight">이미지/목업 생성</h1>
       <p className="mb-6 text-sm text-muted-foreground">
         선택 사항입니다. 이미지 없이 다음 단계로 넘어가도 됩니다 — OpenAI 이미지 API 호출은 비용이 발생합니다.
       </p>
@@ -28,6 +32,8 @@ export default async function ImagesPage({ params }: { params: Promise<{ project
         screenTypes={screenTypes}
         visualDesigns={visualDesigns}
         initialImageIds={initialImageIds}
+        initialCommonPrompt={initialCommonPrompt}
+        initialPresenterEnabled={initialPresenterEnabled}
       />
     </>
   );

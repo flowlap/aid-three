@@ -22,38 +22,57 @@ export class RealOpenAiImageClient implements OpenAiImageClient {
   constructor(private readonly apiKey: string) {}
 
   async generateImage(prompt: string, options?: OpenAiImageOptions): Promise<Buffer> {
-    const response = await fetch(`${BASE_URL}/images/generations`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${this.apiKey}`,
-      },
-      body: JSON.stringify({
-        model: OPENAI_IMAGE_MODELS.default,
-        prompt,
-        quality: options?.quality ?? DEFAULT_QUALITY,
-        size: options?.size ?? DEFAULT_SIZE,
-        n: 1,
-      }),
-      signal: options?.signal,
-    });
+    const startedAt = Date.now();
+    const quality = options?.quality ?? DEFAULT_QUALITY;
+    const size = options?.size ?? DEFAULT_SIZE;
+    console.log(`[OpenAI Image] 생성 시작 model=${OPENAI_IMAGE_MODELS.default} quality=${quality} size=${size} promptChars=${prompt.length}`);
+
+    let response: Response;
+    try {
+      response = await fetch(`${BASE_URL}/images/generations`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${this.apiKey}`,
+        },
+        body: JSON.stringify({
+          model: OPENAI_IMAGE_MODELS.default,
+          prompt,
+          quality,
+          size,
+          n: 1,
+        }),
+        signal: options?.signal,
+      });
+    } catch (err) {
+      console.error(`[OpenAI Image] 생성 실패 elapsedMs=${Date.now() - startedAt}`, err);
+      throw err;
+    }
 
     if (!response.ok) {
       const body = await response.text();
-      throw new Error(`OpenAI Image API error (${response.status}): ${body}`);
+      const err = new Error(`OpenAI Image API error (${response.status}): ${body}`);
+      console.error(`[OpenAI Image] 생성 실패 elapsedMs=${Date.now() - startedAt}`, err);
+      throw err;
     }
 
     const data = (await response.json()) as { data: Array<{ b64_json?: string; url?: string }> };
     const first = data.data[0];
     if (first?.b64_json) {
-      return Buffer.from(first.b64_json, "base64");
+      const buffer = Buffer.from(first.b64_json, "base64");
+      console.log(`[OpenAI Image] 생성 완료 elapsedMs=${Date.now() - startedAt} bytes=${buffer.length}`);
+      return buffer;
     }
     if (first?.url) {
       const imageRes = await fetch(first.url);
       if (!imageRes.ok) throw new Error(`이미지 다운로드 실패 (${imageRes.status})`);
-      return Buffer.from(await imageRes.arrayBuffer());
+      const buffer = Buffer.from(await imageRes.arrayBuffer());
+      console.log(`[OpenAI Image] 생성 완료(URL 다운로드) elapsedMs=${Date.now() - startedAt} bytes=${buffer.length}`);
+      return buffer;
     }
-    throw new Error("OpenAI Image API 응답에 이미지 데이터가 없습니다");
+    const err = new Error("OpenAI Image API 응답에 이미지 데이터가 없습니다");
+    console.error(`[OpenAI Image] 생성 실패 elapsedMs=${Date.now() - startedAt}`, err);
+    throw err;
   }
 }
 

@@ -7,10 +7,12 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { AiJobStatus } from "@/components/AiJobStatus";
 import type { Scene } from "@/lib/pipeline/splitScenes";
 import { useAiJob } from "@/lib/client/useAiJob";
 import { useNextStepAction } from "@/lib/client/StepNavContext";
 import { useAutoProgressFlag, withAutoProgress } from "@/lib/client/useAutoProgress";
+import { estimateSecondsForChars } from "@/lib/client/estimateAiDuration";
 
 type SceneStreamEvent =
   | { type: "chunk"; text: string }
@@ -44,9 +46,11 @@ function nextSplitId(existingIds: string[], baseId: string): string {
 export function SceneListEditor({
   projectId,
   initialScenes,
+  narrationLength,
 }: {
   projectId: string;
   initialScenes: Scene[];
+  narrationLength: number;
 }) {
   const router = useRouter();
   const auto = useAutoProgressFlag();
@@ -57,7 +61,7 @@ export function SceneListEditor({
   const [warning, setWarning] = useState<string | null>(null);
   const [rawPreview, setRawPreview] = useState("");
 
-  const { loading, discoveredRunning, error, start, cancel } = useAiJob<SceneStreamEvent>({
+  const { loading, discoveredRunning, error, startedAt, start, cancel } = useAiJob<SceneStreamEvent>({
     projectId,
     step: "scenes",
     onEvent: (event) => {
@@ -217,11 +221,13 @@ export function SceneListEditor({
           )}
           <span className="ml-auto text-xs font-medium text-muted-foreground">총 {scenes.length}개 씬</span>
         </div>
-        {loading && (
-          <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-lg border bg-muted p-3 text-xs text-muted-foreground">
-            {rawPreview || "생성 준비 중..."}
-          </pre>
-        )}
+        <AiJobStatus
+          loading={loading}
+          label={discoveredRunning ? "다른 곳에서 시작된 씬 분할이 진행 중입니다" : "AI가 나레이션을 씬으로 분할하는 중입니다"}
+          startedAt={startedAt}
+          estimateSeconds={estimateSecondsForChars(narrationLength)}
+          activityLines={rawPreview ? [rawPreview] : []}
+        />
       </Card>
 
       {warning && (

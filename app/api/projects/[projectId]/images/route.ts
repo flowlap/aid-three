@@ -1,30 +1,42 @@
 import { NextRequest, NextResponse } from "next/server";
-import { readProject, readProjectFile, writeProjectImage, updateProjectStep } from "@/lib/projects/store";
+import { readProject, readProjectFile, writeProjectImage, updateProjectStep, listProjectImageIds } from "@/lib/projects/store";
 import { createOpenAiImageClient } from "@/lib/ai/openaiImageClient";
-import { generateSceneImage } from "@/lib/pipeline/generateSceneImage";
+import { generateSceneImage, buildRelatedScenesContext } from "@/lib/pipeline/generateSceneImage";
 import type { Scene } from "@/lib/pipeline/splitScenes";
+import type { ScreenTypeAssignment } from "@/lib/pipeline/selectScreenTypes";
 import type { VisualDesign } from "@/lib/pipeline/designVisuals";
 import { createResilientStream } from "@/lib/http/resilientStream";
 import { startJob, finishJob, recordProgress, JobAlreadyRunningError } from "@/lib/jobs/registry";
+import { runWithConcurrencyLimit } from "@/lib/concurrency";
+import { IMAGE_GENERATION_CONCURRENCY } from "@/lib/pipeline/imageGenerationConfig";
+import { DEFAULT_IMAGE_COMMON_PROMPT } from "@/lib/pipeline/commonPromptDefaults";
 
 const STEP = "images" as const;
 
-export async function POST(_req: NextRequest, { params }: { params: Promise<{ projectId: string }> }) {
+export async function POST(req: NextRequest, { params }: { params: Promise<{ projectId: string }> }) {
   const { projectId } = await params;
   const project = await readProject(projectId);
   if (!project) return NextResponse.json({ error: "프로젝트를 찾을 수 없습니다" }, { status: 404 });
+
+  const body = await req.json().catch(() => ({}));
+  const resume = body?.mode === "resume";
+  const alreadyGenerated = resume ? new Set(await listProjectImageIds(projectId)) : new Set<string>();
 
   const scenesRaw = await readProjectFile(projectId, "scenes.json");
   const screenDesignRaw = await readProjectFile(projectId, "screen-design.json");
   if (!scenesRaw || !screenDesignRaw) {
     return NextResponse.json({ error: "씬 또는 화면 설계 데이터가 없습니다" }, { status: 400 });
   }
+  const commonPrompt = (await readProjectFile(projectId, "image-common-prompt.txt"))?.trim() || DEFAULT_IMAGE_COMMON_PROMPT;
+  const presenterEnabled = (await readProjectFile(projectId, "image-presenter-enabled.txt"))?.trim() === "true";
 
   let scenes: Scene[];
   let visualDesigns: Record<string, VisualDesign>;
+  let screenTypes: Record<string, ScreenTypeAssignment>;
   try {
     scenes = JSON.parse(scenesRaw).scenes;
     visualDesigns = JSON.parse(screenDesignRaw).visualDesigns;
+    screenTypes = JSON.parse(screenDesignRaw).screenTypes ?? {};
   } catch (err) {
     console.error("씬 또는 화면 설계 데이터 파싱 실패:", err);
     return NextResponse.json({ error: "씬 또는 화면 설계 데이터 형식이 올바르지 않습니다" }, { status: 400 });
@@ -57,18 +69,31 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ pr
 
   const stream = createResilientStream(async (emit) => {
     try {
-      for (let i = 0; i < scenes.length; i++) {
+      const pending = scenes.filter((scene) => visualDesigns[scene.id] && !alreadyGenerated.has(scene.id));
+      let completedSoFar = alreadyGenerated.size;
+
+      await runWithConcurrencyLimit(pending, IMAGE_GENERATION_CONCURRENCY, async (scene) => {
         if (job.controller.signal.aborted) throw new DOMException("Aborted", "AbortError");
 
-        const scene = scenes[i];
         const design = visualDesigns[scene.id];
-        if (!design) continue;
-
-        const buffer = await generateSceneImage(client, scene, design, { signal: job.controller.signal });
+        const buffer = await generateSceneImage(
+          client,
+          scene,
+          design,
+          {
+            screenType: screenTypes[scene.id]?.screenType,
+            commonPrompt,
+            presenterEnabled,
+            presenterPosition: design.presenterPosition,
+            relatedScenes: buildRelatedScenesContext(scene, visualDesigns),
+          },
+          { signal: job.controller.signal }
+        );
         await writeProjectImage(projectId, scene.id, buffer);
-        recordProgress(projectId, STEP, i, scenes.length);
-        emit(JSON.stringify({ type: "scene", sceneId: scene.id, index: i, total: scenes.length }) + "\n");
-      }
+        completedSoFar += 1;
+        recordProgress(projectId, STEP, completedSoFar - 1, scenes.length);
+        emit(JSON.stringify({ type: "scene", sceneId: scene.id, index: completedSoFar - 1, total: scenes.length }) + "\n");
+      });
 
       await updateProjectStep(projectId, STEP);
       finishJob(projectId, STEP, "done");

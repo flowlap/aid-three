@@ -14,7 +14,7 @@ const STEPS = [
   { key: "scenes", label: "씬 분할" },
   { key: "screen-design", label: "화면 설계" },
   { key: "review", label: "일관성 검수" },
-  { key: "images", label: "이미지 생성" },
+  { key: "images", label: "이미지/목업 생성" },
   { key: "storyboard", label: "최종 뷰" },
 ] as const;
 
