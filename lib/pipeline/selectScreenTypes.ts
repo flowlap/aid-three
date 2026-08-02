@@ -1,4 +1,4 @@
-import { DEEPSEEK_MODELS, type DeepSeekClient } from "../ai/deepseekClient";
+import { DEEPSEEK_MODELS, type ChatMessage, type DeepSeekClient } from "../ai/deepseekClient";
 import { SCREEN_TYPE_OPTIONS, SCREEN_TYPE_INFO, PRESENTER_EXCLUDED_SCREEN_TYPES } from "../visual-templates";
 import { LAYOUT_POSITIONS, PRESENTER_POSITIONS, type LayoutElement, type LayoutPosition, type PresenterPosition } from "./designVisuals";
 import type { Scene } from "./splitScenes";
@@ -169,16 +169,124 @@ function buildRelatedSceneContext(
 }
 
 /**
- * How many scenes to design concurrently. Each scene's prompt reads the
- * *already-resolved* result map for diversity/continuity context (see
- * buildRelatedSceneContext, diversityNote, presenterContinuityNote below) —
- * scenes processed in the same batch run in parallel and so can't see each
- * other's just-computed assignment, only whatever an earlier, fully-finished
- * batch already produced. That's an accepted trade-off for the speedup: the
- * continuity heuristics degrade slightly at batch boundaries instead of
- * requiring a fully sequential run.
+ * How many scenes to design concurrently, via a worker-pool split: pending
+ * scenes are divided into up to this many *contiguous* groups (see
+ * determineTopicGroups — one extra AI call, up front, finds where the
+ * narration actually changes topic instead of cutting at arbitrary scene
+ * counts), and each group is worked through sequentially by its own worker
+ * while the workers run concurrently with each other. Diversity/continuity
+ * context (see buildRelatedSceneContext, diversityNote,
+ * presenterContinuityNote below) reads the already-resolved result map, so
+ * it stays fully correct *within* a worker's run of scenes — only the
+ * boundary between two workers' groups (at most CONCURRENCY - 1 of them,
+ * regardless of scene count) loses the immediately-preceding scene's
+ * context, and topic-boundary points are exactly where that loss matters
+ * least (a fresh topic is likely to want a fresh screen type anyway).
  */
 const CONCURRENCY = 5;
+
+function splitIntoContiguousChunks<T>(items: T[], numChunks: number): T[][] {
+  const chunks: T[][] = [];
+  const base = Math.floor(items.length / numChunks);
+  let remainder = items.length % numChunks;
+  let offset = 0;
+  for (let c = 0; c < numChunks; c++) {
+    const size = base + (remainder > 0 ? 1 : 0);
+    if (remainder > 0) remainder--;
+    if (size === 0) continue;
+    chunks.push(items.slice(offset, offset + size));
+    offset += size;
+  }
+  return chunks;
+}
+
+function buildTopicGroupsMessages(sceneList: string, maxGroups: number): ChatMessage[] {
+  const prompt = `다음은 이러닝 스토리보드용으로 나눈 씬 목록입니다. 각 줄 맨 앞 숫자는 씬 순서(order)입니다.
+
+${sceneList}
+
+주제 또는 소주제가 바뀌는 지점을 찾아 전체 씬을 최대 ${maxGroups}개의 그룹으로 나누세요. 그룹은 반드시 씬 순서를 그대로 유지한 "연속 구간"이어야 합니다(예: 1~4번이 1그룹, 5~9번이 2그룹). 씬 순서를 건너뛰거나 뒤섞지 마세요. 실제로 주제가 뚜렷하게 전환되는 지점에서만 나누고, 전환이 거의 없다면 굳이 ${maxGroups}개를 다 채우지 말고 더 적은 그룹으로 나누세요.
+
+JSON으로만 응답하세요: {"groupBoundaries": number[]} — 각 그룹의 "마지막 씬 order"를 순서대로 나열한 배열입니다. 예를 들어 씬이 12개이고 [4, 9]로 응답하면 1~4번이 1그룹, 5~9번이 2그룹, 10~12번이 3그룹이 됩니다. 마지막 그룹의 끝 지점은 적지 마세요(자동으로 마지막 씬까지 포함됩니다). 나눌 필요가 없다면 빈 배열 []을 반환하세요.`;
+
+  return [
+    { role: "system", content: "당신은 이러닝 스토리보드 제작을 돕는 구조 분석 전문가입니다." },
+    { role: "user", content: prompt },
+  ];
+}
+
+/**
+ * Maps AI-picked group-boundary scene *orders* back to cut points within
+ * `pendingIndices` (a position list, not raw scene-array indices — pending
+ * scenes may have gaps from already-resolved existingAssignments). Any
+ * boundary that doesn't resolve to a valid, non-final position is dropped
+ * rather than failing the whole grouping — a partially-unusable AI response
+ * still degrades gracefully into fewer/uneven groups instead of an error.
+ */
+function buildGroupsFromBoundaries(
+  scenes: Scene[],
+  pendingIndices: number[],
+  boundaryOrders: number[],
+  maxGroups: number
+): number[][] {
+  const positionByOrder = new Map(pendingIndices.map((sceneIndex, pos) => [scenes[sceneIndex].order, pos]));
+
+  const cutPositions = Array.from(
+    new Set(
+      boundaryOrders
+        .map((order) => positionByOrder.get(order))
+        .filter((pos): pos is number => typeof pos === "number" && pos < pendingIndices.length - 1)
+    )
+  )
+    .sort((a, b) => a - b)
+    .slice(0, maxGroups - 1);
+
+  const groups: number[][] = [];
+  let start = 0;
+  for (const cut of cutPositions) {
+    groups.push(pendingIndices.slice(start, cut + 1));
+    start = cut + 1;
+  }
+  groups.push(pendingIndices.slice(start));
+  return groups;
+}
+
+/**
+ * Finds topic-change points across the pending scenes with a single AI call
+ * (cost independent of scene count) and returns up to `maxGroups`
+ * contiguous groups accordingly. Falls back to a plain count-based split on
+ * any failure (network error, malformed JSON, aborted) other than the
+ * signal itself being aborted, so one bad grouping response never fails the
+ * whole screen-design step.
+ */
+async function determineTopicGroups(
+  client: DeepSeekClient,
+  scenes: Scene[],
+  pendingIndices: number[],
+  maxGroups: number,
+  signal?: AbortSignal
+): Promise<number[][]> {
+  if (pendingIndices.length === 0) return [];
+  if (pendingIndices.length === 1 || maxGroups <= 1) return [pendingIndices];
+
+  try {
+    const sceneList = pendingIndices.map((i) => `${scenes[i].order}. ${scenes[i].narrationText}`).join("\n");
+    const raw = await client.complete(buildTopicGroupsMessages(sceneList, maxGroups), {
+      jsonMode: true,
+      model: DEEPSEEK_MODELS.pro,
+      signal,
+    });
+    const parsed = JSON.parse(raw) as { groupBoundaries?: unknown };
+    const boundaries = Array.isArray(parsed.groupBoundaries)
+      ? parsed.groupBoundaries.filter((n): n is number => typeof n === "number")
+      : [];
+    return buildGroupsFromBoundaries(scenes, pendingIndices, boundaries, maxGroups);
+  } catch (err) {
+    if (signal?.aborted) throw err;
+    console.error("씬 주제 그룹 분석 실패 (씬 개수 기준 균등 분할로 대체):", err);
+    return splitIntoContiguousChunks(pendingIndices, Math.min(maxGroups, pendingIndices.length));
+  }
+}
 
 export async function selectScreenTypes(
   client: DeepSeekClient,
@@ -276,11 +384,16 @@ JSON으로만 응답하세요: {"screenType": string, "recommendedLayout": strin
     await onProgress?.(scene.id, i, scenes.length, assignment);
   }
 
-  for (let start = 0; start < pendingIndices.length; start += CONCURRENCY) {
-    if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
-    const batch = pendingIndices.slice(start, start + CONCURRENCY);
-    await Promise.all(batch.map((i) => designScene(i)));
+  async function runWorker(indices: number[]): Promise<void> {
+    for (const i of indices) {
+      if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+      await designScene(i);
+    }
   }
+
+  if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+  const workerChunks = await determineTopicGroups(client, scenes, pendingIndices, CONCURRENCY, signal);
+  await Promise.all(workerChunks.map((chunk) => runWorker(chunk)));
 
   return result;
 }

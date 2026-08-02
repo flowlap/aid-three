@@ -21,9 +21,31 @@ function assignmentJson(overrides: Record<string, unknown> = {}): string {
   });
 }
 
+/**
+ * Response for the up-front topic-grouping call. `boundaries` are the
+ * "last scene order" of each group except the last (see
+ * buildGroupsFromBoundaries in selectScreenTypes.ts); [] means "one group,
+ * everything together" — the setting most tests below want, so a scene's
+ * freshly-generated predecessor is always visible to it.
+ */
+function groupingResponse(boundaries: number[] = []): string {
+  return JSON.stringify({ groupBoundaries: boundaries });
+}
+
+function manyScenes(count: number): Scene[] {
+  return Array.from({ length: count }, (_, idx) => ({
+    id: `scene-${String(idx + 1).padStart(3, "0")}`,
+    order: idx + 1,
+    narrationText: `문장 ${idx + 1}.`,
+    estimatedDurationSec: 5,
+    splitReason: "문장종결",
+  }));
+}
+
 describe("selectScreenTypes", () => {
   it("maps each scene id to a screen type assignment", async () => {
     const client = new MockDeepSeekClient([
+      groupingResponse(),
       assignmentJson(),
       assignmentJson({ screenType: "표/그래프형", recommendedLayout: "전체 화면 표", rationale: "표 데이터 설명" }),
     ]);
@@ -35,12 +57,44 @@ describe("selectScreenTypes", () => {
     expect(result["scene-001"].keywords).toEqual(["키워드1", "키워드2"]);
   });
 
-  it("includes neighboring scene context and per-type descriptions in the prompt", async () => {
-    const client = new MockDeepSeekClient([assignmentJson(), assignmentJson({ screenType: "표/그래프형" })]);
+  it("asks the topic-grouping call to find contiguous group boundaries before any scene call", async () => {
+    const client = new MockDeepSeekClient([groupingResponse(), assignmentJson(), assignmentJson()]);
 
     await selectScreenTypes(client, scenes);
 
-    const prompt = client.calls[0].messages[1].content;
+    expect(client.calls).toHaveLength(3);
+    const groupingPrompt = client.calls[0].messages[1].content;
+    expect(groupingPrompt).toContain("연속 구간");
+    expect(groupingPrompt).toContain("정의를 설명합니다.");
+    expect(groupingPrompt).toContain("표를 보여줍니다.");
+    expect(client.calls[0].options?.model).toBe("deepseek-v4-pro");
+  });
+
+  it("skips the topic-grouping call entirely for a single pending scene", async () => {
+    const client = new MockDeepSeekClient([assignmentJson()]);
+
+    await selectScreenTypes(client, [scenes[0]]);
+
+    expect(client.calls).toHaveLength(1);
+    expect(client.calls[0].messages[1].content).not.toContain("groupBoundaries");
+  });
+
+  it("falls back to an even split when the grouping response is malformed", async () => {
+    const client = new MockDeepSeekClient(["이건 JSON이 아님", assignmentJson(), assignmentJson()]);
+
+    const result = await selectScreenTypes(client, scenes);
+
+    expect(Object.keys(result)).toEqual(["scene-001", "scene-002"]);
+    expect(client.calls).toHaveLength(3);
+  });
+
+  it("includes neighboring scene context and per-type descriptions in the prompt", async () => {
+    const client = new MockDeepSeekClient([groupingResponse(), assignmentJson(), assignmentJson({ screenType: "표/그래프형" })]);
+
+    await selectScreenTypes(client, scenes);
+
+    const scene1Call = client.calls.find((call) => call.messages[1].content.includes("현재 씬: 정의를 설명합니다."));
+    const prompt = scene1Call!.messages[1].content;
     expect(prompt).toContain("표를 보여줍니다.");
     // The guide now carries a description per type, not just a bare name list.
     expect(prompt).toContain("표/그래프형:");
@@ -55,7 +109,7 @@ describe("selectScreenTypes", () => {
     expect(client.calls[0].messages[1].content).toContain("이 문서는 탄소배출권 제도를 다룬다.");
   });
 
-  it("requests the flash model", async () => {
+  it("requests the flash model for per-scene design calls", async () => {
     const client = new MockDeepSeekClient([assignmentJson()]);
 
     await selectScreenTypes(client, [scenes[0]]);
@@ -64,7 +118,7 @@ describe("selectScreenTypes", () => {
   });
 
   it("calls onProgress after each scene with its index/total", async () => {
-    const client = new MockDeepSeekClient([assignmentJson(), assignmentJson({ screenType: "표/그래프형" })]);
+    const client = new MockDeepSeekClient([groupingResponse(), assignmentJson(), assignmentJson({ screenType: "표/그래프형" })]);
     const calls: Array<{ sceneId: string; index: number; total: number }> = [];
 
     await selectScreenTypes(client, scenes, {
@@ -79,23 +133,18 @@ describe("selectScreenTypes", () => {
     ]);
   });
 
-  it("stops before the next batch once the signal is aborted", async () => {
-    // Scenes are designed in batches of 5 concurrently, so cancellation can
-    // only take effect between batches, not between individual scenes within
-    // one. With 6 scenes, aborting during the first batch should still let
-    // that batch's 5 in-flight calls happen, but never start the 6th.
-    const sixScenes: Scene[] = Array.from({ length: 6 }, (_, idx) => ({
-      id: `scene-00${idx + 1}`,
-      order: idx + 1,
-      narrationText: `문장 ${idx + 1}.`,
-      estimatedDurationSec: 5,
-      splitReason: "문장종결",
-    }));
-    const client = new MockDeepSeekClient([assignmentJson()]);
+  it("stops before each worker's next scene once the signal is aborted", async () => {
+    // 11 pending scenes grouped into 5 topic groups of sizes [3,2,2,2,2].
+    // Every worker fires its *first* call synchronously before any of them
+    // resolves, so no matter which one triggers the abort (via onProgress),
+    // that first round of 5 calls has already gone out — but no worker
+    // starts a second scene after that.
+    const elevenScenes = manyScenes(11);
+    const client = new MockDeepSeekClient([groupingResponse([3, 5, 7, 9]), assignmentJson()]);
     const controller = new AbortController();
 
     await expect(
-      selectScreenTypes(client, sixScenes, {
+      selectScreenTypes(client, elevenScenes, {
         onProgress: () => {
           controller.abort();
         },
@@ -103,7 +152,8 @@ describe("selectScreenTypes", () => {
       })
     ).rejects.toThrow();
 
-    expect(client.calls).toHaveLength(5);
+    // 1 grouping call + 5 first-round scene calls (one per worker).
+    expect(client.calls).toHaveLength(6);
   });
 
   it("rejects a response missing the keywords field", async () => {
@@ -120,29 +170,19 @@ describe("selectScreenTypes", () => {
     await expect(selectScreenTypes(client, [scenes[0]])).rejects.toThrow();
   });
 
-  it("warns the model off a screen type after it repeats twice in a row across a batch boundary", async () => {
-    // Scenes within the same 5-scene concurrent batch can't see each other's
-    // just-computed type, so the diversity note only kicks in once a scene
-    // starts in a *later* batch than the two it's comparing against.
-    const sixScenes: Scene[] = Array.from({ length: 6 }, (_, idx) => ({
-      id: `scene-00${idx + 1}`,
-      order: idx + 1,
-      narrationText: `문장 ${idx + 1}.`,
-      estimatedDurationSec: 5,
-      splitReason: "문장종결",
-    }));
-    const client = new MockDeepSeekClient([
-      assignmentJson({ rationale: "-", caption: "자막1" }),
-      assignmentJson({ rationale: "-", caption: "자막2" }),
-      assignmentJson({ rationale: "-", caption: "자막3" }),
-      assignmentJson({ rationale: "-", caption: "자막4" }),
-      assignmentJson({ rationale: "-", caption: "자막5" }), // batch 1: 5 scenes, all "텍스트 강조형"
-      assignmentJson({ screenType: "요약/정리형", recommendedLayout: "목록", rationale: "-", caption: "자막6" }),
-    ]);
+  it("warns the model off a screen type after it repeats twice in a row within one worker's group", async () => {
+    // groupingResponse([3, 5, 7, 9]) over 11 scenes yields groups of sizes
+    // [3,2,2,2,2] — worker 1 sequentially handles scene-001..003, so by
+    // scene-003 it has full prevType/prevPrevType context from its own two
+    // prior scenes in the same group.
+    const elevenScenes = manyScenes(11);
+    const client = new MockDeepSeekClient([groupingResponse([3, 5, 7, 9]), assignmentJson({ rationale: "-" })]);
 
-    await selectScreenTypes(client, sixScenes);
+    await selectScreenTypes(client, elevenScenes);
 
-    expect(client.calls[5].messages[1].content).toContain('"텍스트 강조형"은 선택하지 말고');
+    const scene3Call = client.calls.find((call) => call.messages[1].content.includes("현재 씬: 문장 3."));
+    expect(scene3Call).toBeDefined();
+    expect(scene3Call!.messages[1].content).toContain('"텍스트 강조형"은 선택하지 말고');
   });
 
   it("reuses existingAssignments without calling the AI, and only for those scenes", async () => {
@@ -163,7 +203,7 @@ describe("selectScreenTypes", () => {
 
     expect(result["scene-001"]).toEqual(existing["scene-001"]);
     expect(result["scene-002"].screenType).toBe("표/그래프형");
-    expect(client.calls).toHaveLength(1); // only scene-002 hit the AI
+    expect(client.calls).toHaveLength(1); // only scene-002 hit the AI — a single pending scene skips grouping too
   });
 
   it("does not call onProgress for reused scenes, only for freshly generated ones", async () => {
@@ -221,6 +261,7 @@ describe("selectScreenTypes", () => {
 
     await selectScreenTypes(client, threeScenes, { existingAssignments: existing });
 
+    // Only scene-003 is pending — a single pending scene skips grouping too.
     expect(client.calls).toHaveLength(1);
     expect(client.calls[0].messages[1].content).toContain('"텍스트 강조형"은 선택하지 말고');
   });
@@ -248,11 +289,12 @@ describe("selectScreenTypes", () => {
       scenes[1],
       { id: "scene-003", order: 3, narrationText: "두 내용을 하나로 잇습니다.", estimatedDurationSec: 8, splitReason: "연결", relatedSceneIds: ["scene-001", "scene-002"] },
     ];
-    const client = new MockDeepSeekClient([assignmentJson(), assignmentJson(), assignmentJson()]);
+    const client = new MockDeepSeekClient([groupingResponse(), assignmentJson(), assignmentJson(), assignmentJson()]);
 
     await selectScreenTypes(client, withRelation);
 
-    const thirdPrompt = client.calls[2].messages[1].content;
+    const thirdPrompt = client.calls.find((call) => call.messages[1].content.includes("현재 씬: 두 내용을 하나로 잇습니다."))!
+      .messages[1].content;
     expect(thirdPrompt).toContain("관련 씬");
     expect(thirdPrompt).toContain("scene-001");
     expect(thirdPrompt).toContain("scene-002");
@@ -318,9 +360,8 @@ describe("selectScreenTypes", () => {
 
   it("tells the model the previous scene's presenter position and to keep it for continuing content / change it for a topic shift", async () => {
     // scene-001 is pre-resolved (existingAssignments) so scene-002 is the
-    // only pending scene and can see it synchronously — a freshly-generated
-    // predecessor in the *same* concurrent batch wouldn't be visible yet
-    // (see the batch-boundary test above for that behavior).
+    // only pending scene — single pending scene skips grouping and can see
+    // scene-001's assignment synchronously.
     const existing = {
       "scene-001": {
         screenType: "텍스트 강조형",
