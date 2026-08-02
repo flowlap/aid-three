@@ -93,6 +93,32 @@ describe("buildScenePptx", () => {
     expect(slide1).toContain("A &amp; B &lt;상&gt; &quot;인용&quot;");
   });
 
+  it("fills in a placeholder even when PowerPoint split it across multiple text runs", async () => {
+    const zip = new JSZip();
+    zip.file("[Content_Types].xml", CONTENT_TYPES);
+    zip.file("ppt/presentation.xml", PRESENTATION_XML);
+    zip.file("ppt/_rels/presentation.xml.rels", PRESENTATION_RELS);
+    zip.file(
+      "ppt/slides/slide1.xml",
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+<p:cSld><p:spTree>
+<p:sp><p:txBody><a:p><a:r><a:rPr b="1"/><a:t>{{</a:t></a:r><a:r><a:t>나레이션</a:t></a:r><a:r><a:t>}}</a:t></a:r></a:p></p:txBody></p:sp>
+</p:spTree></p:cSld>
+</p:sld>`
+    );
+    zip.file("ppt/slides/_rels/slide1.xml.rels", SLIDE_RELS);
+    const template = await zip.generateAsync({ type: "nodebuffer" });
+
+    const output = await buildScenePptx(template, [{ 나레이션: "실제 나레이션 값" }]);
+    const outZip = await JSZip.loadAsync(output);
+    const slide1 = await outZip.file("ppt/slides/slide1.xml")!.async("string");
+
+    expect(slide1).toContain("실제 나레이션 값");
+    expect(slide1).not.toContain("{{");
+    expect(slide1).not.toContain("}}");
+  });
+
   it("throws for a pptx with no slides", async () => {
     const zip = new JSZip();
     zip.file("[Content_Types].xml", CONTENT_TYPES);

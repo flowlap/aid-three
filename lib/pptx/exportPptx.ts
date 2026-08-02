@@ -12,24 +12,127 @@ function escapeXml(text: string): string {
     .replace(/'/g, "&apos;");
 }
 
+function unescapeXml(text: string): string {
+  return text
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, "&");
+}
+
+interface RunInfo {
+  /** Byte offset of this run's `<a:r>` in the paragraph string. */
+  index: number;
+  /** Length of the full `<a:r>...</a:r>` block. */
+  length: number;
+  rPrXml: string;
+  tAttrs: string;
+  /** Unescaped run text. */
+  text: string;
+  /** Offsets of `text` within the paragraph's concatenated run text. */
+  textStart: number;
+  textEnd: number;
+}
+
+function buildRunXml(rPrXml: string, tAttrs: string, text: string): string {
+  return `<a:r>${rPrXml}<a:t${tAttrs}>${escapeXml(text)}</a:t></a:r>`;
+}
+
 /**
- * Replaces every `{{key}}` found anywhere in the slide XML with the matching
- * value from `data` (XML-escaped). Placeholders with no matching key are left
- * untouched so a typo or an unsupported field stays visible in the output
- * instead of silently disappearing.
- *
- * Known limitation: PowerPoint sometimes splits a single typed phrase across
- * multiple `<a:t>` text runs (e.g. due to autocomplete or a mid-word
- * formatting change), which would split a placeholder across runs too and
- * make it invisible to this regex. Type each `{{placeholder}}` in one
- * continuous, unformatted run in the template to avoid this.
+ * Substitutes `{{key}}` placeholders within a single paragraph, merging
+ * runs when a placeholder was split across multiple `<a:t>` text runs — a
+ * common side effect of PowerPoint autocomplete or a mid-phrase formatting
+ * change while typing the placeholder in the template. Only the runs a
+ * placeholder actually spans are rewritten (using the first spanned run's
+ * formatting for the substituted value); every other run, and any non-run
+ * content between them, is left byte-for-byte identical.
+ */
+function substituteInParagraph(paragraphXml: string, data: PptxPlaceholderData): string {
+  if (!paragraphXml.includes("{{")) return paragraphXml;
+
+  const runRegex = /<a:r>([\s\S]*?)<\/a:r>/g;
+  const runs: RunInfo[] = [];
+  let runMatch: RegExpExecArray | null;
+  let textCursor = 0;
+  while ((runMatch = runRegex.exec(paragraphXml))) {
+    const runInner = runMatch[1];
+    const rPrMatch = runInner.match(/<a:rPr\b[^>]*(?:\/>|>[\s\S]*?<\/a:rPr>)/);
+    const tMatch = runInner.match(/<a:t\b([^>]*)>([\s\S]*?)<\/a:t>/);
+    if (!tMatch) continue;
+    const text = unescapeXml(tMatch[2]);
+    runs.push({
+      index: runMatch.index,
+      length: runMatch[0].length,
+      rPrXml: rPrMatch ? rPrMatch[0] : "",
+      tAttrs: tMatch[1],
+      text,
+      textStart: textCursor,
+      textEnd: textCursor + text.length,
+    });
+    textCursor += text.length;
+  }
+  if (runs.length === 0) return paragraphXml;
+
+  const fullText = runs.map((r) => r.text).join("");
+  if (!fullText.includes("{{")) return paragraphXml;
+
+  const placeholderRegex = /\{\{\s*([^{}]+?)\s*\}\}/g;
+  const matches: { start: number; end: number; value: string }[] = [];
+  let placeholderMatch: RegExpExecArray | null;
+  while ((placeholderMatch = placeholderRegex.exec(fullText))) {
+    const key = placeholderMatch[1].trim();
+    if (!Object.prototype.hasOwnProperty.call(data, key)) continue;
+    matches.push({ start: placeholderMatch.index, end: placeholderMatch.index + placeholderMatch[0].length, value: data[key] ?? "" });
+  }
+  if (matches.length === 0) return paragraphXml;
+
+  const runIndexAt = (pos: number): number => {
+    const found = runs.findIndex((r) => pos >= r.textStart && pos < r.textEnd);
+    return found >= 0 ? found : runs.length - 1;
+  };
+
+  const firstRunIdx = Math.min(...matches.map((m) => runIndexAt(m.start)));
+  const lastRunIdx = Math.max(...matches.map((m) => runIndexAt(Math.max(m.end - 1, m.start))));
+  const spanTextStart = runs[firstRunIdx].textStart;
+  const spanTextEnd = runs[lastRunIdx].textEnd;
+
+  const sliceRunsXml = (start: number, end: number): string => {
+    if (start >= end) return "";
+    const out: string[] = [];
+    for (let i = firstRunIdx; i <= lastRunIdx; i++) {
+      const r = runs[i];
+      const s = Math.max(start, r.textStart);
+      const e = Math.min(end, r.textEnd);
+      if (s >= e) continue;
+      out.push(buildRunXml(r.rPrXml, r.tAttrs, r.text.slice(s - r.textStart, e - r.textStart)));
+    }
+    return out.join("");
+  };
+
+  let rebuilt = "";
+  let cursor = spanTextStart;
+  for (const match of matches) {
+    if (match.start > cursor) rebuilt += sliceRunsXml(cursor, match.start);
+    const ownerRun = runs[runIndexAt(match.start)];
+    rebuilt += buildRunXml(ownerRun.rPrXml, ownerRun.tAttrs, match.value);
+    cursor = match.end;
+  }
+  if (cursor < spanTextEnd) rebuilt += sliceRunsXml(cursor, spanTextEnd);
+
+  const before = paragraphXml.slice(0, runs[firstRunIdx].index);
+  const after = paragraphXml.slice(runs[lastRunIdx].index + runs[lastRunIdx].length);
+  return before + rebuilt + after;
+}
+
+/**
+ * Replaces every `{{key}}` found in the slide XML's paragraphs with the
+ * matching value from `data` (XML-escaped). Placeholders with no matching
+ * key are left untouched so a typo or an unsupported field stays visible in
+ * the output instead of silently disappearing.
  */
 function substitutePlaceholders(xml: string, data: PptxPlaceholderData): string {
-  return xml.replace(/\{\{\s*([^{}]+?)\s*\}\}/g, (match, rawKey: string) => {
-    const key = rawKey.trim();
-    if (!Object.prototype.hasOwnProperty.call(data, key)) return match;
-    return escapeXml(data[key] ?? "");
-  });
+  return xml.replace(/<a:p\b[^>]*>[\s\S]*?<\/a:p>/g, (paragraphXml) => substituteInParagraph(paragraphXml, data));
 }
 
 function extractAttr(tag: string, name: string): string | null {
