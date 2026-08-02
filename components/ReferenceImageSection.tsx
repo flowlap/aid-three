@@ -21,6 +21,7 @@ export function ReferenceImageSection({
   projectId,
   kind,
   initialPrompt,
+  defaultPrompt,
   initialHasImage,
   showGenderSelect = false,
   initialGender = "female",
@@ -28,22 +29,51 @@ export function ReferenceImageSection({
   projectId: string;
   kind: ReferenceImageKind;
   initialPrompt: string;
+  /** Prompt text the "초기화" button resets to. */
+  defaultPrompt: string;
   initialHasImage: boolean;
   showGenderSelect?: boolean;
   initialGender?: PresenterGender;
 }) {
   const [prompt, setPrompt] = useState(initialPrompt);
   const [gender, setGender] = useState<PresenterGender>(initialGender);
+  const [lastSavedPrompt, setLastSavedPrompt] = useState(initialPrompt);
+  const [lastSavedGender, setLastSavedGender] = useState(initialGender);
   const [hasImage, setHasImage] = useState(initialHasImage);
   const [version, setVersion] = useState(0);
   const [generating, setGenerating] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [removing, setRemoving] = useState(false);
+  const [savingPrompt, setSavingPrompt] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const baseUrl = `/api/projects/${projectId}/images/${kind}-reference`;
-  const busy = generating || uploading || removing;
+  const busy = generating || uploading || removing || savingPrompt;
+  const promptDirty = prompt !== lastSavedPrompt || (showGenderSelect && gender !== lastSavedGender);
+
+  async function handleSavePrompt() {
+    setError(null);
+    setSavingPrompt(true);
+    try {
+      const res = await fetch(`${baseUrl}/prompt`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(showGenderSelect ? { prompt, gender } : { prompt }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(data.error ?? "저장에 실패했습니다");
+        return;
+      }
+      setLastSavedPrompt(prompt);
+      if (showGenderSelect) setLastSavedGender(gender);
+    } catch {
+      setError("저장 요청 중 오류가 발생했습니다");
+    } finally {
+      setSavingPrompt(false);
+    }
+  }
 
   async function handleGenerate() {
     setError(null);
@@ -61,6 +91,9 @@ export function ReferenceImageSection({
       }
       setHasImage(true);
       setVersion((v) => v + 1);
+      // The generate call also persists the prompt/gender server-side, so keep the "saved" baseline in sync.
+      setLastSavedPrompt(prompt);
+      if (showGenderSelect) setLastSavedGender(gender);
     } catch {
       setError("이미지 생성 요청 중 오류가 발생했습니다");
     } finally {
@@ -152,6 +185,18 @@ export function ReferenceImageSection({
           </div>
         )}
         <div className="flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            onClick={() => setPrompt(defaultPrompt)}
+            disabled={busy}
+          >
+            초기화
+          </Button>
+          <Button type="button" size="sm" variant="outline" onClick={handleSavePrompt} disabled={busy || !promptDirty}>
+            {savingPrompt ? "저장 중..." : promptDirty ? "저장" : "저장됨"}
+          </Button>
           <Button type="button" size="sm" variant="outline" onClick={handleGenerate} disabled={busy}>
             <RefreshCw className="size-3.5" />
             {generating ? "생성 중..." : hasImage ? "재생성" : "이미지 생성"}

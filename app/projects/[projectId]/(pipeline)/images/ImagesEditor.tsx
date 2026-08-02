@@ -17,7 +17,11 @@ import { useAiJob } from "@/lib/client/useAiJob";
 import { useNextStepAction } from "@/lib/client/StepNavContext";
 import { estimateSecondsForScenes } from "@/lib/client/estimateAiDuration";
 import { IMAGE_GENERATION_CONCURRENCY } from "@/lib/pipeline/imageGenerationConfig";
-import { DEFAULT_IMAGE_COMMON_PROMPT } from "@/lib/pipeline/commonPromptDefaults";
+import {
+  DEFAULT_IMAGE_COMMON_PROMPT,
+  DEFAULT_BACKGROUND_IMAGE_PROMPT,
+  DEFAULT_PRESENTER_IMAGE_PROMPT,
+} from "@/lib/pipeline/commonPromptDefaults";
 import { cn } from "@/lib/utils";
 import { getDepthBorderClass } from "@/lib/depthColors";
 
@@ -230,6 +234,7 @@ export function ImagesEditor({
             projectId={projectId}
             kind="background"
             initialPrompt={initialBackgroundPrompt}
+            defaultPrompt={DEFAULT_BACKGROUND_IMAGE_PROMPT}
             initialHasImage={initialHasBackgroundImage}
           />
         )}
@@ -255,6 +260,7 @@ export function ImagesEditor({
             projectId={projectId}
             kind="presenter"
             initialPrompt={initialPresenterPrompt}
+            defaultPrompt={DEFAULT_PRESENTER_IMAGE_PROMPT}
             initialHasImage={initialHasPresenterImage}
             showGenderSelect
             initialGender={initialPresenterGender}

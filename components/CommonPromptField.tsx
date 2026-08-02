@@ -58,9 +58,14 @@ export function CommonPromptField({
     <Card className="gap-2 p-4">
       <div className="flex items-center justify-between gap-2">
         <label className="text-sm font-medium">{label}</label>
-        <Button size="sm" variant="outline" onClick={handleSave} disabled={saving || !dirty}>
-          {saving ? "저장 중..." : dirty ? "저장" : "저장됨"}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button size="sm" variant="ghost" onClick={() => setValue(placeholder ?? "")} disabled={saving}>
+            초기화
+          </Button>
+          <Button size="sm" variant="outline" onClick={handleSave} disabled={saving || !dirty}>
+            {saving ? "저장 중..." : dirty ? "저장" : "저장됨"}
+          </Button>
+        </div>
       </div>
       {helperText && <p className="text-xs text-muted-foreground">{helperText}</p>}
       <Textarea
