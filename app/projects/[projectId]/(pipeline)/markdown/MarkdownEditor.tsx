@@ -69,7 +69,12 @@ export function MarkdownEditor({
         setSaveError(data.error ?? "저장에 실패했습니다");
         return;
       }
-      router.push(destination);
+      // A plain SPA router.push() here can reuse a stale cached render of
+      // the shared (pipeline) layout (stepper checkmarks included) — the
+      // layout only reliably refetches project.currentStep on a real
+      // navigation, so this step deliberately does a full page load instead
+      // of a soft client-side transition.
+      window.location.href = destination;
     } catch {
       setSaveError("저장 요청 중 오류가 발생했습니다");
     } finally {

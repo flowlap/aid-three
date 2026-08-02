@@ -12,7 +12,7 @@ export default async function ReviewPage({ params }: { params: Promise<{ project
   return (
     <>
       <h1 className="mb-6 text-3xl font-semibold tracking-tight">일관성 검수</h1>
-      <ReviewIssueList projectId={projectId} initialIssues={initialIssues} sceneCount={sceneCount} />
+      <ReviewIssueList projectId={projectId} initialIssues={initialIssues} initialHasRun={raw !== null} sceneCount={sceneCount} />
     </>
   );
 }

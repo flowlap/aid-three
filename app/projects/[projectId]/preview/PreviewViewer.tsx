@@ -8,6 +8,7 @@ import { Card } from "@/components/ui/card";
 import { ScreenMockup } from "@/components/ScreenMockup";
 import { PptxQuickExportButton, PptxTemplateSection } from "@/components/PptxExportButton";
 import { computeMockupVariantIndexes } from "@/lib/visual-templates";
+import { buildSceneHierarchy } from "@/lib/pipeline/sceneHierarchy";
 import { cn } from "@/lib/utils";
 import type { Scene } from "@/lib/pipeline/splitScenes";
 import type { ScreenTypeAssignment } from "@/lib/pipeline/selectScreenTypes";
@@ -32,6 +33,7 @@ export function PreviewViewer({
 }) {
   const imageIdSet = new Set(imageIds);
   const mockupVariants = useMemo(() => computeMockupVariantIndexes(scenes, screenTypes), [scenes, screenTypes]);
+  const hierarchy = useMemo(() => buildSceneHierarchy(scenes), [scenes]);
   const [activeIndex, setActiveIndex] = useState(0);
   const [downloading, setDownloading] = useState(false);
   const [mockupStyle, setMockupStyle] = useState<MockupStyle>("storyboard");
@@ -153,6 +155,7 @@ ${clone.outerHTML}
                   e.preventDefault();
                   scrollToIndex(index);
                 }}
+                style={{ marginLeft: `${(hierarchy[scene.id]?.indentDepth ?? 0) * 12}px` }}
                 className={`block truncate rounded-lg px-2.5 py-1.5 text-sm transition-colors ${
                   index === activeIndex ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground"
                 }`}
@@ -255,10 +258,18 @@ ${clone.outerHTML}
                     )}
                   </div>
                   <div>
-                    <p className="mb-1.5 text-xs font-medium text-muted-foreground">화면 설계 목업</p>
+                    <div className="mb-1.5 flex items-center justify-between gap-2">
+                      <p className="text-xs font-medium text-muted-foreground">화면 설계 목업</p>
+                      {screenType?.screenType && (
+                        <span className="w-fit rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground ring-1 ring-border">
+                          {screenType.screenType}
+                        </span>
+                      )}
+                    </div>
                     <ScreenMockup
                       screenType={screenType?.screenType}
                       design={design}
+                      showTypeBadge={false}
                       variantIndex={mockupVariants[scene.id] ?? 0}
                       style={mockupStyle}
                     />

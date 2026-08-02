@@ -42,15 +42,19 @@ type ReviewStreamEvent =
 export function ReviewIssueList({
   projectId,
   initialIssues,
+  initialHasRun,
   sceneCount,
 }: {
   projectId: string;
   initialIssues: ReviewIssue[];
+  /** Whether review.json already exists — separate from issues.length, since a clean pass (0 issues found) is still a completed run. */
+  initialHasRun: boolean;
   sceneCount: number;
 }) {
   const router = useRouter();
   const auto = useAutoProgressFlag();
   const [issues, setIssues] = useState<ReviewIssue[]>(initialIssues);
+  const [hasRun, setHasRun] = useState(initialHasRun);
   const [rawPreview, setRawPreview] = useState("");
   const [navigatingNext, setViewingStoryboard] = useState(false);
 
@@ -58,8 +62,11 @@ export function ReviewIssueList({
     projectId,
     step: "review",
     onEvent: (event) => {
-      if (event.type === "deterministic" || event.type === "result") {
+      if (event.type === "deterministic") {
         setIssues(event.issues);
+      } else if (event.type === "result") {
+        setIssues(event.issues);
+        setHasRun(true);
       } else if (event.type === "chunk") {
         setRawPreview((prev) => prev + event.text);
       }
@@ -77,7 +84,12 @@ export function ReviewIssueList({
 
   function handleNext() {
     setViewingStoryboard(true);
-    router.push(`/projects/${projectId}/images`);
+    // A plain SPA router.push() here can reuse a stale cached render of the
+    // shared (pipeline) layout (stepper checkmarks included) — the layout
+    // only reliably refetches project.currentStep on a real navigation, so
+    // this step deliberately does a full page load instead of a soft
+    // client-side transition.
+    window.location.href = `/projects/${projectId}/images`;
   }
 
   useNextStepAction(navigatingNext ? "이동 중..." : "다음 단계", navigatingNext, handleNext);
@@ -99,7 +111,13 @@ export function ReviewIssueList({
       <Card className="gap-3 p-4">
         <div className="flex flex-wrap items-center gap-2">
           <Button onClick={handleGenerate} disabled={loading}>
-            {loading ? (discoveredRunning ? "이미 실행 중..." : "검수 중...") : "일관성 검수 실행"}
+            {loading
+              ? discoveredRunning
+                ? "이미 실행 중..."
+                : "검수 중..."
+              : hasRun
+                ? "다시 검수"
+                : "일관성 검수 실행"}
           </Button>
           {loading && (
             <Button variant="outline" onClick={cancel}>

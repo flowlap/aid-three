@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readProject, readProjectFile, writeProjectImage, updateProjectStep, listProjectImageIds } from "@/lib/projects/store";
 import { createOpenAiImageClient } from "@/lib/ai/openaiImageClient";
-import { generateSceneImage, buildRelatedScenesContext } from "@/lib/pipeline/generateSceneImage";
+import { generateSceneImageWithRetry, buildRelatedScenesContext, describeImageError } from "@/lib/pipeline/generateSceneImage";
 import type { Scene } from "@/lib/pipeline/splitScenes";
 import type { ScreenTypeAssignment } from "@/lib/pipeline/selectScreenTypes";
 import type { VisualDesign } from "@/lib/pipeline/designVisuals";
 import { createResilientStream } from "@/lib/http/resilientStream";
 import { startJob, finishJob, recordProgress, JobAlreadyRunningError } from "@/lib/jobs/registry";
 import { runWithConcurrencyLimit } from "@/lib/concurrency";
+import { groupContentScenesByParentTitle } from "@/lib/pipeline/sceneHierarchy";
 import { IMAGE_GENERATION_CONCURRENCY } from "@/lib/pipeline/imageGenerationConfig";
 import { DEFAULT_IMAGE_COMMON_PROMPT } from "@/lib/pipeline/commonPromptDefaults";
 
@@ -69,30 +70,53 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
 
   const stream = createResilientStream(async (emit) => {
     try {
-      const pending = scenes.filter((scene) => visualDesigns[scene.id] && !alreadyGenerated.has(scene.id));
-      let completedSoFar = alreadyGenerated.size;
+      // Title scenes never get an AI image — the final video frame renderer
+      // (renderSceneFrame.tsx) already falls back to a plain caption card
+      // when there's no image, which is exactly the look a title/divider
+      // scene wants, so there's no need to spend an image call on it.
+      const eligibleScenes = scenes.filter((scene) => scene.sceneType !== "title" && visualDesigns[scene.id]);
+      const total = eligibleScenes.length;
 
-      await runWithConcurrencyLimit(pending, IMAGE_GENERATION_CONCURRENCY, async (scene) => {
-        if (job.controller.signal.aborted) throw new DOMException("Aborted", "AbortError");
+      // Grouped the same way as screen design (see selectScreenTypes.ts /
+      // sceneHierarchy.ts): each nearest-title cluster of content scenes is
+      // one unit of parallel work, so a chapter's images generate together
+      // instead of being interleaved arbitrarily with unrelated scenes.
+      // Unlike screen design's uncapped Promise.all (cheap text calls),
+      // image generation stays capped at IMAGE_GENERATION_CONCURRENCY
+      // concurrent *groups* — real image API calls are costlier and more
+      // rate-limit-sensitive, so groups queue behind the cap the same way
+      // individual scenes used to.
+      const pendingGroups = groupContentScenesByParentTitle(scenes)
+        .map((group) => ({
+          ...group,
+          scenes: group.scenes.filter((scene) => visualDesigns[scene.id] && !alreadyGenerated.has(scene.id)),
+        }))
+        .filter((group) => group.scenes.length > 0);
+      let completedSoFar = eligibleScenes.filter((scene) => alreadyGenerated.has(scene.id)).length;
 
-        const design = visualDesigns[scene.id];
-        const buffer = await generateSceneImage(
-          client,
-          scene,
-          design,
-          {
-            screenType: screenTypes[scene.id]?.screenType,
-            commonPrompt,
-            presenterEnabled,
-            presenterPosition: design.presenterPosition,
-            relatedScenes: buildRelatedScenesContext(scene, visualDesigns),
-          },
-          { signal: job.controller.signal }
-        );
-        await writeProjectImage(projectId, scene.id, buffer);
-        completedSoFar += 1;
-        recordProgress(projectId, STEP, completedSoFar - 1, scenes.length);
-        emit(JSON.stringify({ type: "scene", sceneId: scene.id, index: completedSoFar - 1, total: scenes.length }) + "\n");
+      await runWithConcurrencyLimit(pendingGroups, IMAGE_GENERATION_CONCURRENCY, async (group) => {
+        for (const scene of group.scenes) {
+          if (job.controller.signal.aborted) throw new DOMException("Aborted", "AbortError");
+
+          const design = visualDesigns[scene.id];
+          const buffer = await generateSceneImageWithRetry(
+            client,
+            scene,
+            design,
+            {
+              screenType: screenTypes[scene.id]?.screenType,
+              commonPrompt,
+              presenterEnabled,
+              presenterPosition: design.presenterPosition,
+              relatedScenes: buildRelatedScenesContext(scene, visualDesigns),
+            },
+            job.controller.signal
+          );
+          await writeProjectImage(projectId, scene.id, buffer);
+          completedSoFar += 1;
+          recordProgress(projectId, STEP, completedSoFar - 1, total);
+          emit(JSON.stringify({ type: "scene", sceneId: scene.id, index: completedSoFar - 1, total }) + "\n");
+        }
       });
 
       await updateProjectStep(projectId, STEP);
@@ -104,9 +128,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
         emit(JSON.stringify({ type: "cancelled" }) + "\n");
         return;
       }
+      const reason = describeImageError(err);
       console.error("이미지 생성 실패:", err);
-      finishJob(projectId, STEP, "error", "AI 이미지 생성에 실패했습니다");
-      emit(JSON.stringify({ type: "error", message: "AI 이미지 생성에 실패했습니다" }) + "\n");
+      finishJob(projectId, STEP, "error", reason);
+      emit(JSON.stringify({ type: "error", message: reason }) + "\n");
     }
   });
 

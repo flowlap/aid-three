@@ -1,8 +1,35 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { MockOpenAiImageClient } from "../ai/openaiImageClient.mock";
-import { generateSceneImage, buildImagePrompt, buildRelatedScenesContext } from "./generateSceneImage";
+import { OpenAiImageApiError, type OpenAiImageClient, type OpenAiImageOptions } from "../ai/openaiImageClient";
+import {
+  generateSceneImage,
+  generateSceneImageWithRetry,
+  isRateLimitError,
+  describeImageError,
+  buildImagePrompt,
+  buildRelatedScenesContext,
+} from "./generateSceneImage";
+import {
+  IMAGE_GENERATION_RETRY_DELAY_MS,
+  IMAGE_GENERATION_RATE_LIMIT_RETRY_DELAY_MS,
+  IMAGE_GENERATION_RATE_LIMIT_MAX_RETRIES,
+} from "./imageGenerationConfig";
 import type { Scene } from "./splitScenes";
 import type { VisualDesign } from "./designVisuals";
+
+/** A stub image client whose successive calls fail/succeed per a fixed script — lets retry tests control exactly when a call succeeds without real network calls. */
+class ScriptedImageClient implements OpenAiImageClient {
+  calls = 0;
+  constructor(private readonly script: (Error | null)[]) {}
+
+  async generateImage(_prompt: string, options?: OpenAiImageOptions): Promise<Buffer> {
+    if (options?.signal?.aborted) throw new DOMException("Aborted", "AbortError");
+    const outcome = this.script[Math.min(this.calls, this.script.length - 1)];
+    this.calls += 1;
+    if (outcome) throw outcome;
+    return Buffer.from([1, 2, 3]);
+  }
+}
 
 const scene: Scene = {
   id: "scene-001",
@@ -150,5 +177,121 @@ describe("buildRelatedScenesContext", () => {
 
   it("returns an empty array when the scene has no relatedSceneIds", () => {
     expect(buildRelatedScenesContext(scene, visualDesigns)).toEqual([]);
+  });
+});
+
+describe("isRateLimitError", () => {
+  it("is true for a 429 OpenAiImageApiError", () => {
+    expect(isRateLimitError(new OpenAiImageApiError(429, "rate limited"))).toBe(true);
+  });
+
+  it("is false for a non-429 OpenAiImageApiError", () => {
+    expect(isRateLimitError(new OpenAiImageApiError(500, "server error"))).toBe(false);
+  });
+
+  it("is false for a plain error", () => {
+    expect(isRateLimitError(new Error("boom"))).toBe(false);
+  });
+});
+
+describe("describeImageError", () => {
+  it("returns an Error's message as-is when short", () => {
+    expect(describeImageError(new Error("something went wrong"))).toBe("something went wrong");
+  });
+
+  it("truncates very long messages", () => {
+    const long = "x".repeat(500);
+    const result = describeImageError(new Error(long));
+    expect(result.length).toBeLessThan(long.length);
+    expect(result.endsWith("...")).toBe(true);
+  });
+
+  it("stringifies non-Error values", () => {
+    expect(describeImageError("plain string failure")).toBe("plain string failure");
+  });
+});
+
+describe("generateSceneImageWithRetry", () => {
+  it("returns the image immediately on first success, with no retry", async () => {
+    const client = new ScriptedImageClient([null]);
+    const buffer = await generateSceneImageWithRetry(client, scene, design);
+    expect(buffer.length).toBeGreaterThan(0);
+    expect(client.calls).toBe(1);
+  });
+
+  it("retries once after the generic delay on a non-rate-limit failure, then succeeds", async () => {
+    vi.useFakeTimers();
+    try {
+      const client = new ScriptedImageClient([new Error("network blip"), null]);
+      const promise = generateSceneImageWithRetry(client, scene, design);
+      await vi.advanceTimersByTimeAsync(IMAGE_GENERATION_RETRY_DELAY_MS);
+      const buffer = await promise;
+      expect(buffer.length).toBeGreaterThan(0);
+      expect(client.calls).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("fails after exhausting the single generic retry, with the scene id and reason in the message", async () => {
+    vi.useFakeTimers();
+    try {
+      const client = new ScriptedImageClient([new Error("network blip"), new Error("network blip again")]);
+      const promise = generateSceneImageWithRetry(client, scene, design);
+      const assertion = expect(promise).rejects.toThrow(`씬 ${scene.id} 이미지 생성 실패: network blip again`);
+      await vi.advanceTimersByTimeAsync(IMAGE_GENERATION_RETRY_DELAY_MS);
+      await assertion;
+      expect(client.calls).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("uses the longer rate-limit delay and allows more retries for a 429", async () => {
+    vi.useFakeTimers();
+    try {
+      const client = new ScriptedImageClient([new OpenAiImageApiError(429, "rate limited"), null]);
+      const promise = generateSceneImageWithRetry(client, scene, design);
+      await vi.advanceTimersByTimeAsync(IMAGE_GENERATION_RATE_LIMIT_RETRY_DELAY_MS);
+      const buffer = await promise;
+      expect(buffer.length).toBeGreaterThan(0);
+      expect(client.calls).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("retries a 429 up to the rate-limit max before failing", async () => {
+    vi.useFakeTimers();
+    try {
+      const client = new ScriptedImageClient([
+        new OpenAiImageApiError(429, "rate limited"),
+        new OpenAiImageApiError(429, "still rate limited"),
+        new OpenAiImageApiError(429, "still rate limited again"),
+      ]);
+      const promise = generateSceneImageWithRetry(client, scene, design);
+      const assertion = expect(promise).rejects.toThrow();
+      await vi.advanceTimersByTimeAsync(IMAGE_GENERATION_RATE_LIMIT_RETRY_DELAY_MS * IMAGE_GENERATION_RATE_LIMIT_MAX_RETRIES);
+      await assertion;
+      // 1 initial call + IMAGE_GENERATION_RATE_LIMIT_MAX_RETRIES retries.
+      expect(client.calls).toBe(1 + IMAGE_GENERATION_RATE_LIMIT_MAX_RETRIES);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops retrying and rejects immediately once the signal is aborted mid-wait", async () => {
+    vi.useFakeTimers();
+    try {
+      const client = new ScriptedImageClient([new Error("network blip"), null]);
+      const controller = new AbortController();
+      const promise = generateSceneImageWithRetry(client, scene, design, undefined, controller.signal);
+      controller.abort();
+      await expect(promise).rejects.toThrow();
+      // Only the first (failing) call went out — the retry never fired.
+      expect(client.calls).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

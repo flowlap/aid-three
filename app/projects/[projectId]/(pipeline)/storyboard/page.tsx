@@ -2,9 +2,12 @@ import Link from "next/link";
 import { readProjectFile, listProjectImageIds } from "@/lib/projects/store";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { ScreenMockup } from "@/components/ScreenMockup";
+import { ScreenMockupThumbnail } from "@/components/ScreenMockup";
 import { PptxExportButton } from "@/components/PptxExportButton";
 import { computeMockupVariantIndexes } from "@/lib/visual-templates";
+import { buildSceneHierarchy } from "@/lib/pipeline/sceneHierarchy";
+import { cn } from "@/lib/utils";
+import { getDepthBorderClass } from "@/lib/depthColors";
 import type { Scene } from "@/lib/pipeline/splitScenes";
 import type { ScreenTypeAssignment } from "@/lib/pipeline/selectScreenTypes";
 import type { VisualDesign } from "@/lib/pipeline/designVisuals";
@@ -20,22 +23,29 @@ export default async function StoryboardPage({ params }: { params: Promise<{ pro
   const visualDesigns: Record<string, VisualDesign> = screenDesign.visualDesigns ?? {};
   const imageIds = new Set(await listProjectImageIds(projectId));
   const mockupVariants = computeMockupVariantIndexes(scenes, screenTypes);
+  const hierarchy = buildSceneHierarchy(scenes);
 
   return (
     <>
-      <div className="mb-6 flex items-center justify-between gap-3">
-        <div>
-          <h1 className="text-3xl font-semibold tracking-tight">최종 스토리보드</h1>
-          <p className="mt-1 text-sm text-muted-foreground">총 {scenes.length}개 씬</p>
+      <div className="mb-6 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h1 className="text-3xl font-semibold tracking-tight">최종 스토리보드</h1>
+            <p className="mt-1 text-sm text-muted-foreground">총 {scenes.length}개 씬</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              nativeButton={false}
+              render={<Link href={`/projects/${projectId}/narration-audio`}>내레이션 음성 생성</Link>}
+            />
+            <Button nativeButton={false} render={<Link href={`/projects/${projectId}/preview`}>미리보기로 보기</Link>} />
+          </div>
         </div>
-        <div className="flex items-start gap-2">
+        <div className="flex flex-wrap items-center gap-3 rounded-lg border bg-muted/30 px-3 py-2">
+          <span className="shrink-0 text-xs font-medium text-muted-foreground">PPTX 내보내기</span>
+          <div className="h-4 w-px shrink-0 bg-border" />
           <PptxExportButton projectId={projectId} />
-          <Button
-            variant="outline"
-            nativeButton={false}
-            render={<Link href={`/projects/${projectId}/narration-audio`}>내레이션 음성 생성</Link>}
-          />
-          <Button nativeButton={false} render={<Link href={`/projects/${projectId}/preview`}>미리보기로 보기</Link>} />
         </div>
       </div>
       <div className="space-y-4">
@@ -43,10 +53,18 @@ export default async function StoryboardPage({ params }: { params: Promise<{ pro
           const screenType = screenTypes[scene.id];
           const design = visualDesigns[scene.id];
           const hasImage = imageIds.has(scene.id);
+          const isTitle = scene.sceneType === "title";
+          const entry = hierarchy[scene.id];
+          const indentDepth = entry?.indentDepth ?? 0;
           return (
-            <Card key={scene.id} id={scene.id} className="gap-0 p-0">
+            <Card
+              key={scene.id}
+              id={scene.id}
+              className={cn("gap-0 p-0", isTitle && ["border-l-4 bg-muted/30", getDepthBorderClass(scene.depth ?? 1)])}
+              style={{ marginLeft: `${indentDepth * 24}px` }}
+            >
               <div className="flex gap-4 p-5">
-                <div className="flex shrink-0 gap-2">
+                <div className="flex shrink-0 items-start gap-2">
                   {hasImage && (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
@@ -55,23 +73,35 @@ export default async function StoryboardPage({ params }: { params: Promise<{ pro
                       className="aspect-[3/2] w-32 shrink-0 rounded-lg border object-cover"
                     />
                   )}
-                  <ScreenMockup
+                  <ScreenMockupThumbnail
+                    width={128}
                     screenType={screenType?.screenType}
                     design={design}
-                    showTypeBadge={false}
                     variantIndex={mockupVariants[scene.id] ?? 0}
-                    className="w-32 shrink-0"
                   />
                 </div>
                 <div className="min-w-0 flex-1 space-y-1.5">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-muted-foreground">
+                    <span
+                      className={cn(
+                        "flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold",
+                        isTitle ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
+                      )}
+                    >
                       {index + 1}
                     </span>
                     <span className="text-xs text-muted-foreground">
                       {scene.id} · {screenType?.screenType ?? "미지정"} · {scene.estimatedDurationSec}초
                     </span>
+                    {isTitle && (
+                      <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
+                        제목 · {scene.depth ?? 1}뎁스
+                      </span>
+                    )}
                   </div>
+                  {entry && entry.breadcrumb.length > 0 && (
+                    <p className="truncate text-xs text-muted-foreground/70">{entry.breadcrumb.join(" > ")}</p>
+                  )}
                   <p className="font-medium">{design?.caption ?? "(자막 없음)"}</p>
                   <p className="text-sm text-muted-foreground">{design?.imageOrDiagramDescription}</p>
                   <p className="text-sm text-muted-foreground">배치: {design?.objectPlacement}</p>

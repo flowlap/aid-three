@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -11,11 +11,14 @@ import { CommonPromptField } from "@/components/CommonPromptField";
 import type { Scene } from "@/lib/pipeline/splitScenes";
 import type { ScreenTypeAssignment } from "@/lib/pipeline/selectScreenTypes";
 import type { VisualDesign } from "@/lib/pipeline/designVisuals";
+import { buildSceneHierarchy } from "@/lib/pipeline/sceneHierarchy";
 import { useAiJob } from "@/lib/client/useAiJob";
 import { useNextStepAction } from "@/lib/client/StepNavContext";
 import { useAutoProgressFlag, withAutoProgress } from "@/lib/client/useAutoProgress";
 import { estimateSecondsForScenes } from "@/lib/client/estimateAiDuration";
 import { DEFAULT_SCREEN_DESIGN_COMMON_PROMPT } from "@/lib/pipeline/commonPromptDefaults";
+import { cn } from "@/lib/utils";
+import { getDepthBorderClass } from "@/lib/depthColors";
 
 type ScreenDesignStreamEvent =
   | { type: "scene"; sceneId: string; index: number; total: number; screenType: ScreenTypeAssignment; visualDesign: VisualDesign }
@@ -84,6 +87,7 @@ export function ScreenDesignEditor({
   const completedCount = scenes.filter((s) => screenTypes[s.id]).length;
   const remainingCount = scenes.length - completedCount;
   const isPartial = completedCount > 0 && remainingCount > 0;
+  const hierarchy = useMemo(() => buildSceneHierarchy(scenes), [scenes]);
 
   function updateScreenType(sceneId: string, patch: Partial<ScreenTypeAssignment>) {
     setScreenTypes((prev) => {
@@ -158,7 +162,12 @@ export function ScreenDesignEditor({
         setSaveError(data.error ?? "저장에 실패했습니다");
         return;
       }
-      router.push(withAutoProgress(`/projects/${projectId}/review`, auto));
+      // A plain SPA router.push() here can reuse a stale cached render of
+      // the shared (pipeline) layout (stepper checkmarks included) — the
+      // layout only reliably refetches project.currentStep on a real
+      // navigation, so this step deliberately does a full page load instead
+      // of a soft client-side transition.
+      window.location.href = withAutoProgress(`/projects/${projectId}/review`, auto);
     } catch {
       setSaveError("저장 요청 중 오류가 발생했습니다");
     } finally {
@@ -265,8 +274,36 @@ export function ScreenDesignEditor({
           const assignment = screenTypes[scene.id];
           const design = designs[scene.id];
           const regenerating = regeneratingIds.has(scene.id);
+          const entry = hierarchy[scene.id];
+          const indentDepth = entry?.indentDepth ?? 0;
+
+          if (scene.sceneType === "title") {
+            return (
+              <Card
+                key={scene.id}
+                id={scene.id}
+                className={cn("flex-row items-center gap-3 border-l-4 bg-muted/30 p-3.5", getDepthBorderClass(scene.depth ?? 1))}
+                style={{ marginLeft: `${indentDepth * 24}px` }}
+              >
+                <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
+                  {index + 1}
+                </span>
+                <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
+                  제목 · {scene.depth ?? 1}뎁스
+                </span>
+                <p className="min-w-0 flex-1 truncate text-sm font-semibold">{scene.narrationText}</p>
+                <span className="shrink-0 text-xs text-muted-foreground">간지/타이틀형 (자동)</span>
+              </Card>
+            );
+          }
+
           return (
-            <Card key={scene.id} id={scene.id} className="gap-5 p-5">
+            <Card
+              key={scene.id}
+              id={scene.id}
+              className="gap-5 p-5"
+              style={{ marginLeft: `${indentDepth * 24}px` }}
+            >
               <div className="flex items-center justify-between gap-3">
                 <div className="flex min-w-0 items-center gap-2">
                   <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-muted-foreground">

@@ -37,9 +37,11 @@ async function downloadPptxBlob(res: Response): Promise<void> {
 export function PptxQuickExportButton({
   projectId,
   mockupStyle = "storyboard",
+  size = "default",
 }: {
   projectId: string;
   mockupStyle?: MockupStyle;
+  size?: "default" | "sm";
 }) {
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -66,8 +68,8 @@ export function PptxQuickExportButton({
 
   return (
     <div className="flex flex-col items-end gap-1">
-      <Button variant="outline" onClick={handleClick} disabled={exporting}>
-        <FileDown className="size-4" />
+      <Button variant="outline" size={size} onClick={handleClick} disabled={exporting}>
+        <FileDown className={size === "sm" ? "size-3.5" : "size-4"} />
         {exporting ? "생성 중..." : "PPTX로 저장"}
       </Button>
       {error && <p className="max-w-64 text-right text-xs text-destructive">{error}</p>}
@@ -183,9 +185,9 @@ export function PptxTemplateSection({
 /** Combined convenience wrapper (quick export + template registration together) for places without a split download/template layout. */
 export function PptxExportButton({ projectId, mockupStyle = "storyboard" }: { projectId: string; mockupStyle?: MockupStyle }) {
   return (
-    <div className="flex flex-col items-end gap-1.5">
+    <div className="flex flex-wrap items-center gap-2">
       <PptxTemplateSection projectId={projectId} mockupStyle={mockupStyle} />
-      <PptxQuickExportButton projectId={projectId} mockupStyle={mockupStyle} />
+      <PptxQuickExportButton projectId={projectId} mockupStyle={mockupStyle} size="sm" />
     </div>
   );
 }

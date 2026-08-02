@@ -1,5 +1,11 @@
-import type { OpenAiImageClient, OpenAiImageOptions } from "../ai/openaiImageClient";
+import { OpenAiImageApiError, type OpenAiImageClient, type OpenAiImageOptions } from "../ai/openaiImageClient";
 import { TEXT_FORWARD_SCREEN_TYPES, PRESENTER_EXCLUDED_SCREEN_TYPES } from "../visual-templates";
+import {
+  IMAGE_GENERATION_MAX_RETRIES,
+  IMAGE_GENERATION_RETRY_DELAY_MS,
+  IMAGE_GENERATION_RATE_LIMIT_MAX_RETRIES,
+  IMAGE_GENERATION_RATE_LIMIT_RETRY_DELAY_MS,
+} from "./imageGenerationConfig";
 import type { Scene } from "./splitScenes";
 import type { VisualDesign, PresenterPosition } from "./designVisuals";
 
@@ -134,4 +140,85 @@ export async function generateSceneImage(
   clientOptions?: OpenAiImageOptions
 ): Promise<Buffer> {
   return client.generateImage(buildImagePrompt(scene, design, promptOptions), clientOptions);
+}
+
+/** True for OpenAI's rate-limit ("too many requests") response — the most likely failure when several scenes generate concurrently. */
+export function isRateLimitError(err: unknown): boolean {
+  return err instanceof OpenAiImageApiError && err.status === 429;
+}
+
+const MAX_ERROR_MESSAGE_LENGTH = 300;
+
+/** A short, user-facing summary of an image generation failure — surfaced in the UI so a repeated failure is diagnosable instead of a generic "실패했습니다". */
+export function describeImageError(err: unknown): string {
+  const message = err instanceof Error ? err.message : String(err);
+  return message.length > MAX_ERROR_MESSAGE_LENGTH ? `${message.slice(0, MAX_ERROR_MESSAGE_LENGTH)}...` : message;
+}
+
+/** Rejects with an AbortError as soon as `signal` aborts, instead of sleeping the full duration regardless. */
+function sleep(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      reject(new DOMException("Aborted", "AbortError"));
+      return;
+    }
+    const timer = setTimeout(resolve, ms);
+    signal.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timer);
+        reject(new DOMException("Aborted", "AbortError"));
+      },
+      { once: true }
+    );
+  });
+}
+
+/**
+ * Wraps generateSceneImage with a retry. A 429 rate-limit response — the
+ * likely failure when several scenes/groups are generating concurrently —
+ * gets IMAGE_GENERATION_RATE_LIMIT_MAX_RETRIES retries spaced
+ * IMAGE_GENERATION_RATE_LIMIT_RETRY_DELAY_MS apart; any other error gets the
+ * shorter generic policy (IMAGE_GENERATION_MAX_RETRIES /
+ * IMAGE_GENERATION_RETRY_DELAY_MS). The retry policy is decided once from
+ * the first failure and reused for every retry of that same call. Once
+ * retries are exhausted, the failure is rethrown with the scene id and
+ * underlying reason attached so the caller can surface exactly what went
+ * wrong instead of a generic message.
+ */
+export async function generateSceneImageWithRetry(
+  client: OpenAiImageClient,
+  scene: Scene,
+  design: VisualDesign,
+  promptOptions?: BuildImagePromptOptions,
+  signal?: AbortSignal
+): Promise<Buffer> {
+  const effectiveSignal = signal ?? new AbortController().signal;
+
+  try {
+    return await generateSceneImage(client, scene, design, promptOptions, { signal: effectiveSignal });
+  } catch (err) {
+    if (effectiveSignal.aborted) throw err;
+
+    const rateLimited = isRateLimitError(err);
+    const maxRetries = rateLimited ? IMAGE_GENERATION_RATE_LIMIT_MAX_RETRIES : IMAGE_GENERATION_MAX_RETRIES;
+    const delayMs = rateLimited ? IMAGE_GENERATION_RATE_LIMIT_RETRY_DELAY_MS : IMAGE_GENERATION_RETRY_DELAY_MS;
+    let lastErr = err;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      console.error(
+        `이미지 생성 실패(${attempt}/${maxRetries}, ${rateLimited ? "동시 사용 제한" : "일반 오류"}), ${delayMs / 1000}초 후 재시도 (scene: ${scene.id}):`,
+        lastErr
+      );
+      await sleep(delayMs, effectiveSignal);
+      try {
+        return await generateSceneImage(client, scene, design, promptOptions, { signal: effectiveSignal });
+      } catch (retryErr) {
+        if (effectiveSignal.aborted) throw retryErr;
+        lastErr = retryErr;
+      }
+    }
+
+    throw new Error(`씬 ${scene.id} 이미지 생성 실패: ${describeImageError(lastErr)}`);
+  }
 }

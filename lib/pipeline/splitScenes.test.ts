@@ -71,4 +71,30 @@ describe("splitScenes", () => {
 
     expect(scenes[0].relatedSceneIds).toBeUndefined();
   });
+
+  it("defaults scenes without an explicit sceneType to content", async () => {
+    const client = new MockDeepSeekClient([SAMPLE_RESPONSE]);
+
+    const scenes = await splitScenes(client, "안녕하세요. 오늘은 이러닝을 배웁니다.");
+
+    expect(scenes[0].sceneType).toBe("content");
+    expect(scenes[0].depth).toBeUndefined();
+  });
+
+  it("parses title scenes with their heading depth", async () => {
+    const response = JSON.stringify({
+      scenes: [
+        { order: 1, narrationText: "1장 이러닝 개요", estimatedDurationSec: 3, splitReason: "장 제목", sceneType: "title", depth: 1 },
+        { order: 2, narrationText: "이러닝은 온라인 학습입니다.", estimatedDurationSec: 5, splitReason: "본문 시작", sceneType: "content" },
+      ],
+    });
+    const client = new MockDeepSeekClient([response]);
+
+    const scenes = await splitScenes(client, "# 1장 이러닝 개요\n이러닝은 온라인 학습입니다.");
+
+    expect(scenes[0].sceneType).toBe("title");
+    expect(scenes[0].depth).toBe(1);
+    expect(scenes[1].sceneType).toBe("content");
+    expect(scenes[1].depth).toBeUndefined();
+  });
 });

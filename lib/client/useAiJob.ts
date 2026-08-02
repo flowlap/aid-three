@@ -118,6 +118,12 @@ export function useAiJob<TEvent>(opts: UseAiJobOptions<TEvent>): UseAiJobResult 
     setProgress(null);
     setStartedAt(new Date().toISOString());
 
+    // Set when we discover the job is actually still running elsewhere (409
+    // + still-running status) and hand off to polling — the finally block
+    // below must leave `loading` alone in that case, since the job hasn't
+    // settled; checkStatus() will flip it to false once polling sees it end.
+    let joinedRunningJob = false;
+
     try {
       const res = await fetch(`/api/projects/${projectId}/${step}`, {
         method: "POST",
@@ -133,6 +139,7 @@ export function useAiJob<TEvent>(opts: UseAiJobOptions<TEvent>): UseAiJobResult 
         if (status.running) {
           setDiscoveredRunning(true);
           beginPolling();
+          joinedRunningJob = true;
         }
         return;
       }
@@ -156,8 +163,10 @@ export function useAiJob<TEvent>(opts: UseAiJobOptions<TEvent>): UseAiJobResult 
       setError("요청 중 오류가 발생했습니다");
     } finally {
       streamingLocally.current = false;
-      setLoading(false);
-      onSettled?.();
+      if (!joinedRunningJob) {
+        setLoading(false);
+        onSettled?.();
+      }
     }
   }, [projectId, step, onEvent, onSettled, checkStatus, beginPolling, stopPolling]);
 

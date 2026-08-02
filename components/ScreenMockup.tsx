@@ -393,3 +393,46 @@ export function ScreenMockup({
     </div>
   );
 }
+
+/**
+ * Width ScreenMockup is designed against elsewhere (screen-design/images
+ * steps, preview) — its text/padding sizes read correctly at roughly this
+ * width. ScreenMockupThumbnail renders at this width and scales the whole
+ * thing down, so a thumbnail is a true miniature (same relative
+ * proportions) instead of the same fixed font sizes cramped into a smaller
+ * box, which breaks wrapping and overflow at small widths.
+ */
+const MOCKUP_NATURAL_WIDTH = 420;
+
+/**
+ * A small, fixed-width rendering of ScreenMockup for contexts (like the
+ * final storyboard list) that need a thumbnail rather than a full-size
+ * mockup. Renders ScreenMockup at MOCKUP_NATURAL_WIDTH, then shrinks it with
+ * a CSS transform anchored top-left — the browser lays out and sizes fonts
+ * at natural width first, so the result reads as the natural mockup zoomed
+ * out, not a distorted small copy. `width` also fixes the outer box's
+ * layout footprint (height follows from the shared 3:2 aspect ratio).
+ */
+export function ScreenMockupThumbnail({
+  width,
+  screenType,
+  design,
+  variantIndex,
+}: {
+  width: number;
+  screenType?: string;
+  design?: VisualDesign;
+  variantIndex?: number;
+}) {
+  const scale = width / MOCKUP_NATURAL_WIDTH;
+  return (
+    <div className="relative aspect-[3/2] shrink-0 overflow-hidden rounded-lg" style={{ width }}>
+      <div
+        className="absolute top-0 left-0"
+        style={{ width: MOCKUP_NATURAL_WIDTH, transform: `scale(${scale})`, transformOrigin: "top left" }}
+      >
+        <ScreenMockup screenType={screenType} design={design} showTypeBadge={false} variantIndex={variantIndex} className="w-full" />
+      </div>
+    </div>
+  );
+}

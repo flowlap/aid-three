@@ -18,13 +18,29 @@ const STEPS = [
   { key: "storyboard", label: "최종 뷰" },
 ] as const;
 
+export type StepKey = (typeof STEPS)[number]["key"];
+/**
+ * Whether each step's OWN output data is actually complete (see layout.tsx's
+ * isMarkdownComplete/isScenesComplete/isScreenDesignComplete/
+ * isReviewComplete/isImagesComplete) — not whether project.currentStep has
+ * merely reached a later step. currentStep only records "the last step that
+ * finished," so revisiting and regenerating an earlier step regresses it
+ * backward and would otherwise make every later step's checkmark
+ * disappear even though its data is still on disk untouched. storyboard has
+ * no separate output of its own (it's a read-only composite view), so it's
+ * never marked complete here.
+ */
+export type StepCompletion = Record<StepKey, boolean>;
+
 export function AppShell({
   projectId,
   projectTitle,
+  stepCompletion,
   children,
 }: {
   projectId: string;
   projectTitle: string;
+  stepCompletion: StepCompletion;
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
@@ -34,7 +50,7 @@ export function AppShell({
   const prevStep = currentIndex > 0 ? STEPS[currentIndex - 1] : null;
   const prevHref = prevStep ? `/projects/${projectId}/${prevStep.key}` : "/";
   const prevLabel = prevStep ? "이전 단계" : "홈";
-  const currentStep = STEPS[currentIndex];
+  const viewedStep = STEPS[currentIndex];
 
   return (
     <div className="flex min-h-dvh flex-col bg-muted">
@@ -59,7 +75,7 @@ export function AppShell({
 
           <div className="flex items-center py-4">
             {STEPS.map((step, index) => {
-              const isComplete = index < currentIndex;
+              const isComplete = stepCompletion[step.key];
               const isCurrent = index === currentIndex;
               return (
                 <div key={step.key} className="flex flex-1 items-start last:flex-none">
@@ -100,9 +116,9 @@ export function AppShell({
       </header>
 
       <main className="mx-auto w-full max-w-[1000px] flex-1 bg-background px-6 py-8 md:px-8">
-        {currentStep && (
+        {viewedStep && (
           <p className="mb-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">
-            {currentIndex + 1}단계 · {currentStep.label}
+            {currentIndex + 1}단계 · {viewedStep.label}
           </p>
         )}
         <StepNavProvider setNextAction={setNextAction}>{children}</StepNavProvider>

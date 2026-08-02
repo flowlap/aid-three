@@ -4,6 +4,17 @@ export interface OpenAiImageOptions {
   signal?: AbortSignal;
 }
 
+/** Thrown for a non-ok OpenAI response, with the HTTP status attached so callers can tell a rate limit (429) apart from other failures without parsing the message text. */
+export class OpenAiImageApiError extends Error {
+  constructor(
+    public readonly status: number,
+    body: string
+  ) {
+    super(`OpenAI Image API error (${status}): ${body}`);
+    this.name = "OpenAiImageApiError";
+  }
+}
+
 export interface OpenAiImageClient {
   generateImage(prompt: string, options?: OpenAiImageOptions): Promise<Buffer>;
 }
@@ -51,7 +62,7 @@ export class RealOpenAiImageClient implements OpenAiImageClient {
 
     if (!response.ok) {
       const body = await response.text();
-      const err = new Error(`OpenAI Image API error (${response.status}): ${body}`);
+      const err = new OpenAiImageApiError(response.status, body);
       console.error(`[OpenAI Image] 생성 실패 elapsedMs=${Date.now() - startedAt}`, err);
       throw err;
     }

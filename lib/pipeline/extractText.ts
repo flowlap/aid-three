@@ -7,7 +7,9 @@ export async function extractText(filePath: string, mimeType: "pdf" | "txt"): Pr
   }
   const buffer = await fs.readFile(filePath);
   const pdfParser = new PDFParse({ data: buffer });
-  const textResult = await pdfParser.getText();
+  // pdf-parse defaults to inserting a "-- N of M --" page-boundary marker
+  // between every page; disable it so extracted text stays clean.
+  const textResult = await pdfParser.getText({ pageJoiner: "" });
   await pdfParser.destroy();
   return textResult.text;
 }

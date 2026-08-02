@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readProject, readProjectFile, readProjectImage, writeProjectImage } from "@/lib/projects/store";
 import { createOpenAiImageClient } from "@/lib/ai/openaiImageClient";
-import { generateSceneImage, buildRelatedScenesContext } from "@/lib/pipeline/generateSceneImage";
+import { generateSceneImageWithRetry, buildRelatedScenesContext, describeImageError } from "@/lib/pipeline/generateSceneImage";
 import { DEFAULT_IMAGE_COMMON_PROMPT } from "@/lib/pipeline/commonPromptDefaults";
 import type { Scene } from "@/lib/pipeline/splitScenes";
 import type { ScreenTypeAssignment } from "@/lib/pipeline/selectScreenTypes";
@@ -52,6 +52,9 @@ export async function POST(
   const scene = scenes.find((s) => s.id === sceneId);
   const design = visualDesigns[sceneId];
   if (!scene || !design) return NextResponse.json({ error: "씬을 찾을 수 없습니다" }, { status: 404 });
+  if (scene.sceneType === "title") {
+    return NextResponse.json({ error: "제목 씬은 이미지를 생성하지 않습니다" }, { status: 400 });
+  }
 
   let client;
   try {
@@ -62,7 +65,7 @@ export async function POST(
   }
 
   try {
-    const buffer = await generateSceneImage(client, scene, design, {
+    const buffer = await generateSceneImageWithRetry(client, scene, design, {
       screenType: screenTypes[sceneId]?.screenType,
       commonPrompt,
       presenterEnabled,
@@ -71,8 +74,9 @@ export async function POST(
     });
     await writeProjectImage(projectId, sceneId, buffer);
   } catch (err) {
+    const reason = describeImageError(err);
     console.error("씬 이미지 재생성 실패:", err);
-    return NextResponse.json({ error: "AI 이미지 생성에 실패했습니다. 잠시 후 다시 시도해주세요." }, { status: 502 });
+    return NextResponse.json({ error: reason }, { status: 502 });
   }
 
   return NextResponse.json({ ok: true });

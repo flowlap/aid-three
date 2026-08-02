@@ -11,11 +11,14 @@ import { computeMockupVariantIndexes } from "@/lib/visual-templates";
 import type { Scene } from "@/lib/pipeline/splitScenes";
 import type { ScreenTypeAssignment } from "@/lib/pipeline/selectScreenTypes";
 import type { VisualDesign } from "@/lib/pipeline/designVisuals";
+import { buildSceneHierarchy } from "@/lib/pipeline/sceneHierarchy";
 import { useAiJob } from "@/lib/client/useAiJob";
 import { useNextStepAction } from "@/lib/client/StepNavContext";
 import { estimateSecondsForScenes } from "@/lib/client/estimateAiDuration";
 import { IMAGE_GENERATION_CONCURRENCY } from "@/lib/pipeline/imageGenerationConfig";
 import { DEFAULT_IMAGE_COMMON_PROMPT } from "@/lib/pipeline/commonPromptDefaults";
+import { cn } from "@/lib/utils";
+import { getDepthBorderClass } from "@/lib/depthColors";
 
 type ImageStreamEvent =
   | { type: "scene"; sceneId: string; index: number; total: number }
@@ -47,6 +50,7 @@ export function ImagesEditor({
     () => computeMockupVariantIndexes(scenes, localScreenTypes),
     [scenes, localScreenTypes]
   );
+  const hierarchy = useMemo(() => buildSceneHierarchy(scenes), [scenes]);
   const [imageIds, setImageIds] = useState<Set<string>>(new Set(initialImageIds));
   const [presenterEnabled, setPresenterEnabled] = useState(initialPresenterEnabled);
   const [presenterSaving, setPresenterSaving] = useState(false);
@@ -91,7 +95,7 @@ export function ImagesEditor({
     await start({ body: { mode } });
   }
 
-  const eligibleScenes = scenes.filter((s) => localVisualDesigns[s.id]);
+  const eligibleScenes = scenes.filter((s) => s.sceneType !== "title" && localVisualDesigns[s.id]);
   const completedCount = eligibleScenes.filter((s) => imageIds.has(s.id)).length;
   const remainingCount = eligibleScenes.length - completedCount;
   const isPartial = completedCount > 0 && remainingCount > 0;
@@ -152,7 +156,12 @@ export function ImagesEditor({
         setAdvanceError(data.error ?? "다음 단계로 이동하지 못했습니다");
         return;
       }
-      router.push(`/projects/${projectId}/storyboard`);
+      // A plain SPA router.push() here can reuse a stale cached render of
+      // the shared (pipeline) layout (stepper checkmarks included) — the
+      // layout only reliably refetches project.currentStep on a real
+      // navigation, so this step deliberately does a full page load instead
+      // of a soft client-side transition.
+      window.location.href = `/projects/${projectId}/storyboard`;
     } catch {
       setAdvanceError("다음 단계 이동 요청 중 오류가 발생했습니다");
     } finally {
@@ -214,7 +223,7 @@ export function ImagesEditor({
             </Button>
           )}
           <span className="ml-auto text-xs font-medium text-muted-foreground">
-            {imageIds.size} / {scenes.length}개 생성됨
+            {completedCount} / {eligibleScenes.length}개 생성됨
           </span>
         </div>
         <AiJobStatus
@@ -222,7 +231,7 @@ export function ImagesEditor({
           label={discoveredRunning ? "다른 곳에서 시작된 이미지 생성이 진행 중입니다" : "AI가 씬별 이미지를 생성하는 중입니다"}
           startedAt={startedAt}
           progress={progress}
-          estimateSeconds={estimateSecondsForScenes(scenes.length, 45, IMAGE_GENERATION_CONCURRENCY)}
+          estimateSeconds={estimateSecondsForScenes(eligibleScenes.length, 45, IMAGE_GENERATION_CONCURRENCY)}
           activityLines={activityLines}
         />
       </Card>
@@ -255,14 +264,33 @@ export function ImagesEditor({
           const regenerating = regeneratingIds.has(scene.id);
           const mockupRegenerating = mockupRegeneratingIds.has(scene.id);
           const version = versions[scene.id] ?? 0;
+          const isTitle = scene.sceneType === "title";
+          const entry = hierarchy[scene.id];
+          const indentDepth = entry?.indentDepth ?? 0;
+          const screenType = localScreenTypes[scene.id]?.screenType;
           return (
-            <Card key={scene.id} id={scene.id} className="gap-4 p-5">
+            <Card
+              key={scene.id}
+              id={scene.id}
+              className={cn("gap-4 p-5", isTitle && ["border-l-4 bg-muted/30", getDepthBorderClass(scene.depth ?? 1)])}
+              style={{ marginLeft: `${indentDepth * 24}px` }}
+            >
               <div className="flex items-center justify-between gap-3">
                 <div className="flex min-w-0 items-center gap-2">
-                  <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-muted-foreground">
+                  <span
+                    className={cn(
+                      "flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold",
+                      isTitle ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
+                    )}
+                  >
                     {index + 1}
                   </span>
                   <span className="text-xs font-medium text-muted-foreground">{scene.id}</span>
+                  {isTitle && (
+                    <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
+                      제목 · {scene.depth ?? 1}뎁스
+                    </span>
+                  )}
                 </div>
                 <div className="flex gap-2">
                   <Button
@@ -274,17 +302,23 @@ export function ImagesEditor({
                   >
                     {mockupRegenerating ? "생성 중..." : design ? "목업 재생성" : "목업 생성"}
                   </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => regenerateScene(scene.id)}
-                    disabled={regenerating || loading || !design}
-                  >
-                    {regenerating ? "생성 중..." : hasImage ? "이미지 재생성" : "이미지 생성"}
-                  </Button>
+                  {!isTitle && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => regenerateScene(scene.id)}
+                      disabled={regenerating || loading || !design}
+                    >
+                      {regenerating ? "생성 중..." : hasImage ? "이미지 재생성" : "이미지 생성"}
+                    </Button>
+                  )}
                 </div>
               </div>
+
+              {entry && entry.breadcrumb.length > 0 && (
+                <p className="truncate text-xs text-muted-foreground/70">{entry.breadcrumb.join(" > ")}</p>
+              )}
 
               <p className="rounded-lg border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
                 {scene.narrationText}
@@ -302,15 +336,27 @@ export function ImagesEditor({
                     />
                   ) : (
                     <div className="flex aspect-[3/2] w-full items-center justify-center rounded-lg border border-dashed text-sm text-muted-foreground">
-                      {design ? "아직 생성된 이미지가 없습니다" : "화면 설계 데이터가 없어 생성할 수 없습니다"}
+                      {isTitle
+                        ? "제목 씬은 이미지를 생성하지 않습니다"
+                        : design
+                          ? "아직 생성된 이미지가 없습니다"
+                          : "화면 설계 데이터가 없어 생성할 수 없습니다"}
                     </div>
                   )}
                 </div>
                 <div>
-                  <p className="mb-1.5 text-xs font-medium text-muted-foreground">화면 설계 목업</p>
+                  <div className="mb-1.5 flex items-center justify-between gap-2">
+                    <p className="text-xs font-medium text-muted-foreground">화면 설계 목업</p>
+                    {screenType && (
+                      <span className="w-fit rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground ring-1 ring-border">
+                        {screenType}
+                      </span>
+                    )}
+                  </div>
                   <ScreenMockup
-                    screenType={localScreenTypes[scene.id]?.screenType}
+                    screenType={screenType}
                     design={design}
+                    showTypeBadge={false}
                     variantIndex={mockupVariants[scene.id] ?? 0}
                   />
                 </div>
