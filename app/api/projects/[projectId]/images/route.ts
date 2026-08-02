@@ -1,5 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { readProject, readProjectFile, writeProjectImage, updateProjectStep, listProjectImageIds } from "@/lib/projects/store";
+import {
+  readProject,
+  readProjectFile,
+  readProjectReferenceImage,
+  writeProjectImage,
+  updateProjectStep,
+  listProjectImageIds,
+} from "@/lib/projects/store";
 import { createOpenAiImageClient } from "@/lib/ai/openaiImageClient";
 import { generateSceneImageWithRetry, buildRelatedScenesContext, describeImageError } from "@/lib/pipeline/generateSceneImage";
 import type { Scene } from "@/lib/pipeline/splitScenes";
@@ -30,6 +37,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
   }
   const commonPrompt = (await readProjectFile(projectId, "image-common-prompt.txt"))?.trim() || DEFAULT_IMAGE_COMMON_PROMPT;
   const presenterEnabled = (await readProjectFile(projectId, "image-presenter-enabled.txt"))?.trim() === "true";
+  const backgroundFixed = (await readProjectFile(projectId, "background-fixed-enabled.txt"))?.trim() === "true";
+  const genderRaw = (await readProjectFile(projectId, "presenter-gender.txt"))?.trim();
+  const presenterGender = genderRaw === "male" || genderRaw === "female" ? genderRaw : undefined;
+  const referenceImages = {
+    background: backgroundFixed ? (await readProjectReferenceImage(projectId, "background")) ?? undefined : undefined,
+    presenter: presenterEnabled ? (await readProjectReferenceImage(projectId, "presenter")) ?? undefined : undefined,
+  };
 
   let scenes: Scene[];
   let visualDesigns: Record<string, VisualDesign>;
@@ -108,9 +122,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
               commonPrompt,
               presenterEnabled,
               presenterPosition: design.presenterPosition,
+              presenterGender,
+              backgroundFixed,
               relatedScenes: buildRelatedScenesContext(scene, visualDesigns),
             },
-            job.controller.signal
+            job.controller.signal,
+            referenceImages
           );
           await writeProjectImage(projectId, scene.id, buffer);
           completedSoFar += 1;

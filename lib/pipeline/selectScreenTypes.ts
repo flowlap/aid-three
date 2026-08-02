@@ -232,7 +232,7 @@ ${documentContext}${commonPromptContext}
 사용 가능한 화면 유형과 설명(반드시 이 중 하나를 이름 그대로 정확히 선택):
 ${SCREEN_TYPE_GUIDE}
 
-그룹 내 다양성: 같은 그룹 안에서 화면 유형을 3개 연속으로 동일하게 선택하지 마세요. 다만 내용상 명백히 같은 유형이 계속 이어져야 한다면(예: 같은 절차의 연속 단계) 그대로 유지해도 됩니다. 아나운서(발표자)가 등장하는 씬들은 내용이 이어지는 동안 같은 위치를 유지하고, 새로운 내용으로 전환되는 지점에서만 위치를 바꾸세요.
+그룹 내 다양성: 같은 그룹 안에서 화면 유형을 3개 연속으로 동일하게 선택하지 마세요. 다만 내용상 명백히 같은 유형이 계속 이어져야 한다면(예: 같은 절차의 연속 단계) 그대로 유지해도 됩니다. 강사(발표자)가 등장하는 씬들은 내용이 이어지는 동안 같은 위치를 유지하고, 새로운 내용으로 전환되는 지점에서만 위치를 바꾸세요.
 
 씬 목록(순서대로, 화면 전환이 이 순서로 이어집니다):
 ${sceneBlocks}
@@ -249,7 +249,7 @@ objectPlacement: 화면 안의 요소들이 정확히 어디에 배치되는지 
 
 layoutElements: objectPlacement에서 서술한 배치를 3~6개의 (label, position) 쌍으로 압축하세요. label은 화면에 실제로 보이는 요소 이름(예: "배출권 ETF 카드", "인물", "핵심 문구"), position은 반드시 다음 9개 중 하나로만 선택하세요: top-left, top, top-right, left, center, right, bottom-left, bottom, bottom-right. 이 값은 코드가 기계적으로 렌더링할 때 쓰이므로 objectPlacement 서술과 반드시 일치해야 합니다.
 
-presenterPosition: 이 화면에 아나운서(발표자)가 등장한다면 어디에 배치할지 반드시 다음 4개 중 하나로 선택하세요: left, right, center, full. 방금 정한 objectPlacement/layoutElements와 겹치지 않게 — 다른 시각 요소가 이미 차지한 자리를 피해서 정하세요.
+presenterPosition: 이 화면에 강사(발표자)가 등장한다면 어디에 배치할지 반드시 다음 4개 중 하나로 선택하세요: left, right, center, full. 방금 정한 objectPlacement/layoutElements와 겹치지 않게 — 다른 시각 요소가 이미 차지한 자리를 피해서 정하세요.
 
 JSON으로만 응답하세요: {"scenes": [{"order": number, "screenType": string, "recommendedLayout": string, "rationale": string, "caption": string, "keywords": string[], "imageOrDiagramDescription": string, "objectPlacement": string, "layoutElements": {"label": string, "position": string}[], "presenterPosition": string}]} — scenes 배열에는 위 씬 목록의 모든 order가 하나씩, 목록과 같은 순서로 빠짐없이 포함되어야 합니다.`;
 

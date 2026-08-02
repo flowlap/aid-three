@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/card";
 import { ScreenMockup } from "@/components/ScreenMockup";
 import { AiJobStatus } from "@/components/AiJobStatus";
 import { CommonPromptField } from "@/components/CommonPromptField";
+import { ReferenceImageSection, type PresenterGender } from "@/components/ReferenceImageSection";
 import { computeMockupVariantIndexes } from "@/lib/visual-templates";
 import type { Scene } from "@/lib/pipeline/splitScenes";
 import type { ScreenTypeAssignment } from "@/lib/pipeline/selectScreenTypes";
@@ -34,6 +35,12 @@ export function ImagesEditor({
   initialImageIds,
   initialCommonPrompt,
   initialPresenterEnabled,
+  initialBackgroundFixed,
+  initialBackgroundPrompt,
+  initialPresenterPrompt,
+  initialPresenterGender,
+  initialHasBackgroundImage,
+  initialHasPresenterImage,
 }: {
   projectId: string;
   scenes: Scene[];
@@ -42,6 +49,12 @@ export function ImagesEditor({
   initialImageIds: string[];
   initialCommonPrompt: string;
   initialPresenterEnabled: boolean;
+  initialBackgroundFixed: boolean;
+  initialBackgroundPrompt: string;
+  initialPresenterPrompt: string;
+  initialPresenterGender: PresenterGender;
+  initialHasBackgroundImage: boolean;
+  initialHasPresenterImage: boolean;
 }) {
   const router = useRouter();
   const [localScreenTypes, setLocalScreenTypes] = useState(screenTypes);
@@ -54,6 +67,8 @@ export function ImagesEditor({
   const [imageIds, setImageIds] = useState<Set<string>>(new Set(initialImageIds));
   const [presenterEnabled, setPresenterEnabled] = useState(initialPresenterEnabled);
   const [presenterSaving, setPresenterSaving] = useState(false);
+  const [backgroundFixed, setBackgroundFixed] = useState(initialBackgroundFixed);
+  const [backgroundFixedSaving, setBackgroundFixedSaving] = useState(false);
   const [versions, setVersions] = useState<Record<string, number>>({});
   const [regeneratingIds, setRegeneratingIds] = useState<Set<string>>(new Set());
   const [regenerateError, setRegenerateError] = useState<string | null>(null);
@@ -87,6 +102,20 @@ export function ImagesEditor({
       });
     } finally {
       setPresenterSaving(false);
+    }
+  }
+
+  async function toggleBackgroundFixed(next: boolean) {
+    setBackgroundFixed(next);
+    setBackgroundFixedSaving(true);
+    try {
+      await fetch(`/api/projects/${projectId}/images/background-fixed-toggle`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: next }),
+      });
+    } finally {
+      setBackgroundFixedSaving(false);
     }
   }
 
@@ -180,7 +209,32 @@ export function ImagesEditor({
         helperText="캐릭터, 색상, 배경색, 폰트, 컨셉 등 모든 이미지에 공통으로 반영할 톤앤매너를 적어두면 씬마다 반복 입력 없이 일관된 스타일로 생성됩니다."
         placeholder={DEFAULT_IMAGE_COMMON_PROMPT}
       />
-      <Card className="gap-1.5 p-4">
+      <Card className="gap-3 p-4">
+        <label className="flex cursor-pointer items-start gap-2.5">
+          <input
+            type="checkbox"
+            checked={backgroundFixed}
+            onChange={(e) => toggleBackgroundFixed(e.target.checked)}
+            disabled={backgroundFixedSaving}
+            className="mt-0.5 size-4 shrink-0 accent-primary"
+          />
+          <span>
+            <span className="text-sm font-medium">배경 고정</span>
+            <p className="text-xs text-muted-foreground">
+              모든 씬 이미지가 같은 배경을 사용하도록 고정합니다. 아래에서 배경 이미지를 생성하거나 직접 업로드하세요.
+            </p>
+          </span>
+        </label>
+        {backgroundFixed && (
+          <ReferenceImageSection
+            projectId={projectId}
+            kind="background"
+            initialPrompt={initialBackgroundPrompt}
+            initialHasImage={initialHasBackgroundImage}
+          />
+        )}
+      </Card>
+      <Card className="gap-3 p-4">
         <label className="flex cursor-pointer items-start gap-2.5">
           <input
             type="checkbox"
@@ -190,12 +244,22 @@ export function ImagesEditor({
             className="mt-0.5 size-4 shrink-0 accent-primary"
           />
           <span>
-            <span className="text-sm font-medium">아나운서 표시</span>
+            <span className="text-sm font-medium">강사 표시</span>
             <p className="text-xs text-muted-foreground">
-              씬 이미지에 아나운서(발표자)를 등장시킵니다. 좌측/우측/중앙/풀샷 중 화면에 맞는 형태를 AI가 씬마다 선택합니다. 간지/타이틀형처럼 전환 효과에 해당하는 화면에는 적용되지 않습니다.
+              씬 이미지에 강사(발표자)를 등장시킵니다. 좌측/우측/중앙/풀샷 중 화면에 맞는 형태를 AI가 씬마다 선택합니다. 간지/타이틀형처럼 전환 효과에 해당하는 화면에는 적용되지 않습니다.
             </p>
           </span>
         </label>
+        {presenterEnabled && (
+          <ReferenceImageSection
+            projectId={projectId}
+            kind="presenter"
+            initialPrompt={initialPresenterPrompt}
+            initialHasImage={initialHasPresenterImage}
+            showGenderSelect
+            initialGender={initialPresenterGender}
+          />
+        )}
       </Card>
       <Card className="gap-3 p-4">
         <div className="flex flex-wrap items-center gap-2">

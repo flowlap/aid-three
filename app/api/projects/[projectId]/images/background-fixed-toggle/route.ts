@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readProject, writeProjectFile } from "@/lib/projects/store";
 
-const FILENAME = "image-presenter-enabled.txt";
+const FILENAME = "background-fixed-enabled.txt";
 
-/** Saves the project-wide "강사 표시" toggle folded into every image generation prompt. */
+/** Saves the project-wide "배경 고정" toggle — when on, every scene reuses the saved background reference image. */
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ projectId: string }> }) {
   const { projectId } = await params;
   const project = await readProject(projectId);

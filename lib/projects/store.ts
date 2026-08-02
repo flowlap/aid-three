@@ -150,6 +150,28 @@ export async function deleteProjectPptxTemplate(id: string): Promise<void> {
   await fs.rm(projectPptxTemplatePath(id), { force: true });
 }
 
+export type ReferenceImageKind = "background" | "presenter";
+
+export function projectReferenceImagePath(id: string, kind: ReferenceImageKind): string {
+  return path.join(projectDir(id), `reference-${kind}.png`);
+}
+
+export async function writeProjectReferenceImage(id: string, kind: ReferenceImageKind, buffer: Buffer): Promise<void> {
+  await fs.writeFile(projectReferenceImagePath(id, kind), buffer);
+}
+
+export async function readProjectReferenceImage(id: string, kind: ReferenceImageKind): Promise<Buffer | null> {
+  try {
+    return await fs.readFile(projectReferenceImagePath(id, kind));
+  } catch {
+    return null;
+  }
+}
+
+export async function deleteProjectReferenceImage(id: string, kind: ReferenceImageKind): Promise<void> {
+  await fs.rm(projectReferenceImagePath(id, kind), { force: true });
+}
+
 export async function writeProjectFile(id: string, filename: string, content: string): Promise<void> {
   assertSafeFilename(filename);
   await fs.writeFile(path.join(projectDir(id), filename), content, "utf-8");

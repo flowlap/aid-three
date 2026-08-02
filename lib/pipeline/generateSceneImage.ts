@@ -26,7 +26,7 @@ export interface BuildImagePromptOptions {
    */
   commonPrompt?: string;
   /**
-   * Project-wide "아나운서 표시" toggle from the images step. When on, most
+   * Project-wide "강사 표시" toggle from the images step. When on, most
    * scenes' images should include a presenter/announcer. Skipped for pure
    * transition screens regardless of this flag — see
    * PRESENTER_EXCLUDED_SCREEN_TYPES.
@@ -50,28 +50,82 @@ export interface BuildImagePromptOptions {
    * earlier related scene) instead of being generated in isolation.
    */
   relatedScenes?: RelatedSceneImageContext[];
+  /**
+   * Project-wide "배경 고정" toggle. When on (and a background reference
+   * image was generated/uploaded), every scene reuses that same background
+   * instead of drawing a new one, so the deck reads as one consistent set
+   * instead of a different background per scene.
+   */
+  backgroundFixed?: boolean;
+  /**
+   * Announcer gender, shown only in the text instruction — the reference
+   * image itself (when present) is what actually pins down the exact
+   * appearance; this is a fallback hint for when no reference image exists
+   * yet, or as reinforcement alongside one.
+   */
+  presenterGender?: "male" | "female";
+  /** Whether a presenter reference image is being attached to this call (see SceneReferenceImages) — switches the instruction from "pick a look" to "match this exact person". */
+  hasPresenterReferenceImage?: boolean;
+}
+
+/** Reference images attached to a single generateSceneImage(WithRetry) call — forwarded to the client as multi-image /images/edits input. */
+export interface SceneReferenceImages {
+  background?: Buffer;
+  presenter?: Buffer;
 }
 
 const PRESENTER_POSITION_LABEL: Record<PresenterPosition, string> = {
   left: "좌측 등장(화면 좌측에 상반신, 우측에 시각 자료)",
   right: "우측 등장(화면 우측에 상반신, 좌측에 시각 자료)",
   center: "중앙 등장(화면 중앙에 상반신, 시각 자료는 배경/주변)",
-  full: "풀샷(아나운서 전신이 화면에 크게 등장, 시각 자료는 최소화)",
+  full: "풀샷(강사 전신이 화면에 크게 등장, 시각 자료는 최소화)",
+};
+
+const PRESENTER_GENDER_LABEL: Record<"male" | "female", string> = {
+  male: "남성",
+  female: "여성",
 };
 
 /**
- * Appended when the project-wide "아나운서 표시" toggle is on. Prefers a
+ * Appended after every presenter instruction below regardless of position
+ * ("full shot" included) — the announcer is a supporting element, not the
+ * focus, so it must stay small and out of the way of the actual screen
+ * content (visual aids, captions) even when the chosen position/composition
+ * text would otherwise suggest a large, dominant appearance.
+ */
+const PRESENTER_SIZE_CONSTRAINT =
+  "단, 등장 형태(좌측/우측/중앙/풀샷)와 무관하게 강사는 화면 전체 면적의 20%를 넘지 않는 크기로 작게, 보조적인 역할로만 배치하세요. 화면의 주인공은 시각 자료이며, 강사가 화면을 압도하거나 과도하게 크게 등장해서는 안 됩니다.";
+
+/**
+ * Appended when the project-wide "강사 표시" toggle is on. Prefers a
  * pre-decided `presenterPosition` (named explicitly, no choice left to this
  * one independent call) over the older "pick whichever of the 4 fits"
  * phrasing, which in practice converged on the same position every time
- * with no cross-scene memory to vary it.
+ * with no cross-scene memory to vary it. When a presenter reference image is
+ * attached, the instruction shifts from "pick a look" to "match this exact
+ * person" — that reference image (not this text) is what actually keeps the
+ * announcer's face/outfit consistent across scenes.
  */
-function buildPresenterInstruction(position?: PresenterPosition): string {
-  if (position) {
-    return `이 화면에는 아나운서(발표자)가 ${PRESENTER_POSITION_LABEL[position]} 형태로 등장해야 합니다. 전문적이고 신뢰감 있는 모습으로, 위 화면 구성 명세와 자연스럽게 어우러지게 배치하세요.`;
+function buildPresenterInstruction(position?: PresenterPosition, gender?: "male" | "female", hasReferenceImage?: boolean): string {
+  if (hasReferenceImage) {
+    const positionPhrase = position ? `${PRESENTER_POSITION_LABEL[position]} 형태로` : "화면 내용과 구도에 가장 잘 어울리는 형태로";
+    return `이 화면에는 제공된 강사 참고 이미지와 동일한 인물(얼굴, 헤어스타일, 의상)이 ${positionPhrase} 등장해야 합니다. 참고 이미지 속 인물의 외형을 그대로 유지하고, 위 화면 구성 명세와 자연스럽게 어우러지게 배치하세요. ${PRESENTER_SIZE_CONSTRAINT}`;
   }
-  return "이 화면에는 아나운서(발표자)가 등장해야 합니다. 화면 내용과 구도에 가장 잘 어울리는 형태를 다음 4가지 중에서 골라 반영하세요: 좌측 등장(화면 좌측에 상반신, 우측에 시각 자료), 우측 등장(화면 우측에 상반신, 좌측에 시각 자료), 중앙 등장(화면 중앙에 상반신, 시각 자료는 배경/주변), 풀샷(아나운서 전신이 화면에 크게 등장, 시각 자료는 최소화). 위 화면 구성 명세와 자연스럽게 어우러지는 형태를 선택하고, 아나운서는 전문적이고 신뢰감 있는 모습으로 표현하세요.";
+
+  const genderPrefix = gender ? `${PRESENTER_GENDER_LABEL[gender]} ` : "";
+  if (position) {
+    return `이 화면에는 ${genderPrefix}강사(발표자)가 ${PRESENTER_POSITION_LABEL[position]} 형태로 등장해야 합니다. 전문적이고 신뢰감 있는 모습으로, 위 화면 구성 명세와 자연스럽게 어우러지게 배치하세요. ${PRESENTER_SIZE_CONSTRAINT}`;
+  }
+  return `이 화면에는 ${genderPrefix}강사(발표자)가 등장해야 합니다. 화면 내용과 구도에 가장 잘 어울리는 형태를 다음 4가지 중에서 골라 반영하세요: 좌측 등장(화면 좌측에 상반신, 우측에 시각 자료), 우측 등장(화면 우측에 상반신, 좌측에 시각 자료), 중앙 등장(화면 중앙에 상반신, 시각 자료는 배경/주변), 풀샷(강사 전신이 화면에 크게 등장, 시각 자료는 최소화). 위 화면 구성 명세와 자연스럽게 어우러지는 형태를 선택하고, 강사는 전문적이고 신뢰감 있는 모습으로 표현하세요. ${PRESENTER_SIZE_CONSTRAINT}`;
 }
+
+/**
+ * Appended when "배경 고정" is on and a background reference image is
+ * attached — tells the model to reuse that exact background rather than
+ * drawing a new one, so every scene shares one consistent backdrop.
+ */
+const BACKGROUND_FIXED_INSTRUCTION =
+  "이 화면은 제공된 배경 참고 이미지를 그대로 배경으로 사용해야 합니다. 배경 자체를 새로 그리거나 다른 배경으로 바꾸지 말고, 그 위에 이 화면의 구성 요소(자막, 아이콘, 강사 등)만 배치하세요.";
 
 /**
  * Applies to every scene regardless of screen type — the overall "shot"
@@ -97,8 +151,9 @@ export function buildImagePrompt(scene: Scene, design: VisualDesign, promptOptio
   const isPresenterExcluded = promptOptions?.screenType ? PRESENTER_EXCLUDED_SCREEN_TYPES.has(promptOptions.screenType) : false;
   const presenterInstruction =
     promptOptions?.presenterEnabled && !isPresenterExcluded
-      ? `\n\n${buildPresenterInstruction(promptOptions.presenterPosition)}`
+      ? `\n\n${buildPresenterInstruction(promptOptions.presenterPosition, promptOptions.presenterGender, promptOptions.hasPresenterReferenceImage)}`
       : "";
+  const backgroundInstruction = promptOptions?.backgroundFixed ? `\n\n${BACKGROUND_FIXED_INSTRUCTION}` : "";
   const relatedScenes = promptOptions?.relatedScenes ?? [];
   const relatedContext =
     relatedScenes.length > 0
@@ -113,7 +168,7 @@ export function buildImagePrompt(scene: Scene, design: VisualDesign, promptOptio
 - 무엇을 그릴지: ${design.imageOrDiagramDescription}
 - 요소 배치: ${design.objectPlacement}
 
-${PRODUCTION_STYLE_INSTRUCTION} ${textInstruction}${styleGuide}${presenterInstruction}${relatedContext}
+${PRODUCTION_STYLE_INSTRUCTION} ${textInstruction}${styleGuide}${backgroundInstruction}${presenterInstruction}${relatedContext}
 
 관련 나레이션(맥락 참고용 — 화면 구성 명세와 배치를 우선하고, 나레이션 문장을 그대로 옮기지 마세요): ${scene.narrationText}`;
 }
@@ -137,9 +192,18 @@ export async function generateSceneImage(
   scene: Scene,
   design: VisualDesign,
   promptOptions?: BuildImagePromptOptions,
-  clientOptions?: OpenAiImageOptions
+  clientOptions?: OpenAiImageOptions,
+  referenceImages?: SceneReferenceImages
 ): Promise<Buffer> {
-  return client.generateImage(buildImagePrompt(scene, design, promptOptions), clientOptions);
+  const effectivePromptOptions: BuildImagePromptOptions = {
+    ...promptOptions,
+    hasPresenterReferenceImage: Boolean(referenceImages?.presenter),
+  };
+  const prompt = buildImagePrompt(scene, design, effectivePromptOptions);
+  const referenceBuffers = [referenceImages?.background, referenceImages?.presenter].filter(
+    (buf): buf is Buffer => buf !== undefined
+  );
+  return client.generateImage(prompt, { ...clientOptions, referenceImages: referenceBuffers });
 }
 
 /** True for OpenAI's rate-limit ("too many requests") response — the most likely failure when several scenes generate concurrently. */
@@ -191,12 +255,13 @@ export async function generateSceneImageWithRetry(
   scene: Scene,
   design: VisualDesign,
   promptOptions?: BuildImagePromptOptions,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  referenceImages?: SceneReferenceImages
 ): Promise<Buffer> {
   const effectiveSignal = signal ?? new AbortController().signal;
 
   try {
-    return await generateSceneImage(client, scene, design, promptOptions, { signal: effectiveSignal });
+    return await generateSceneImage(client, scene, design, promptOptions, { signal: effectiveSignal }, referenceImages);
   } catch (err) {
     if (effectiveSignal.aborted) throw err;
 
@@ -212,7 +277,7 @@ export async function generateSceneImageWithRetry(
       );
       await sleep(delayMs, effectiveSignal);
       try {
-        return await generateSceneImage(client, scene, design, promptOptions, { signal: effectiveSignal });
+        return await generateSceneImage(client, scene, design, promptOptions, { signal: effectiveSignal }, referenceImages);
       } catch (retryErr) {
         if (effectiveSignal.aborted) throw retryErr;
         lastErr = retryErr;

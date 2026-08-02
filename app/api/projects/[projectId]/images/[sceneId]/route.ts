@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { readProject, readProjectFile, readProjectImage, writeProjectImage } from "@/lib/projects/store";
+import {
+  readProject,
+  readProjectFile,
+  readProjectImage,
+  readProjectReferenceImage,
+  writeProjectImage,
+} from "@/lib/projects/store";
 import { createOpenAiImageClient } from "@/lib/ai/openaiImageClient";
 import { generateSceneImageWithRetry, buildRelatedScenesContext, describeImageError } from "@/lib/pipeline/generateSceneImage";
 import { DEFAULT_IMAGE_COMMON_PROMPT } from "@/lib/pipeline/commonPromptDefaults";
@@ -36,6 +42,13 @@ export async function POST(
   }
   const commonPrompt = (await readProjectFile(projectId, "image-common-prompt.txt"))?.trim() || DEFAULT_IMAGE_COMMON_PROMPT;
   const presenterEnabled = (await readProjectFile(projectId, "image-presenter-enabled.txt"))?.trim() === "true";
+  const backgroundFixed = (await readProjectFile(projectId, "background-fixed-enabled.txt"))?.trim() === "true";
+  const genderRaw = (await readProjectFile(projectId, "presenter-gender.txt"))?.trim();
+  const presenterGender = genderRaw === "male" || genderRaw === "female" ? genderRaw : undefined;
+  const referenceImages = {
+    background: backgroundFixed ? (await readProjectReferenceImage(projectId, "background")) ?? undefined : undefined,
+    presenter: presenterEnabled ? (await readProjectReferenceImage(projectId, "presenter")) ?? undefined : undefined,
+  };
 
   let scenes: Scene[];
   let visualDesigns: Record<string, VisualDesign>;
@@ -65,13 +78,22 @@ export async function POST(
   }
 
   try {
-    const buffer = await generateSceneImageWithRetry(client, scene, design, {
-      screenType: screenTypes[sceneId]?.screenType,
-      commonPrompt,
-      presenterEnabled,
-      presenterPosition: design.presenterPosition,
-      relatedScenes: buildRelatedScenesContext(scene, visualDesigns),
-    });
+    const buffer = await generateSceneImageWithRetry(
+      client,
+      scene,
+      design,
+      {
+        screenType: screenTypes[sceneId]?.screenType,
+        commonPrompt,
+        presenterEnabled,
+        presenterPosition: design.presenterPosition,
+        presenterGender,
+        backgroundFixed,
+        relatedScenes: buildRelatedScenesContext(scene, visualDesigns),
+      },
+      undefined,
+      referenceImages
+    );
     await writeProjectImage(projectId, sceneId, buffer);
   } catch (err) {
     const reason = describeImageError(err);

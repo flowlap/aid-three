@@ -39,7 +39,7 @@ export interface VisualDesign {
   layoutElements?: LayoutElement[];
   /**
    * Where the presenter/announcer should appear if the images step's
-   * "아나운서 표시" toggle is on — decided once here (screen design), with
+   * "강사 표시" toggle is on — decided once here (screen design), with
    * variety enforced against neighboring scenes, rather than left to each
    * independent image-generation call to guess (which in practice defaulted
    * to the same position every time). Undefined for scenes where a

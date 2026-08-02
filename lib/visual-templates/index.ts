@@ -238,7 +238,7 @@ export const TEXT_FORWARD_SCREEN_TYPES: ReadonlySet<string> = new Set<ScreenType
 /**
  * Screen types that are pure transitions (a chapter divider, a title card —
  * no substantive content of their own) rather than a real explanatory
- * screen. The "아나운서 표시" toggle (generateSceneImage.ts) skips these even
+ * screen. The "강사 표시" toggle (generateSceneImage.ts) skips these even
  * when it's on for the rest of the project, since a presenter appearing on
  * a bare divider screen looks out of place.
  */

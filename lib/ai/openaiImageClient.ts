@@ -2,6 +2,14 @@ export interface OpenAiImageOptions {
   quality?: "low" | "medium" | "high";
   size?: string;
   signal?: AbortSignal;
+  /**
+   * Reference images (e.g. a fixed background and/or presenter photo) to
+   * condition generation on. When non-empty, generateImage calls OpenAI's
+   * multi-image /images/edits endpoint instead of /images/generations so the
+   * new image is generated *from* these references rather than from the
+   * prompt alone.
+   */
+  referenceImages?: Buffer[];
 }
 
 /** Thrown for a non-ok OpenAI response, with the HTTP status attached so callers can tell a rate limit (429) apart from other failures without parsing the message text. */
@@ -33,6 +41,13 @@ export class RealOpenAiImageClient implements OpenAiImageClient {
   constructor(private readonly apiKey: string) {}
 
   async generateImage(prompt: string, options?: OpenAiImageOptions): Promise<Buffer> {
+    const referenceImages = options?.referenceImages?.filter((img) => img.length > 0) ?? [];
+    return referenceImages.length > 0
+      ? this.editImage(prompt, referenceImages, options)
+      : this.generateFromScratch(prompt, options);
+  }
+
+  private async generateFromScratch(prompt: string, options?: OpenAiImageOptions): Promise<Buffer> {
     const startedAt = Date.now();
     const quality = options?.quality ?? DEFAULT_QUALITY;
     const size = options?.size ?? DEFAULT_SIZE;
@@ -60,6 +75,52 @@ export class RealOpenAiImageClient implements OpenAiImageClient {
       throw err;
     }
 
+    return this.parseImageResponse(response, startedAt);
+  }
+
+  /**
+   * Generates an image conditioned on one or more reference images (e.g. a
+   * fixed background and/or presenter photo) via OpenAI's multi-image
+   * /images/edits endpoint, so the result reuses those references instead of
+   * drawing everything fresh from the prompt alone. multipart/form-data with
+   * a repeated "image[]" field is OpenAI's documented shape for passing
+   * several reference images to gpt-image edits.
+   */
+  private async editImage(prompt: string, referenceImages: Buffer[], options?: OpenAiImageOptions): Promise<Buffer> {
+    const startedAt = Date.now();
+    const quality = options?.quality ?? DEFAULT_QUALITY;
+    const size = options?.size ?? DEFAULT_SIZE;
+    console.log(
+      `[OpenAI Image] 참조 이미지 기반 생성 시작 model=${OPENAI_IMAGE_MODELS.default} quality=${quality} size=${size} promptChars=${prompt.length} refImages=${referenceImages.length}`
+    );
+
+    const form = new FormData();
+    form.set("model", OPENAI_IMAGE_MODELS.default);
+    form.set("prompt", prompt);
+    form.set("quality", quality);
+    form.set("size", size);
+    form.set("n", "1");
+    referenceImages.forEach((buffer, i) => {
+      form.append("image[]", new Blob([new Uint8Array(buffer)], { type: "image/png" }), `reference-${i}.png`);
+    });
+
+    let response: Response;
+    try {
+      response = await fetch(`${BASE_URL}/images/edits`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${this.apiKey}` },
+        body: form,
+        signal: options?.signal,
+      });
+    } catch (err) {
+      console.error(`[OpenAI Image] 참조 이미지 기반 생성 실패 elapsedMs=${Date.now() - startedAt}`, err);
+      throw err;
+    }
+
+    return this.parseImageResponse(response, startedAt);
+  }
+
+  private async parseImageResponse(response: Response, startedAt: number): Promise<Buffer> {
     if (!response.ok) {
       const body = await response.text();
       const err = new OpenAiImageApiError(response.status, body);

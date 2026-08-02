@@ -1,6 +1,10 @@
-import { readProjectFile, listProjectImageIds } from "@/lib/projects/store";
+import { readProjectFile, readProjectReferenceImage, listProjectImageIds } from "@/lib/projects/store";
 import { ImagesEditor } from "./ImagesEditor";
-import { DEFAULT_IMAGE_COMMON_PROMPT } from "@/lib/pipeline/commonPromptDefaults";
+import {
+  DEFAULT_IMAGE_COMMON_PROMPT,
+  DEFAULT_BACKGROUND_IMAGE_PROMPT,
+  DEFAULT_PRESENTER_IMAGE_PROMPT,
+} from "@/lib/pipeline/commonPromptDefaults";
 import type { Scene } from "@/lib/pipeline/splitScenes";
 import type { ScreenTypeAssignment } from "@/lib/pipeline/selectScreenTypes";
 import type { VisualDesign } from "@/lib/pipeline/designVisuals";
@@ -19,6 +23,15 @@ export default async function ImagesPage({ params }: { params: Promise<{ project
   const initialCommonPrompt =
     (await readProjectFile(projectId, "image-common-prompt.txt"))?.trim() || DEFAULT_IMAGE_COMMON_PROMPT;
   const initialPresenterEnabled = (await readProjectFile(projectId, "image-presenter-enabled.txt"))?.trim() === "true";
+  const initialBackgroundFixed = (await readProjectFile(projectId, "background-fixed-enabled.txt"))?.trim() === "true";
+  const initialBackgroundPrompt =
+    (await readProjectFile(projectId, "background-image-prompt.txt"))?.trim() || DEFAULT_BACKGROUND_IMAGE_PROMPT;
+  const initialPresenterPrompt =
+    (await readProjectFile(projectId, "presenter-image-prompt.txt"))?.trim() || DEFAULT_PRESENTER_IMAGE_PROMPT;
+  const genderRaw = (await readProjectFile(projectId, "presenter-gender.txt"))?.trim();
+  const initialPresenterGender = genderRaw === "male" ? "male" : "female";
+  const initialHasBackgroundImage = (await readProjectReferenceImage(projectId, "background")) !== null;
+  const initialHasPresenterImage = (await readProjectReferenceImage(projectId, "presenter")) !== null;
 
   return (
     <>
@@ -34,6 +47,12 @@ export default async function ImagesPage({ params }: { params: Promise<{ project
         initialImageIds={initialImageIds}
         initialCommonPrompt={initialCommonPrompt}
         initialPresenterEnabled={initialPresenterEnabled}
+        initialBackgroundFixed={initialBackgroundFixed}
+        initialBackgroundPrompt={initialBackgroundPrompt}
+        initialPresenterPrompt={initialPresenterPrompt}
+        initialPresenterGender={initialPresenterGender}
+        initialHasBackgroundImage={initialHasBackgroundImage}
+        initialHasPresenterImage={initialHasPresenterImage}
       />
     </>
   );

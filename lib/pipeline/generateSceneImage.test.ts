@@ -72,6 +72,24 @@ describe("generateSceneImage", () => {
     ).rejects.toThrow();
   });
 
+  it("forwards background and presenter reference images to the client and reflects that in the prompt", async () => {
+    const client = new MockOpenAiImageClient();
+    const background = Buffer.from("bg");
+    const presenter = Buffer.from("presenter");
+
+    await generateSceneImage(client, scene, design, { presenterEnabled: true }, undefined, { background, presenter });
+
+    expect(client.calls).toHaveLength(1);
+    expect(client.calls[0].options?.referenceImages).toEqual([background, presenter]);
+    expect(client.calls[0].prompt).toContain("제공된 강사 참고 이미지와 동일한 인물");
+  });
+
+  it("omits referenceImages entirely from the client call when no reference images are given", async () => {
+    const client = new MockOpenAiImageClient();
+    await generateSceneImage(client, scene, design);
+    expect(client.calls[0].options?.referenceImages).toEqual([]);
+  });
+
   it("tells the model not to render text for an illustration-style screen type", () => {
     const prompt = buildImagePrompt(scene, design, { screenType: "이미지 설명형" });
     expect(prompt).toContain("텍스트 렌더링 없이");
@@ -104,7 +122,7 @@ describe("generateSceneImage", () => {
 
   it("includes the 4-shot presenter instruction when presenterEnabled is true", () => {
     const prompt = buildImagePrompt(scene, design, { presenterEnabled: true });
-    expect(prompt).toContain("아나운서(발표자)가 등장해야 합니다");
+    expect(prompt).toContain("강사(발표자)가 등장해야 합니다");
     expect(prompt).toContain("좌측 등장");
     expect(prompt).toContain("우측 등장");
     expect(prompt).toContain("중앙 등장");
@@ -112,18 +130,18 @@ describe("generateSceneImage", () => {
   });
 
   it("omits the presenter instruction when presenterEnabled is false or unset", () => {
-    expect(buildImagePrompt(scene, design)).not.toContain("아나운서");
-    expect(buildImagePrompt(scene, design, { presenterEnabled: false })).not.toContain("아나운서");
+    expect(buildImagePrompt(scene, design)).not.toContain("강사");
+    expect(buildImagePrompt(scene, design, { presenterEnabled: false })).not.toContain("강사");
   });
 
   it("skips the presenter instruction for transition/title screens even when presenterEnabled is true", () => {
     const prompt = buildImagePrompt(scene, design, { presenterEnabled: true, screenType: "간지/타이틀형" });
-    expect(prompt).not.toContain("아나운서");
+    expect(prompt).not.toContain("강사");
   });
 
   it("still includes the presenter instruction for non-transition screen types", () => {
     const prompt = buildImagePrompt(scene, design, { presenterEnabled: true, screenType: "표/그래프형" });
-    expect(prompt).toContain("아나운서(발표자)가 등장해야 합니다");
+    expect(prompt).toContain("강사(발표자)가 등장해야 합니다");
   });
 
   it("names the exact pre-decided presenter position instead of offering all 4 choices", () => {
@@ -136,6 +154,26 @@ describe("generateSceneImage", () => {
   it("falls back to the 4-choice instruction when no presenterPosition was decided", () => {
     const prompt = buildImagePrompt(scene, design, { presenterEnabled: true });
     expect(prompt).toContain("다음 4가지 중에서");
+  });
+
+  it("mentions the chosen gender when presenterGender is set and no reference image is attached", () => {
+    const prompt = buildImagePrompt(scene, design, { presenterEnabled: true, presenterGender: "female" });
+    expect(prompt).toContain("여성 강사(발표자)가 등장해야 합니다");
+  });
+
+  it("switches to a match-this-person instruction when a presenter reference image is attached, ignoring gender text", () => {
+    const prompt = buildImagePrompt(scene, design, {
+      presenterEnabled: true,
+      presenterGender: "male",
+      hasPresenterReferenceImage: true,
+    });
+    expect(prompt).toContain("제공된 강사 참고 이미지와 동일한 인물");
+    expect(prompt).not.toContain("남성 강사");
+  });
+
+  it("includes the background-fixed instruction only when backgroundFixed is true", () => {
+    expect(buildImagePrompt(scene, design, { backgroundFixed: true })).toContain("배경 참고 이미지를 그대로 배경으로 사용");
+    expect(buildImagePrompt(scene, design)).not.toContain("배경 참고 이미지");
   });
 
   it("includes related scenes as reference material when provided", () => {
