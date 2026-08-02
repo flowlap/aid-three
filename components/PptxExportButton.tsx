@@ -1,7 +1,7 @@
 "use client";
 
-import { useRef, useState, type ChangeEvent } from "react";
-import { FileDown, FileUp, Download } from "lucide-react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import { FileDown, FileUp, Download, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 export type MockupStyle = "storyboard" | "notebooklm";
@@ -77,10 +77,11 @@ export function PptxQuickExportButton({
 
 /**
  * "템플릿 등록" workflow: download a starter .pptx (fields already laid out
- * as `{{placeholder}}`), edit it in PowerPoint, then upload it here to get a
- * copy with that slide duplicated once per scene, placeholders filled in.
- * Separate from PptxQuickExportButton because this is a multi-step, opt-in
- * customization path, not an instant download.
+ * as `{{placeholder}}`), edit it in PowerPoint, then upload it here to save
+ * it as the project's export template. Once saved, every later "PPTX로 저장"
+ * click (PptxQuickExportButton) reuses it automatically — no need to
+ * re-upload per export. Separate from PptxQuickExportButton because this is
+ * a one-time, opt-in customization step, not an instant download.
  */
 export function PptxTemplateSection({
   projectId,
@@ -90,8 +91,25 @@ export function PptxTemplateSection({
   mockupStyle?: MockupStyle;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const [exporting, setExporting] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [removing, setRemoving] = useState(false);
+  const [hasTemplate, setHasTemplate] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/projects/${projectId}/pptx-template`)
+      .then((res) => (res.ok ? res.json() : { exists: false }))
+      .then((data) => {
+        if (!cancelled) setHasTemplate(Boolean(data.exists));
+      })
+      .catch(() => {
+        if (!cancelled) setHasTemplate(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId]);
 
   async function handleFileChange(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -99,21 +117,38 @@ export function PptxTemplateSection({
     if (!file) return;
 
     setError(null);
-    setExporting(true);
+    setSaving(true);
     try {
       const formData = new FormData();
       formData.append("template", file);
-      const res = await fetch(`/api/projects/${projectId}/storyboard/pptx`, { method: "POST", body: formData });
+      const res = await fetch(`/api/projects/${projectId}/pptx-template`, { method: "POST", body: formData });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        setError(data.error ?? "pptx 생성에 실패했습니다");
+        setError(data.error ?? "템플릿 저장에 실패했습니다");
         return;
       }
-      await downloadPptxBlob(res);
+      setHasTemplate(true);
     } catch {
-      setError("pptx 생성 요청 중 오류가 발생했습니다");
+      setError("템플릿 저장 요청 중 오류가 발생했습니다");
     } finally {
-      setExporting(false);
+      setSaving(false);
+    }
+  }
+
+  async function handleRemove() {
+    setError(null);
+    setRemoving(true);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/pptx-template`, { method: "DELETE" });
+      if (!res.ok) {
+        setError("템플릿 제거에 실패했습니다");
+        return;
+      }
+      setHasTemplate(false);
+    } catch {
+      setError("템플릿 제거 요청 중 오류가 발생했습니다");
+    } finally {
+      setRemoving(false);
     }
   }
 
@@ -127,11 +162,18 @@ export function PptxTemplateSection({
           <Download className="size-3.5" />
           {STYLE_LABEL[mockupStyle]} 템플릿 다운로드
         </a>
-        <Button variant="outline" size="sm" disabled={exporting} onClick={() => inputRef.current?.click()}>
+        <Button variant="outline" size="sm" disabled={saving} onClick={() => inputRef.current?.click()}>
           <FileUp className="size-3.5" />
-          {exporting ? "생성 중..." : "직접 만든 템플릿 업로드"}
+          {saving ? "저장 중..." : "직접 만든 템플릿 업로드"}
         </Button>
+        {hasTemplate && (
+          <Button variant="ghost" size="sm" disabled={removing} onClick={handleRemove}>
+            <X className="size-3.5" />
+            {removing ? "제거 중..." : "기본으로 되돌리기"}
+          </Button>
+        )}
       </div>
+      {hasTemplate && <p className="text-xs text-muted-foreground">업로드한 템플릿이 적용되어 있습니다 — PPTX로 저장 시 이 템플릿을 사용합니다.</p>}
       <input ref={inputRef} type="file" accept=".pptx" onChange={handleFileChange} className="hidden" />
       {error && <p className="max-w-64 text-right text-xs text-destructive">{error}</p>}
     </div>

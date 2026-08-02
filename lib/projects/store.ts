@@ -130,6 +130,26 @@ export async function deleteProject(id: string): Promise<void> {
   await fs.rm(projectDir(id), { recursive: true, force: true });
 }
 
+export function projectPptxTemplatePath(id: string): string {
+  return path.join(projectDir(id), "pptx-template.pptx");
+}
+
+export async function writeProjectPptxTemplate(id: string, buffer: Buffer): Promise<void> {
+  await fs.writeFile(projectPptxTemplatePath(id), buffer);
+}
+
+export async function readProjectPptxTemplate(id: string): Promise<Buffer | null> {
+  try {
+    return await fs.readFile(projectPptxTemplatePath(id));
+  } catch {
+    return null;
+  }
+}
+
+export async function deleteProjectPptxTemplate(id: string): Promise<void> {
+  await fs.rm(projectPptxTemplatePath(id), { force: true });
+}
+
 export async function writeProjectFile(id: string, filename: string, content: string): Promise<void> {
   assertSafeFilename(filename);
   await fs.writeFile(path.join(projectDir(id), filename), content, "utf-8");
