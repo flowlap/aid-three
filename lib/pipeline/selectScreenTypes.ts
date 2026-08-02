@@ -168,6 +168,18 @@ function buildRelatedSceneContext(
   return `\n관련 씬(같은 이야기 흐름으로 묶여 있습니다 — 이 씬이 이들을 잇거나 요약·비교하는 역할이라면 화면 유형·자막·화면 설명에 그 관계를 반영하세요):\n${lines.join("\n")}\n`;
 }
 
+/**
+ * How many scenes to design concurrently. Each scene's prompt reads the
+ * *already-resolved* result map for diversity/continuity context (see
+ * buildRelatedSceneContext, diversityNote, presenterContinuityNote below) —
+ * scenes processed in the same batch run in parallel and so can't see each
+ * other's just-computed assignment, only whatever an earlier, fully-finished
+ * batch already produced. That's an accepted trade-off for the speedup: the
+ * continuity heuristics degrade slightly at batch boundaries instead of
+ * requiring a fully sequential run.
+ */
+const CONCURRENCY = 5;
+
 export async function selectScreenTypes(
   client: DeepSeekClient,
   scenes: Scene[],
@@ -177,16 +189,15 @@ export async function selectScreenTypes(
   const result: Record<string, ScreenTypeAssignment> = {};
   const sceneById = new Map((allScenesForContext ?? scenes).map((s) => [s.id, s]));
 
-  for (let i = 0; i < scenes.length; i++) {
-    if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
-
-    const scene = scenes[i];
-
+  for (const scene of scenes) {
     const existing = existingAssignments?.[scene.id];
-    if (existing) {
-      result[scene.id] = existing;
-      continue;
-    }
+    if (existing) result[scene.id] = existing;
+  }
+
+  const pendingIndices = scenes.map((_, i) => i).filter((i) => !result[scenes[i].id]);
+
+  async function designScene(i: number): Promise<void> {
+    const scene = scenes[i];
 
     const prevScene = scenes[i - 1];
     const nextScene = scenes[i + 1];
@@ -263,6 +274,12 @@ JSON으로만 응답하세요: {"screenType": string, "recommendedLayout": strin
     };
     result[scene.id] = assignment;
     await onProgress?.(scene.id, i, scenes.length, assignment);
+  }
+
+  for (let start = 0; start < pendingIndices.length; start += CONCURRENCY) {
+    if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+    const batch = pendingIndices.slice(start, start + CONCURRENCY);
+    await Promise.all(batch.map((i) => designScene(i)));
   }
 
   return result;

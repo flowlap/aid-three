@@ -79,12 +79,23 @@ describe("selectScreenTypes", () => {
     ]);
   });
 
-  it("stops before the next scene once the signal is aborted", async () => {
-    const client = new MockDeepSeekClient([assignmentJson(), assignmentJson({ screenType: "표/그래프형" })]);
+  it("stops before the next batch once the signal is aborted", async () => {
+    // Scenes are designed in batches of 5 concurrently, so cancellation can
+    // only take effect between batches, not between individual scenes within
+    // one. With 6 scenes, aborting during the first batch should still let
+    // that batch's 5 in-flight calls happen, but never start the 6th.
+    const sixScenes: Scene[] = Array.from({ length: 6 }, (_, idx) => ({
+      id: `scene-00${idx + 1}`,
+      order: idx + 1,
+      narrationText: `문장 ${idx + 1}.`,
+      estimatedDurationSec: 5,
+      splitReason: "문장종결",
+    }));
+    const client = new MockDeepSeekClient([assignmentJson()]);
     const controller = new AbortController();
 
     await expect(
-      selectScreenTypes(client, scenes, {
+      selectScreenTypes(client, sixScenes, {
         onProgress: () => {
           controller.abort();
         },
@@ -92,7 +103,7 @@ describe("selectScreenTypes", () => {
       })
     ).rejects.toThrow();
 
-    expect(client.calls).toHaveLength(1);
+    expect(client.calls).toHaveLength(5);
   });
 
   it("rejects a response missing the keywords field", async () => {
@@ -109,21 +120,29 @@ describe("selectScreenTypes", () => {
     await expect(selectScreenTypes(client, [scenes[0]])).rejects.toThrow();
   });
 
-  it("warns the model off a screen type after it repeats twice in a row", async () => {
-    const threeScenes: Scene[] = [
-      { id: "scene-001", order: 1, narrationText: "첫 문장.", estimatedDurationSec: 5, splitReason: "문장종결" },
-      { id: "scene-002", order: 2, narrationText: "두번째 문장.", estimatedDurationSec: 5, splitReason: "문장종결" },
-      { id: "scene-003", order: 3, narrationText: "세번째 문장.", estimatedDurationSec: 5, splitReason: "문장종결" },
-    ];
+  it("warns the model off a screen type after it repeats twice in a row across a batch boundary", async () => {
+    // Scenes within the same 5-scene concurrent batch can't see each other's
+    // just-computed type, so the diversity note only kicks in once a scene
+    // starts in a *later* batch than the two it's comparing against.
+    const sixScenes: Scene[] = Array.from({ length: 6 }, (_, idx) => ({
+      id: `scene-00${idx + 1}`,
+      order: idx + 1,
+      narrationText: `문장 ${idx + 1}.`,
+      estimatedDurationSec: 5,
+      splitReason: "문장종결",
+    }));
     const client = new MockDeepSeekClient([
       assignmentJson({ rationale: "-", caption: "자막1" }),
       assignmentJson({ rationale: "-", caption: "자막2" }),
-      assignmentJson({ screenType: "요약/정리형", recommendedLayout: "목록", rationale: "-", caption: "자막3" }),
+      assignmentJson({ rationale: "-", caption: "자막3" }),
+      assignmentJson({ rationale: "-", caption: "자막4" }),
+      assignmentJson({ rationale: "-", caption: "자막5" }), // batch 1: 5 scenes, all "텍스트 강조형"
+      assignmentJson({ screenType: "요약/정리형", recommendedLayout: "목록", rationale: "-", caption: "자막6" }),
     ]);
 
-    await selectScreenTypes(client, threeScenes);
+    await selectScreenTypes(client, sixScenes);
 
-    expect(client.calls[2].messages[1].content).toContain('"텍스트 강조형"은 선택하지 말고');
+    expect(client.calls[5].messages[1].content).toContain('"텍스트 강조형"은 선택하지 말고');
   });
 
   it("reuses existingAssignments without calling the AI, and only for those scenes", async () => {
@@ -298,18 +317,31 @@ describe("selectScreenTypes", () => {
   });
 
   it("tells the model the previous scene's presenter position and to keep it for continuing content / change it for a topic shift", async () => {
-    const client = new MockDeepSeekClient([
-      assignmentJson({ presenterPosition: "left" }),
-      assignmentJson({ presenterPosition: "left" }),
-    ]);
+    // scene-001 is pre-resolved (existingAssignments) so scene-002 is the
+    // only pending scene and can see it synchronously — a freshly-generated
+    // predecessor in the *same* concurrent batch wouldn't be visible yet
+    // (see the batch-boundary test above for that behavior).
+    const existing = {
+      "scene-001": {
+        screenType: "텍스트 강조형",
+        recommendedLayout: "",
+        rationale: "",
+        caption: "c1",
+        keywords: [],
+        imageOrDiagramDescription: "",
+        objectPlacement: "",
+        presenterPosition: "left" as const,
+      },
+    };
+    const client = new MockDeepSeekClient([assignmentJson({ presenterPosition: "left" })]);
 
-    await selectScreenTypes(client, scenes);
+    await selectScreenTypes(client, scenes, { existingAssignments: existing });
 
-    const secondPrompt = client.calls[1].messages[1].content;
-    expect(secondPrompt).toContain('이전 씬의 아나운서 위치는 "left"였습니다');
-    expect(secondPrompt).toContain("같은 내용/주제의 연장선");
-    expect(secondPrompt).toContain('"left"을 그대로 유지');
-    expect(secondPrompt).toContain("새로운 주제나 내용으로 전환되는 지점이라면 다른 위치로");
+    const prompt = client.calls[0].messages[1].content;
+    expect(prompt).toContain('이전 씬의 아나운서 위치는 "left"였습니다');
+    expect(prompt).toContain("같은 내용/주제의 연장선");
+    expect(prompt).toContain('"left"을 그대로 유지');
+    expect(prompt).toContain("새로운 주제나 내용으로 전환되는 지점이라면 다른 위치로");
   });
 
   it("omits the presenter continuity note for the first scene (no previous position yet)", async () => {
