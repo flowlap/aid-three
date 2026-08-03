@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readProject, readProjectFile, writeProjectFile, updateProjectStep } from "@/lib/projects/store";
-import { createDeepSeekClient } from "@/lib/ai/deepseekClient";
+import { createLlmClient } from "@/lib/ai/llm/factory";
 import {
   checkDuplicateLayouts,
   checkOverlongNarration,
@@ -62,7 +62,7 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ pr
 
   let chunks: AsyncIterable<string>;
   try {
-    const client = createDeepSeekClient();
+    const client = createLlmClient();
     chunks = await reviewSemanticConsistencyStream(client, scenes, visualDesigns, job.controller.signal);
   } catch (err) {
     console.error("일관성 검수 실패:", err);

@@ -7,7 +7,7 @@ import {
   updateProjectStep,
   listProjectImageIds,
 } from "@/lib/projects/store";
-import { createOpenAiImageClient } from "@/lib/ai/openaiImageClient";
+import { createImageClient } from "@/lib/ai/image/factory";
 import { generateSceneImageWithRetry, buildRelatedScenesContext, describeImageError } from "@/lib/pipeline/generateSceneImage";
 import type { Scene } from "@/lib/pipeline/splitScenes";
 import type { ScreenTypeAssignment } from "@/lib/pipeline/selectScreenTypes";
@@ -72,7 +72,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
 
   let client;
   try {
-    client = createOpenAiImageClient();
+    client = createImageClient();
   } catch (err) {
     console.error("이미지 생성 실패:", err);
     finishJob(projectId, STEP, "error", "AI 이미지 생성에 실패했습니다");

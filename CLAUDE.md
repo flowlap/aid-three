@@ -9,15 +9,16 @@
 ## 현재 상태
 
 - 2026-07-29: v1 파이프라인(업로드 ~ 최종 스토리보드 뷰) 구현 완료, 13개 태스크 + 최종 전체 브랜치 리뷰 통과, 실제 DeepSeek API로 라이브 E2E 검증 완료, `master`에 병합 및 GitHub push 완료.
-- 다음 작업은 [`docs/ROADMAP.md`](docs/ROADMAP.md) 참고 (작은 개선 항목부터 pptx 내보내기·AI 이미지 생성 같은 큰 후속 기능까지 우선순위별로 정리됨). 착수 전 `superpowers:brainstorming`부터 시작할 것.
+- 2026-08-03: AI provider 추상화 도입 — DeepSeek(텍스트)/OpenAI(이미지) 전용 클라이언트를 `LlmClient`/`ImageClient` 인터페이스로 일반화하고, 사내 게이트웨이 H-CHAT(Claude/ChatGPT/Gemini/Gemini 이미지)을 `LLM_PROVIDER`/`IMAGE_PROVIDER` env var로 선택 가능하게 함. 기본값은 기존과 동일(`deepseek`/`openai`)해 하위호환 유지. 상세는 [`docs/superpowers/specs/2026-08-03-hchat-provider-abstraction-design.md`](docs/superpowers/specs/2026-08-03-hchat-provider-abstraction-design.md) 참고.
+- 다음 작업은 [`docs/ROADMAP.md`](docs/ROADMAP.md) 참고 (작은 개선 항목부터 pptx 내보내기 같은 큰 후속 기능까지 우선순위별로 정리됨). 착수 전 `superpowers:brainstorming`부터 시작할 것.
 
 ## 기술 스택
 
 - Next.js (App Router) 단일 앱, `npm run dev`로 로컬 실행 (Windows/Mac 웹앱)
 - React + TypeScript + shadcn/ui + Tailwind CSS
 - 백엔드 로직은 전부 Next.js API Route(Node.js)에서 처리 — 별도 서버 프로세스 없음
-- AI: DeepSeek API (텍스트 분석 전 단계). 상세는 [`docs/reference/deepseek-api.md`](docs/reference/deepseek-api.md)
-- 향후(v1 범위 아님): OpenAI GPT Image 1.5 Low로 씬별 이미지 생성, pptx 템플릿 내보내기
+- AI: `LlmClient`(텍스트)/`ImageClient`(이미지) 인터페이스로 provider 추상화됨 — `LLM_PROVIDER`/`IMAGE_PROVIDER` env var로 DeepSeek/OpenAI(기본값) 또는 사내 H-CHAT 게이트웨이(Claude/ChatGPT/Gemini) 선택. DeepSeek 자체 스펙은 [`docs/reference/deepseek-api.md`](docs/reference/deepseek-api.md)
+- 향후(v1 범위 아님): pptx 템플릿 내보내기
 
 ## 아키텍처 핵심 결정
 
@@ -45,4 +46,4 @@
 ## 작업 시 유의사항
 
 - 씬 분할 단계에서 나레이션 원문은 임의로 수정하지 않고 분절만 한다 — 이 원칙은 코드 레벨 검증(원문 재조합 diff 체크)으로도 지켜야 한다.
-- DeepSeek 클라이언트는 반드시 인터페이스로 분리해서 테스트 시 mock으로 대체 가능하게 유지한다.
+- AI 클라이언트(LLM/이미지)는 반드시 인터페이스로 분리해서 테스트 시 mock으로 대체 가능하게 유지한다. 새 provider를 추가할 때도 이 원칙을 따른다(`lib/ai/llm/*`, `lib/ai/image/*` 참고).

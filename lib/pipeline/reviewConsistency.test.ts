@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { MockDeepSeekClient } from "../ai/deepseekClient.mock";
+import { MockLlmClient } from "../ai/llm/mockLlmClient";
 import {
   checkDuplicateLayouts,
   checkOverlongNarration,
@@ -75,7 +75,7 @@ describe("checkSceneNumbering", () => {
 
 describe("reviewSemanticConsistency", () => {
   it("parses AI-reported issues", async () => {
-    const client = new MockDeepSeekClient([
+    const client = new MockLlmClient([
       JSON.stringify({
         issues: [
           { type: "terminology", severity: "warning", sceneIds: ["scene-001"], message: "용어 불일치" },
@@ -102,11 +102,11 @@ describe("reviewSemanticConsistency", () => {
   });
 
   it("requests the flash model", async () => {
-    const client = new MockDeepSeekClient([JSON.stringify({ issues: [] })]);
+    const client = new MockLlmClient([JSON.stringify({ issues: [] })]);
     const scenes = [makeScene("scene-001", 1)];
 
     await reviewSemanticConsistency(client, scenes, {});
 
-    expect(client.calls[0].options?.model).toBe("deepseek-v4-flash");
+    expect(client.calls[0].options?.tier).toBe("fast");
   });
 });

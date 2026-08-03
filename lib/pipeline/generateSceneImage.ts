@@ -1,4 +1,4 @@
-import { OpenAiImageApiError, type OpenAiImageClient, type OpenAiImageOptions } from "../ai/openaiImageClient";
+import { ImageApiError, type ImageClient, type ImageGenerateOptions } from "../ai/image/types";
 import { TEXT_FORWARD_SCREEN_TYPES, PRESENTER_EXCLUDED_SCREEN_TYPES } from "../visual-templates";
 import {
   IMAGE_GENERATION_MAX_RETRIES,
@@ -188,11 +188,11 @@ export function buildRelatedScenesContext(
 }
 
 export async function generateSceneImage(
-  client: OpenAiImageClient,
+  client: ImageClient,
   scene: Scene,
   design: VisualDesign,
   promptOptions?: BuildImagePromptOptions,
-  clientOptions?: OpenAiImageOptions,
+  clientOptions?: ImageGenerateOptions,
   referenceImages?: SceneReferenceImages
 ): Promise<Buffer> {
   const effectivePromptOptions: BuildImagePromptOptions = {
@@ -206,9 +206,9 @@ export async function generateSceneImage(
   return client.generateImage(prompt, { ...clientOptions, referenceImages: referenceBuffers });
 }
 
-/** True for OpenAI's rate-limit ("too many requests") response — the most likely failure when several scenes generate concurrently. */
+/** True for a rate-limit ("too many requests") response from the configured image provider — the most likely failure when several scenes generate concurrently. */
 export function isRateLimitError(err: unknown): boolean {
-  return err instanceof OpenAiImageApiError && err.status === 429;
+  return err instanceof ImageApiError && err.status === 429;
 }
 
 const MAX_ERROR_MESSAGE_LENGTH = 300;
@@ -251,7 +251,7 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
  * wrong instead of a generic message.
  */
 export async function generateSceneImageWithRetry(
-  client: OpenAiImageClient,
+  client: ImageClient,
   scene: Scene,
   design: VisualDesign,
   promptOptions?: BuildImagePromptOptions,

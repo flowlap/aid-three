@@ -1,12 +1,12 @@
-import type { ChatMessage, DeepSeekClient, DeepSeekCompleteOptions } from "./deepseekClient";
+import type { ChatMessage, LlmClient, LlmCompleteOptions } from "./types";
 
-export class MockDeepSeekClient implements DeepSeekClient {
-  public calls: Array<{ messages: ChatMessage[]; options?: DeepSeekCompleteOptions }> = [];
+export class MockLlmClient implements LlmClient {
+  public calls: Array<{ messages: ChatMessage[]; options?: LlmCompleteOptions }> = [];
   private callIndex = 0;
 
   constructor(private readonly responses: string[]) {}
 
-  async complete(messages: ChatMessage[], options?: DeepSeekCompleteOptions): Promise<string> {
+  async complete(messages: ChatMessage[], options?: LlmCompleteOptions): Promise<string> {
     this.calls.push({ messages, options });
     if (options?.signal?.aborted) throw new DOMException("Aborted", "AbortError");
     const response = this.responses[this.callIndex] ?? this.responses[this.responses.length - 1];
@@ -16,7 +16,7 @@ export class MockDeepSeekClient implements DeepSeekClient {
 
   async completeStream(
     messages: ChatMessage[],
-    options?: DeepSeekCompleteOptions
+    options?: LlmCompleteOptions
   ): Promise<AsyncIterable<string>> {
     this.calls.push({ messages, options });
     if (options?.signal?.aborted) throw new DOMException("Aborted", "AbortError");

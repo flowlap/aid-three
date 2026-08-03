@@ -1,10 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { MockDeepSeekClient } from "../ai/deepseekClient.mock";
+import { MockLlmClient } from "../ai/llm/mockLlmClient";
 import { convertToMarkdown } from "./convertMarkdown";
 
 describe("convertToMarkdown", () => {
   it("converts script-type text and returns the AI response", async () => {
-    const client = new MockDeepSeekClient(["# 변환된 나레이션\n\n안녕하세요."]);
+    const client = new MockLlmClient(["# 변환된 나레이션\n\n안녕하세요."]);
 
     const result = await convertToMarkdown(client, "원본 원고 텍스트", "script");
 
@@ -13,7 +13,7 @@ describe("convertToMarkdown", () => {
   });
 
   it("reformats narration-type text without content changes in the prompt", async () => {
-    const client = new MockDeepSeekClient(["# 나레이션\n\n원문 그대로."]);
+    const client = new MockLlmClient(["# 나레이션\n\n원문 그대로."]);
 
     const result = await convertToMarkdown(client, "원문 나레이션", "narration");
 
@@ -22,10 +22,10 @@ describe("convertToMarkdown", () => {
   });
 
   it("requests the pro model", async () => {
-    const client = new MockDeepSeekClient(["결과"]);
+    const client = new MockLlmClient(["결과"]);
 
     await convertToMarkdown(client, "원고", "narration");
 
-    expect(client.calls[0].options?.model).toBe("deepseek-v4-pro");
+    expect(client.calls[0].options?.tier).toBe("accurate");
   });
 });

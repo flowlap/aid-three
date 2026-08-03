@@ -36,8 +36,7 @@
 - **앱**: Next.js 16 (App Router, TypeScript, Turbopack), 단일 프로세스, `npm run dev`로 로컬 실행
 - **UI**: React + shadcn/ui(Base UI 기반, Radix 아님 — `asChild` 대신 `render`/`nativeButton` prop 사용) + Tailwind CSS v4
 - **테스트**: Vitest — `lib/**/*.test.ts` (총 75개 테스트, 11개 파일)
-- **AI(텍스트)**: DeepSeek API. `deepseek-v4-pro`/`deepseek-v4-flash`만 유효(레거시 `deepseek-chat`/`deepseek-reasoner`는 2026-07-24 폐지됨). 상세: [`docs/reference/deepseek-api.md`](reference/deepseek-api.md)
-- **AI(이미지)**: OpenAI Images API, 모델명은 `lib/ai/openaiImageClient.ts`의 `OPENAI_IMAGE_MODELS.default`(`"gpt-image-2"`) 한 곳에서만 정의 — 실제 호출로 정상 동작 확인됨
+- **AI(텍스트/이미지)**: provider 추상화 도입(2026-08-03) — `LlmClient`/`ImageClient` 인터페이스(`lib/ai/llm/types.ts`, `lib/ai/image/types.ts`)를 두고, `LLM_PROVIDER`/`IMAGE_PROVIDER` env var로 구현체를 선택한다. 기본값은 기존과 동일하게 `deepseek`/`openai`(하위호환, 설정 변경 없이 그대로 동작). 사내 게이트웨이 "H-CHAT"을 통한 Claude/ChatGPT/Gemini(텍스트), Gemini(이미지)도 선택지로 추가됨. 상세: [`docs/superpowers/specs/2026-08-03-hchat-provider-abstraction-design.md`](superpowers/specs/2026-08-03-hchat-provider-abstraction-design.md), DeepSeek 자체 스펙은 [`docs/reference/deepseek-api.md`](reference/deepseek-api.md)
 - **PDF 파싱**: `pdf-parse` v2.x (v1과 API가 완전히 다름 — `PDFParse` 클래스의 `getText()`, `import pdfParse from "pdf-parse"` 형태의 v1 코드는 동작하지 않음)
 - **저장소**: DB 없음. `data/projects/{project-id}/` 폴더 + JSON/markdown 파일 (전체 gitignore 대상)
 
@@ -62,7 +61,10 @@ data/projects/{project-id}/
 ```
 lib/
   projects/       # store.ts(CRUD + 이미지 바이너리 CRUD), types.ts(ProjectMeta, PipelineStep, ScriptType), pipelineStatus.ts(신호등 상태 매핑)
-  ai/             # deepseekClient.ts(+.mock), openaiImageClient.ts(+.mock) — 둘 다 실제구현/mock 분리 인터페이스 패턴
+  ai/             # llm/types.ts(LlmClient), image/types.ts(ImageClient) — provider별 실제구현 파일 + factory.ts(createLlmClient/createImageClient, LLM_PROVIDER/IMAGE_PROVIDER 선택)
+                  #   llm/: deepseekClient, hchatClaudeClient, hchatChatGptClient, hchatGeminiClient (+ 공용 mockLlmClient)
+                  #   image/: openaiImageClient, hchatGeminiImageClient (+ 공용 mockImageClient)
+                  #   hchatShared.ts — H-CHAT 게이트웨이 공통 URL/인증 헤더
   pipeline/       # extractText, convertMarkdown, splitScenes, validateNarrationIntegrity,
                   # selectScreenTypes, designVisuals(VisualDesign 타입만, AI 함수는 Phase 5에서 제거됨), reviewConsistency, generateSceneImage
                   # → 모두 (input) => Promise<output> 순수 함수형, AI 클라이언트를 인자로 주입받음

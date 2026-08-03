@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readProject, readProjectFile, writeProjectFile, updateProjectStep } from "@/lib/projects/store";
-import { createDeepSeekClient } from "@/lib/ai/deepseekClient";
+import { createLlmClient } from "@/lib/ai/llm/factory";
 import { splitScenesStream, parseScenesResponse, type Scene } from "@/lib/pipeline/splitScenes";
 import { validateNarrationIntegrity } from "@/lib/pipeline/validateNarrationIntegrity";
 import { createResilientStream } from "@/lib/http/resilientStream";
@@ -28,7 +28,7 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ pr
 
   let chunks: AsyncIterable<string>;
   try {
-    const client = createDeepSeekClient();
+    const client = createLlmClient();
     chunks = await splitScenesStream(client, narration, job.controller.signal);
   } catch (err) {
     console.error("씬 분할 실패:", err);

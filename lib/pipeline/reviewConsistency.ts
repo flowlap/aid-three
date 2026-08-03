@@ -1,4 +1,4 @@
-import { DEEPSEEK_MODELS, type ChatMessage, type DeepSeekClient } from "../ai/deepseekClient";
+import type { ChatMessage, LlmClient } from "../ai/llm/types";
 import type { Scene } from "./splitScenes";
 import type { ScreenTypeAssignment } from "./selectScreenTypes";
 import type { VisualDesign } from "./designVisuals";
@@ -166,26 +166,26 @@ export function parseSemanticReviewResponse(raw: string): ReviewIssue[] {
 }
 
 export async function reviewSemanticConsistency(
-  client: DeepSeekClient,
+  client: LlmClient,
   scenes: Scene[],
   visualDesigns: Record<string, VisualDesign>
 ): Promise<ReviewIssue[]> {
   const raw = await client.complete(buildSemanticReviewMessages(scenes, visualDesigns), {
     jsonMode: true,
-    model: DEEPSEEK_MODELS.flash,
+    tier: "fast",
   });
   return parseSemanticReviewResponse(raw);
 }
 
 export async function reviewSemanticConsistencyStream(
-  client: DeepSeekClient,
+  client: LlmClient,
   scenes: Scene[],
   visualDesigns: Record<string, VisualDesign>,
   signal?: AbortSignal
 ): Promise<AsyncIterable<string>> {
   return client.completeStream(buildSemanticReviewMessages(scenes, visualDesigns), {
     jsonMode: true,
-    model: DEEPSEEK_MODELS.flash,
+    tier: "fast",
     signal,
   });
 }

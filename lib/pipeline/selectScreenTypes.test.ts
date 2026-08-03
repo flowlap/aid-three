@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { MockDeepSeekClient } from "../ai/deepseekClient.mock";
+import { MockLlmClient } from "../ai/llm/mockLlmClient";
 import { selectScreenTypes } from "./selectScreenTypes";
 import type { Scene } from "./splitScenes";
 
@@ -35,7 +35,7 @@ function batchResponse(groupScenes: Scene[], overridesByOrder: Record<number, Re
 
 describe("selectScreenTypes", () => {
   it("maps each scene id to a screen type assignment", async () => {
-    const client = new MockDeepSeekClient([
+    const client = new MockLlmClient([
       batchResponse(scenes, {
         2: { screenType: "표/그래프형", recommendedLayout: "전체 화면 표", rationale: "표 데이터 설명" },
       }),
@@ -49,7 +49,7 @@ describe("selectScreenTypes", () => {
   });
 
   it("sends every pending content scene in a single batch call when there is no title scene", async () => {
-    const client = new MockDeepSeekClient([batchResponse(scenes)]);
+    const client = new MockLlmClient([batchResponse(scenes)]);
 
     await selectScreenTypes(client, scenes);
 
@@ -59,12 +59,12 @@ describe("selectScreenTypes", () => {
     expect(prompt).toContain("[order=2]");
     expect(prompt).toContain("정의를 설명합니다.");
     expect(prompt).toContain("표를 보여줍니다.");
-    expect(client.calls[0].options?.model).toBe("deepseek-v4-flash");
+    expect(client.calls[0].options?.tier).toBe("fast");
   });
 
   it("designs title scenes locally without any AI call", async () => {
     const withTitle = [title("scene-000", "1장 소개", 1, 0), ...scenes];
-    const client = new MockDeepSeekClient([batchResponse(scenes)]);
+    const client = new MockLlmClient([batchResponse(scenes)]);
 
     const result = await selectScreenTypes(client, withTitle);
 
@@ -74,7 +74,7 @@ describe("selectScreenTypes", () => {
 
   it("calls onProgress for title scenes before any content batch call resolves", async () => {
     const withTitle = [title("scene-000", "1장 소개", 1, 0), ...scenes];
-    const client = new MockDeepSeekClient([batchResponse(scenes)]);
+    const client = new MockLlmClient([batchResponse(scenes)]);
     const progressed: string[] = [];
 
     await selectScreenTypes(client, withTitle, {
@@ -94,7 +94,7 @@ describe("selectScreenTypes", () => {
       title("t2", "2장", 1, 4),
       content("c3", "내용 C", 5),
     ];
-    const client = new MockDeepSeekClient([batchResponse([s[1], s[2]]), batchResponse([s[4]])]);
+    const client = new MockLlmClient([batchResponse([s[1], s[2]]), batchResponse([s[4]])]);
 
     await selectScreenTypes(client, s);
 
@@ -106,7 +106,7 @@ describe("selectScreenTypes", () => {
 
   it("splits a group larger than the max batch size into parallel sub-batches", async () => {
     const contentScenes = Array.from({ length: 10 }, (_, i) => content(`c${i + 1}`, `내용 ${i + 1}`, i + 1));
-    const client = new MockDeepSeekClient([batchResponse(contentScenes.slice(0, 8)), batchResponse(contentScenes.slice(8, 10))]);
+    const client = new MockLlmClient([batchResponse(contentScenes.slice(0, 8)), batchResponse(contentScenes.slice(8, 10))]);
 
     const result = await selectScreenTypes(client, contentScenes);
 
@@ -115,7 +115,7 @@ describe("selectScreenTypes", () => {
   });
 
   it("includes a generic same-group diversity instruction instead of a per-scene note", async () => {
-    const client = new MockDeepSeekClient([batchResponse(scenes)]);
+    const client = new MockLlmClient([batchResponse(scenes)]);
 
     await selectScreenTypes(client, scenes);
 
@@ -123,7 +123,7 @@ describe("selectScreenTypes", () => {
   });
 
   it("includes the document summary as shared context when provided", async () => {
-    const client = new MockDeepSeekClient([batchResponse([scenes[0]])]);
+    const client = new MockLlmClient([batchResponse([scenes[0]])]);
 
     await selectScreenTypes(client, [scenes[0]], { documentSummary: "이 문서는 탄소배출권 제도를 다룬다." });
 
@@ -131,24 +131,24 @@ describe("selectScreenTypes", () => {
   });
 
   it("includes the common prompt as shared context when provided", async () => {
-    const client = new MockDeepSeekClient([batchResponse([scenes[0]])]);
+    const client = new MockLlmClient([batchResponse([scenes[0]])]);
 
     await selectScreenTypes(client, [scenes[0]], { commonPrompt: "이 콘텐츠는 B2B 금융 실무자 대상입니다." });
 
     expect(client.calls[0].messages[1].content).toContain("이 콘텐츠는 B2B 금융 실무자 대상입니다.");
   });
 
-  it("requests the flash model with a large output budget for group calls", async () => {
-    const client = new MockDeepSeekClient([batchResponse([scenes[0]])]);
+  it("requests the fast tier with a large output budget for group calls", async () => {
+    const client = new MockLlmClient([batchResponse([scenes[0]])]);
 
     await selectScreenTypes(client, [scenes[0]]);
 
-    expect(client.calls[0].options?.model).toBe("deepseek-v4-flash");
+    expect(client.calls[0].options?.tier).toBe("fast");
     expect(client.calls[0].options?.maxTokens).toBe(65536);
   });
 
   it("asks for imageOrDiagramDescription and objectPlacement in the prompt", async () => {
-    const client = new MockDeepSeekClient([batchResponse([scenes[0]])]);
+    const client = new MockLlmClient([batchResponse([scenes[0]])]);
 
     await selectScreenTypes(client, [scenes[0]]);
 
@@ -157,7 +157,7 @@ describe("selectScreenTypes", () => {
   });
 
   it("calls onProgress after each scene with its index/total", async () => {
-    const client = new MockDeepSeekClient([
+    const client = new MockLlmClient([
       batchResponse(scenes, { 2: { screenType: "표/그래프형" } }),
     ]);
     const calls: Array<{ sceneId: string; index: number; total: number }> = [];
@@ -175,13 +175,13 @@ describe("selectScreenTypes", () => {
   });
 
   it("rejects when the AI response is missing one of the requested scenes", async () => {
-    const client = new MockDeepSeekClient([batchResponse([scenes[0]])]); // only order 1, order 2 missing
+    const client = new MockLlmClient([batchResponse([scenes[0]])]); // only order 1, order 2 missing
 
     await expect(selectScreenTypes(client, scenes)).rejects.toThrow();
   });
 
   it("rejects a scene entry missing the keywords field", async () => {
-    const client = new MockDeepSeekClient([
+    const client = new MockLlmClient([
       JSON.stringify({
         scenes: [
           {
@@ -203,7 +203,7 @@ describe("selectScreenTypes", () => {
 
   it("propagates a rejection when one group's batch call fails, without corrupting other groups' results", async () => {
     const s = [title("t1", "1장", 1, 1), content("c1", "내용 A", 2), title("t2", "2장", 1, 3), content("c2", "내용 B", 4)];
-    const client = new MockDeepSeekClient(["이건 JSON이 아님", batchResponse([s[3]])]);
+    const client = new MockLlmClient(["이건 JSON이 아님", batchResponse([s[3]])]);
     const progressed: string[] = [];
 
     await expect(
@@ -220,7 +220,7 @@ describe("selectScreenTypes", () => {
   });
 
   it("reuses existingAssignments without calling the AI, and only for those scenes", async () => {
-    const client = new MockDeepSeekClient([batchResponse([scenes[1]], { 2: { screenType: "표/그래프형" } })]);
+    const client = new MockLlmClient([batchResponse([scenes[1]], { 2: { screenType: "표/그래프형" } })]);
     const existing = {
       "scene-001": {
         screenType: "간지/타이틀형",
@@ -241,7 +241,7 @@ describe("selectScreenTypes", () => {
   });
 
   it("does not call onProgress for reused scenes, only for freshly generated ones", async () => {
-    const client = new MockDeepSeekClient([batchResponse([scenes[1]], { 2: { screenType: "표/그래프형" } })]);
+    const client = new MockLlmClient([batchResponse([scenes[1]], { 2: { screenType: "표/그래프형" } })]);
     const existing = {
       "scene-001": {
         screenType: "간지/타이틀형",
@@ -271,7 +271,7 @@ describe("selectScreenTypes", () => {
       scenes[1],
       content("scene-003", "두 내용을 하나로 잇습니다.", 3, { relatedSceneIds: ["scene-001", "scene-002"] }),
     ];
-    const client = new MockDeepSeekClient([batchResponse(withRelation)]);
+    const client = new MockLlmClient([batchResponse(withRelation)]);
 
     await selectScreenTypes(client, withRelation);
 
@@ -282,7 +282,7 @@ describe("selectScreenTypes", () => {
   });
 
   it("keeps a well-formed layoutElements array from the AI response", async () => {
-    const client = new MockDeepSeekClient([
+    const client = new MockLlmClient([
       batchResponse([scenes[0]], {
         1: {
           layoutElements: [
@@ -302,7 +302,7 @@ describe("selectScreenTypes", () => {
   });
 
   it("drops malformed layoutElements instead of failing the whole response", async () => {
-    const client = new MockDeepSeekClient([
+    const client = new MockLlmClient([
       batchResponse([scenes[0]], {
         1: {
           layoutElements: [
@@ -320,7 +320,7 @@ describe("selectScreenTypes", () => {
   });
 
   it("keeps a valid presenterPosition from the AI response", async () => {
-    const client = new MockDeepSeekClient([batchResponse([scenes[0]], { 1: { presenterPosition: "right" } })]);
+    const client = new MockLlmClient([batchResponse([scenes[0]], { 1: { presenterPosition: "right" } })]);
 
     const result = await selectScreenTypes(client, [scenes[0]]);
 
@@ -328,7 +328,7 @@ describe("selectScreenTypes", () => {
   });
 
   it("drops an invalid presenterPosition value", async () => {
-    const client = new MockDeepSeekClient([batchResponse([scenes[0]], { 1: { presenterPosition: "somewhere" } })]);
+    const client = new MockLlmClient([batchResponse([scenes[0]], { 1: { presenterPosition: "somewhere" } })]);
 
     const result = await selectScreenTypes(client, [scenes[0]]);
 
@@ -336,7 +336,7 @@ describe("selectScreenTypes", () => {
   });
 
   it("clears presenterPosition for a transition/title screen type even if the AI returned one", async () => {
-    const client = new MockDeepSeekClient([
+    const client = new MockLlmClient([
       batchResponse([scenes[0]], { 1: { screenType: "간지/타이틀형", presenterPosition: "center" } }),
     ]);
 
@@ -351,7 +351,7 @@ describe("selectScreenTypes", () => {
       scenes[1],
       content("scene-003", "두 내용을 하나로 잇습니다.", 3, { relatedSceneIds: ["scene-001", "scene-002"] }),
     ];
-    const client = new MockDeepSeekClient([batchResponse([fullScenes[2]])]);
+    const client = new MockLlmClient([batchResponse([fullScenes[2]])]);
 
     await selectScreenTypes(client, [fullScenes[2]], { allScenesForContext: fullScenes });
 

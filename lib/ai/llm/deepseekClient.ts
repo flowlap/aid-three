@@ -1,56 +1,12 @@
-export interface ChatMessage {
-  role: "system" | "user" | "assistant";
-  content: string;
-}
+import type { ChatMessage, LlmClient, LlmCompleteOptions, LlmTier } from "./types";
+import { DEFAULT_MAX_TOKENS, TRUNCATION_ERROR_MESSAGE } from "./types";
 
-export interface DeepSeekCompleteOptions {
-  model?: string;
-  jsonMode?: boolean;
-  signal?: AbortSignal;
-  /**
-   * Upper bound on the model's output length. DeepSeek defaults to a
-   * conservative value (reported around 4K) when this is omitted, which is
-   * nowhere near enough for a large structured JSON response (e.g.
-   * splitting a long narration into 100+ scenes) — the response gets cut
-   * off mid-JSON and fails to parse. Every call site here sets an explicit,
-   * generous value; see DEFAULT_MAX_TOKENS / LARGE_OUTPUT_MAX_TOKENS below.
-   */
-  maxTokens?: number;
-}
-
-export interface DeepSeekClient {
-  complete(messages: ChatMessage[], options?: DeepSeekCompleteOptions): Promise<string>;
-  /**
-   * Resolves once the connection to DeepSeek is established and the request
-   * was accepted (so callers can surface connection/auth errors immediately),
-   * yielding response text chunks as they stream in.
-   */
-  completeStream(
-    messages: ChatMessage[],
-    options?: DeepSeekCompleteOptions
-  ): Promise<AsyncIterable<string>>;
-}
-
-export const DEEPSEEK_MODELS = {
-  pro: "deepseek-v4-pro",
-  flash: "deepseek-v4-flash",
-} as const;
-
-const DEFAULT_MODEL: string = DEEPSEEK_MODELS.pro;
 const BASE_URL = "https://api.deepseek.com";
 
-/**
- * Generous default max_tokens for calls with no explicit override (e.g.
- * single-scene JSON responses in selectScreenTypes/reviewConsistency).
- * DeepSeek V4 supports up to 384K output tokens, so this is nowhere near a
- * real ceiling for the model — it's just meant to never be the bottleneck.
- */
-export const DEFAULT_MAX_TOKENS = 16000;
-/** For calls whose output scales with document size (markdown conversion, scene splitting). */
-export const LARGE_OUTPUT_MAX_TOKENS = 65536;
-
-const TRUNCATION_ERROR =
-  "AI 응답이 최대 길이 제한(max_tokens)으로 중간에 잘렸습니다. 원고가 너무 길 수 있습니다.";
+const DEFAULT_MODELS = {
+  accurate: "deepseek-v4-pro",
+  fast: "deepseek-v4-flash",
+} as const;
 
 function logStart(label: string, model: string, messages: ChatMessage[]): number {
   const inputChars = messages.reduce((sum, m) => sum + m.content.length, 0);
@@ -115,19 +71,26 @@ async function* parseSSEStream(
       }
 
       if (choice?.finish_reason === "length") {
-        logError(label, model, startedAt, new Error(TRUNCATION_ERROR));
-        throw new Error(TRUNCATION_ERROR);
+        logError(label, model, startedAt, new Error(TRUNCATION_ERROR_MESSAGE));
+        throw new Error(TRUNCATION_ERROR_MESSAGE);
       }
     }
   }
   logDone(label, model, startedAt, totalChars, "stop (연결 종료)");
 }
 
-export class RealDeepSeekClient implements DeepSeekClient {
-  constructor(private readonly apiKey: string) {}
+export class RealDeepSeekClient implements LlmClient {
+  constructor(
+    private readonly apiKey: string,
+    private readonly models: { accurate: string; fast: string } = DEFAULT_MODELS
+  ) {}
 
-  async complete(messages: ChatMessage[], options?: DeepSeekCompleteOptions): Promise<string> {
-    const model = options?.model ?? DEFAULT_MODEL;
+  private modelFor(tier?: LlmTier): string {
+    return tier === "fast" ? this.models.fast : this.models.accurate;
+  }
+
+  async complete(messages: ChatMessage[], options?: LlmCompleteOptions): Promise<string> {
+    const model = this.modelFor(options?.tier);
     const startedAt = logStart("complete()", model, messages);
 
     let response: Response;
@@ -164,7 +127,7 @@ export class RealDeepSeekClient implements DeepSeekClient {
     const choice = data.choices[0];
 
     if (choice.finish_reason === "length") {
-      const err = new Error(TRUNCATION_ERROR);
+      const err = new Error(TRUNCATION_ERROR_MESSAGE);
       logError("complete()", model, startedAt, err);
       throw err;
     }
@@ -175,9 +138,9 @@ export class RealDeepSeekClient implements DeepSeekClient {
 
   async completeStream(
     messages: ChatMessage[],
-    options?: DeepSeekCompleteOptions
+    options?: LlmCompleteOptions
   ): Promise<AsyncIterable<string>> {
-    const model = options?.model ?? DEFAULT_MODEL;
+    const model = this.modelFor(options?.tier);
     const startedAt = logStart("completeStream()", model, messages);
 
     let response: Response;
@@ -213,10 +176,14 @@ export class RealDeepSeekClient implements DeepSeekClient {
   }
 }
 
-export function createDeepSeekClient(): DeepSeekClient {
+export function createDeepSeekClient(): LlmClient {
   const apiKey = process.env.DEEPSEEK_API_KEY;
   if (!apiKey) {
     throw new Error("DEEPSEEK_API_KEY 환경변수가 설정되지 않았습니다");
   }
-  return new RealDeepSeekClient(apiKey);
+  const models = {
+    accurate: process.env.DEEPSEEK_MODEL_ACCURATE || DEFAULT_MODELS.accurate,
+    fast: process.env.DEEPSEEK_MODEL_FAST || DEFAULT_MODELS.fast,
+  };
+  return new RealDeepSeekClient(apiKey, models);
 }

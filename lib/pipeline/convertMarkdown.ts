@@ -1,4 +1,4 @@
-import { DEEPSEEK_MODELS, LARGE_OUTPUT_MAX_TOKENS, type ChatMessage, type DeepSeekClient } from "../ai/deepseekClient";
+import { LARGE_OUTPUT_MAX_TOKENS, type ChatMessage, type LlmClient } from "../ai/llm/types";
 import type { ScriptType } from "../projects/types";
 
 function buildMarkdownMessages(rawText: string, scriptType: ScriptType): ChatMessage[] {
@@ -36,26 +36,26 @@ ${rawText}
 }
 
 export async function convertToMarkdown(
-  client: DeepSeekClient,
+  client: LlmClient,
   rawText: string,
   scriptType: ScriptType,
   signal?: AbortSignal
 ): Promise<string> {
   return client.complete(buildMarkdownMessages(rawText, scriptType), {
-    model: DEEPSEEK_MODELS.pro,
+    tier: "accurate",
     maxTokens: LARGE_OUTPUT_MAX_TOKENS,
     signal,
   });
 }
 
 export async function convertToMarkdownStream(
-  client: DeepSeekClient,
+  client: LlmClient,
   rawText: string,
   scriptType: ScriptType,
   signal?: AbortSignal
 ): Promise<AsyncIterable<string>> {
   return client.completeStream(buildMarkdownMessages(rawText, scriptType), {
-    model: DEEPSEEK_MODELS.pro,
+    tier: "accurate",
     maxTokens: LARGE_OUTPUT_MAX_TOKENS,
     signal,
   });
