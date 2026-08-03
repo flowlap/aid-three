@@ -29,10 +29,7 @@
    - pptx 템플릿 파일을 업로드하면 씬 별로 과정명/단원명/나레이션/설계 내용을 삽입해 내보내는 기능
    - `storyboard` 뷰(최종 단계)의 데이터를 소스로 사용
    - pptx 조작 라이브러리 선정(Node 생태계에서 `pptxgenjs` 등 검토 필요)이 첫 브레인스토밍 질문이 될 것
-2. **씬별 AI 이미지 초안 생성**
-   - OpenAI GPT Image 1.5 Low API로 각 씬의 `imageOrDiagramDescription`을 기반으로 이미지 초안 생성
-   - `lib/ai/deepseekClient.ts`와 유사한 형태로 `lib/ai/openaiImageClient.ts` 인터페이스+mock 분리가 자연스러운 확장 지점
-   - 생성된 이미지를 어디에 저장할지(`data/projects/{id}/images/`?), 재생성/버전 관리를 어떻게 할지 결정 필요
+2. ~~**씬별 AI 이미지 초안 생성**~~ — 완료됨(`lib/pipeline/generateSceneImage.ts`, `data/projects/{id}/images/{sceneId}.png`). 이후 2026-08-03에 `lib/ai/deepseekClient.ts`/`lib/ai/openaiImageClient.ts`를 `LlmClient`/`ImageClient` 인터페이스로 일반화하고 사내 H-CHAT 게이트웨이(Claude/ChatGPT/Gemini/Gemini 이미지)를 provider 선택지로 추가함 — 상세는 [`docs/superpowers/specs/2026-08-03-hchat-provider-abstraction-design.md`](superpowers/specs/2026-08-03-hchat-provider-abstraction-design.md) 참고.
 
 ## 참고: 성능 관찰 (우선순위 미정, 재현되면 대응)
 
