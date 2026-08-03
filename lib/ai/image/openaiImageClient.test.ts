@@ -63,4 +63,32 @@ describe("RealOpenAiImageClient", () => {
     expect(err).toBeInstanceOf(ImageApiError);
     expect((err as ImageApiError).status).toBe(429);
   });
+
+  it("forwards the abort signal into fetch() when generating from scratch", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ data: [{ b64_json: Buffer.from([1, 2, 3]).toString("base64") }] }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new RealOpenAiImageClient("test-key");
+    const controller = new AbortController();
+
+    await client.generateImage("a prompt", { signal: controller.signal });
+
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ signal: controller.signal });
+  });
+
+  it("forwards the abort signal into fetch() when editing with reference images", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ data: [{ b64_json: Buffer.from([4, 5, 6]).toString("base64") }] }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new RealOpenAiImageClient("test-key");
+    const controller = new AbortController();
+
+    await client.generateImage("a prompt", { referenceImages: [Buffer.from("bg")], signal: controller.signal });
+
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ signal: controller.signal });
+  });
 });
