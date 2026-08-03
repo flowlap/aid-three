@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
-import { MockOpenAiImageClient } from "../ai/openaiImageClient.mock";
-import { OpenAiImageApiError, type OpenAiImageClient, type OpenAiImageOptions } from "../ai/openaiImageClient";
+import { MockImageClient } from "../ai/image/mockImageClient";
+import { ImageApiError, type ImageClient, type ImageGenerateOptions } from "../ai/image/types";
 import {
   generateSceneImage,
   generateSceneImageWithRetry,
@@ -18,11 +18,11 @@ import type { Scene } from "./splitScenes";
 import type { VisualDesign } from "./designVisuals";
 
 /** A stub image client whose successive calls fail/succeed per a fixed script — lets retry tests control exactly when a call succeeds without real network calls. */
-class ScriptedImageClient implements OpenAiImageClient {
+class ScriptedImageClient implements ImageClient {
   calls = 0;
   constructor(private readonly script: (Error | null)[]) {}
 
-  async generateImage(_prompt: string, options?: OpenAiImageOptions): Promise<Buffer> {
+  async generateImage(_prompt: string, options?: ImageGenerateOptions): Promise<Buffer> {
     if (options?.signal?.aborted) throw new DOMException("Aborted", "AbortError");
     const outcome = this.script[Math.min(this.calls, this.script.length - 1)];
     this.calls += 1;
@@ -50,7 +50,7 @@ const design: VisualDesign = {
 
 describe("generateSceneImage", () => {
   it("returns the image bytes from the client", async () => {
-    const client = new MockOpenAiImageClient();
+    const client = new MockImageClient();
     const buffer = await generateSceneImage(client, scene, design);
     expect(buffer.length).toBeGreaterThan(0);
     expect(client.calls).toHaveLength(1);
@@ -63,7 +63,7 @@ describe("generateSceneImage", () => {
   });
 
   it("forwards options (e.g. abort signal) to the client", async () => {
-    const client = new MockOpenAiImageClient();
+    const client = new MockImageClient();
     const controller = new AbortController();
     controller.abort();
 
@@ -73,7 +73,7 @@ describe("generateSceneImage", () => {
   });
 
   it("forwards background and presenter reference images to the client and reflects that in the prompt", async () => {
-    const client = new MockOpenAiImageClient();
+    const client = new MockImageClient();
     const background = Buffer.from("bg");
     const presenter = Buffer.from("presenter");
 
@@ -85,7 +85,7 @@ describe("generateSceneImage", () => {
   });
 
   it("omits referenceImages entirely from the client call when no reference images are given", async () => {
-    const client = new MockOpenAiImageClient();
+    const client = new MockImageClient();
     await generateSceneImage(client, scene, design);
     expect(client.calls[0].options?.referenceImages).toEqual([]);
   });
@@ -219,12 +219,12 @@ describe("buildRelatedScenesContext", () => {
 });
 
 describe("isRateLimitError", () => {
-  it("is true for a 429 OpenAiImageApiError", () => {
-    expect(isRateLimitError(new OpenAiImageApiError(429, "rate limited"))).toBe(true);
+  it("is true for a 429 ImageApiError", () => {
+    expect(isRateLimitError(new ImageApiError(429, "rate limited"))).toBe(true);
   });
 
-  it("is false for a non-429 OpenAiImageApiError", () => {
-    expect(isRateLimitError(new OpenAiImageApiError(500, "server error"))).toBe(false);
+  it("is false for a non-429 ImageApiError", () => {
+    expect(isRateLimitError(new ImageApiError(500, "server error"))).toBe(false);
   });
 
   it("is false for a plain error", () => {
@@ -288,7 +288,7 @@ describe("generateSceneImageWithRetry", () => {
   it("uses the longer rate-limit delay and allows more retries for a 429", async () => {
     vi.useFakeTimers();
     try {
-      const client = new ScriptedImageClient([new OpenAiImageApiError(429, "rate limited"), null]);
+      const client = new ScriptedImageClient([new ImageApiError(429, "rate limited"), null]);
       const promise = generateSceneImageWithRetry(client, scene, design);
       await vi.advanceTimersByTimeAsync(IMAGE_GENERATION_RATE_LIMIT_RETRY_DELAY_MS);
       const buffer = await promise;
@@ -303,9 +303,9 @@ describe("generateSceneImageWithRetry", () => {
     vi.useFakeTimers();
     try {
       const client = new ScriptedImageClient([
-        new OpenAiImageApiError(429, "rate limited"),
-        new OpenAiImageApiError(429, "still rate limited"),
-        new OpenAiImageApiError(429, "still rate limited again"),
+        new ImageApiError(429, "rate limited"),
+        new ImageApiError(429, "still rate limited"),
+        new ImageApiError(429, "still rate limited again"),
       ]);
       const promise = generateSceneImageWithRetry(client, scene, design);
       const assertion = expect(promise).rejects.toThrow();
