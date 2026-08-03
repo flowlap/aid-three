@@ -6,14 +6,26 @@
 
 ```bash
 npm install
-cp .env.example .env.local   # DEEPSEEK_API_KEY, OPENAI_API_KEY 입력
+cp .env.example .env.local   # 아래 "AI Provider 설정" 참고
 npm run dev
 ```
 
 http://localhost:9625 접속.
 
-- `DEEPSEEK_API_KEY` — 원고 변환/씬 분할/화면 유형 선정/일관성 검수 등 텍스트 단계에 사용.
-- `OPENAI_API_KEY` — 5단계 이미지 생성(선택 사항, 실제 과금 발생)에 사용. 이미지 생성을 안 쓸 거면 생략해도 나머지 단계는 정상 동작하고, 5단계에서 로컬 모델(FLUX.2 Klein, Mac 전용, 아래 참고)로 전환하면 이 키 없이도 이미지를 생성할 수 있다.
+### AI Provider 설정
+
+텍스트(LLM)와 이미지 생성은 각각 provider를 독립적으로 선택할 수 있다(`LlmClient`/`ImageClient` 인터페이스, `lib/ai/llm/`·`lib/ai/image/`). 기본값은 기존과 동일한 DeepSeek(텍스트)/OpenAI(이미지)라서, `.env.local`에 해당 키만 넣으면 추가 설정 없이 그대로 동작한다.
+
+- `LLM_PROVIDER` (기본값 `deepseek`): `deepseek` | `hchat-claude` | `hchat-chatgpt` | `hchat-gemini`
+- `IMAGE_PROVIDER` (기본값 `openai`): `openai` | `hchat-gemini`
+
+| Provider | 필요한 키 | 비고 |
+|---|---|---|
+| `deepseek` | `DEEPSEEK_API_KEY` | 원고 변환/씬 분할/화면 유형 선정/일관성 검수 등 텍스트 단계 |
+| `openai` | `OPENAI_API_KEY` | 5단계 이미지 생성(선택 사항, 실제 과금). 이미지 생성을 안 쓸 거면 생략해도 나머지 단계는 정상 동작하고, 5단계에서 로컬 모델(FLUX.2 Klein, Mac 전용, 아래 참고)로 전환하면 이 키 없이도 이미지를 생성할 수 있다. |
+| `hchat-claude` / `hchat-chatgpt` / `hchat-gemini` / (이미지) `hchat-gemini` | `HCHAT_KEY` | 사내 H-CHAT 게이트웨이 — 4개 provider가 키를 공유 |
+
+Provider별 모델명은 `.env.example`에 나열된 `*_MODEL_ACCURATE`/`*_MODEL_FAST`(또는 `HCHAT_GEMINI_IMAGE_MODEL`) 변수로 오버라이드할 수 있고, 생략 시 기본 모델을 쓴다. 아키텍처 상세는 [H-CHAT provider 추상화 설계 문서](docs/superpowers/specs/2026-08-03-hchat-provider-abstraction-design.md) 참고.
 
 ## 테스트 / 타입 체크
 
@@ -41,7 +53,7 @@ npm run lint           # eslint
 | 2. 씬 분할 | `scenes.json` | 원고의 `#`/`##`/`###` 헤더를 제목 씬(뎁스 포함)으로, 본문을 내용 씬으로 분할. 씬 병합/분리/삭제, 계층 들여쓰기·브레드크럼 표시 |
 | 3. 화면 설계 | `screen-design.json` | 내용 씬을 최하위 제목 기준으로 그룹핑해 그룹당 1회 AI 호출로 화면 유형·자막·키워드·배치 설계(제목 씬은 AI 호출 없이 로컬 처리) |
 | 4. 일관성 검수 | `review.json` | 결정적 검사(레이아웃 중복, 나레이션 길이, 씬 번호) + AI 의미 검사 |
-| 5. 이미지/목업 생성 (선택) | `images/{sceneId}.png` | 상단에서 엔진 선택: **OpenAI**(씬별 이미지 생성, 제목 씬 제외, 실제 과금 — 동시 생성 그룹은 화면 설계와 동일한 기준으로 묶이며, 실패 시 재시도(일반 오류 5초 후 1회, rate limit 30초 후 2회) 후에도 실패하면 사유를 표시하고 중단) 또는 **로컬 FLUX.2 Klein**(mflux, Mac 전용, 무료 — 아래 참고) |
+| 5. 이미지/목업 생성 (선택) | `images/{sceneId}.png` | 상단에서 엔진 선택: 설정된 이미지 provider(기본값 OpenAI, `IMAGE_PROVIDER`로 변경 가능, 실제 과금)로 씬별 이미지 생성(제목 씬 제외) 또는 **로컬 FLUX.2 Klein**(mflux, Mac 전용, 무료 — 아래 참고). 동시 생성 그룹은 화면 설계와 동일한 기준으로 묶이며, 실패 시 재시도(일반 오류 5초 후 1회, rate limit 30초 후 2회) 후에도 실패하면 사유를 표시하고 중단 |
 | 6. 최종 스토리보드 뷰 | 없음(조합 렌더링) | 읽기 전용 최종 결과, PPTX 내보내기 버튼 포함 |
 | 미리보기 | 없음 | 좌측 씬 목차 + 우측 이미지/화면설계 나란히 보기 |
 | 내레이션 음성 생성 | `audio/{sceneId}.wav`, `video/final.mp4` | 로컬 TTS로 씬별 음성 생성 후 동영상으로 합성 (**Mac 전용**, 아래 참고) |
@@ -100,3 +112,4 @@ TTS와 동일하게 별도 서버 없이, "AI로 이미지 생성" 버튼을 누
 - [로컬 TTS 레퍼런스](docs/reference/local-tts.md)
 - [로컬 이미지 생성 레퍼런스](docs/reference/local-image-generation.md)
 - [DeepSeek API 레퍼런스](docs/reference/deepseek-api.md)
+- [H-CHAT provider 추상화 설계 문서](docs/superpowers/specs/2026-08-03-hchat-provider-abstraction-design.md) — LLM/이미지 provider 선택 구조(DeepSeek/OpenAI ↔ 사내 H-CHAT)
