@@ -1,31 +1,4 @@
-export interface OpenAiImageOptions {
-  quality?: "low" | "medium" | "high";
-  size?: string;
-  signal?: AbortSignal;
-  /**
-   * Reference images (e.g. a fixed background and/or presenter photo) to
-   * condition generation on. When non-empty, generateImage calls OpenAI's
-   * multi-image /images/edits endpoint instead of /images/generations so the
-   * new image is generated *from* these references rather than from the
-   * prompt alone.
-   */
-  referenceImages?: Buffer[];
-}
-
-/** Thrown for a non-ok OpenAI response, with the HTTP status attached so callers can tell a rate limit (429) apart from other failures without parsing the message text. */
-export class OpenAiImageApiError extends Error {
-  constructor(
-    public readonly status: number,
-    body: string
-  ) {
-    super(`OpenAI Image API error (${status}): ${body}`);
-    this.name = "OpenAiImageApiError";
-  }
-}
-
-export interface OpenAiImageClient {
-  generateImage(prompt: string, options?: OpenAiImageOptions): Promise<Buffer>;
-}
+import { ImageApiError, type ImageClient, type ImageGenerateOptions } from "./types";
 
 // ⚠️ Unverified model name (user-confirmed as "GPT Image 2 Low" without checking it exists in
 // the OpenAI catalog). Kept as the single place to fix if the API rejects it.
@@ -37,17 +10,17 @@ const DEFAULT_QUALITY = "low";
 const DEFAULT_SIZE = "1536x1024";
 const BASE_URL = "https://api.openai.com/v1";
 
-export class RealOpenAiImageClient implements OpenAiImageClient {
+export class RealOpenAiImageClient implements ImageClient {
   constructor(private readonly apiKey: string) {}
 
-  async generateImage(prompt: string, options?: OpenAiImageOptions): Promise<Buffer> {
+  async generateImage(prompt: string, options?: ImageGenerateOptions): Promise<Buffer> {
     const referenceImages = options?.referenceImages?.filter((img) => img.length > 0) ?? [];
     return referenceImages.length > 0
       ? this.editImage(prompt, referenceImages, options)
       : this.generateFromScratch(prompt, options);
   }
 
-  private async generateFromScratch(prompt: string, options?: OpenAiImageOptions): Promise<Buffer> {
+  private async generateFromScratch(prompt: string, options?: ImageGenerateOptions): Promise<Buffer> {
     const startedAt = Date.now();
     const quality = options?.quality ?? DEFAULT_QUALITY;
     const size = options?.size ?? DEFAULT_SIZE;
@@ -78,15 +51,7 @@ export class RealOpenAiImageClient implements OpenAiImageClient {
     return this.parseImageResponse(response, startedAt);
   }
 
-  /**
-   * Generates an image conditioned on one or more reference images (e.g. a
-   * fixed background and/or presenter photo) via OpenAI's multi-image
-   * /images/edits endpoint, so the result reuses those references instead of
-   * drawing everything fresh from the prompt alone. multipart/form-data with
-   * a repeated "image[]" field is OpenAI's documented shape for passing
-   * several reference images to gpt-image edits.
-   */
-  private async editImage(prompt: string, referenceImages: Buffer[], options?: OpenAiImageOptions): Promise<Buffer> {
+  private async editImage(prompt: string, referenceImages: Buffer[], options?: ImageGenerateOptions): Promise<Buffer> {
     const startedAt = Date.now();
     const quality = options?.quality ?? DEFAULT_QUALITY;
     const size = options?.size ?? DEFAULT_SIZE;
@@ -123,7 +88,7 @@ export class RealOpenAiImageClient implements OpenAiImageClient {
   private async parseImageResponse(response: Response, startedAt: number): Promise<Buffer> {
     if (!response.ok) {
       const body = await response.text();
-      const err = new OpenAiImageApiError(response.status, body);
+      const err = new ImageApiError(response.status, body);
       console.error(`[OpenAI Image] 생성 실패 elapsedMs=${Date.now() - startedAt}`, err);
       throw err;
     }
@@ -148,7 +113,7 @@ export class RealOpenAiImageClient implements OpenAiImageClient {
   }
 }
 
-export function createOpenAiImageClient(): OpenAiImageClient {
+export function createOpenAiImageClient(): ImageClient {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
     throw new Error("OPENAI_API_KEY 환경변수가 설정되지 않았습니다");
