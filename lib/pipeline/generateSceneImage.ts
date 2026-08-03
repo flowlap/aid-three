@@ -206,7 +206,7 @@ export async function generateSceneImage(
   return client.generateImage(prompt, { ...clientOptions, referenceImages: referenceBuffers });
 }
 
-/** True for OpenAI's rate-limit ("too many requests") response — the most likely failure when several scenes generate concurrently. */
+/** True for a rate-limit ("too many requests") response from the configured image provider — the most likely failure when several scenes generate concurrently. */
 export function isRateLimitError(err: unknown): boolean {
   return err instanceof ImageApiError && err.status === 429;
 }
