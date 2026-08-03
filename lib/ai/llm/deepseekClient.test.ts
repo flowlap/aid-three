@@ -32,6 +32,17 @@ describe("RealDeepSeekClient", () => {
     expect(fetchMock.mock.calls[0][1]).toMatchObject({ signal: controller.signal });
   });
 
+  it("forwards the abort signal into fetch() for completeStream()", async () => {
+    const fetchMock = mockFetchOk({});
+    const client = new RealDeepSeekClient("test-key");
+    const controller = new AbortController();
+
+    await client.completeStream([{ role: "user", content: "a" }], { signal: controller.signal });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ signal: controller.signal });
+  });
+
   it("uses the accurate tier's model by default", async () => {
     const fetchMock = mockFetchOk({ choices: [{ message: { content: "응답" } }] });
     const client = new RealDeepSeekClient("test-key");
