@@ -1,4 +1,4 @@
-import { DEEPSEEK_MODELS, LARGE_OUTPUT_MAX_TOKENS, type ChatMessage, type DeepSeekClient } from "../ai/deepseekClient";
+import { LARGE_OUTPUT_MAX_TOKENS, type ChatMessage, type LlmClient } from "../ai/llm/types";
 import { SCREEN_TYPE_OPTIONS, SCREEN_TYPE_INFO, PRESENTER_EXCLUDED_SCREEN_TYPES } from "../visual-templates";
 import { LAYOUT_POSITIONS, PRESENTER_POSITIONS, type LayoutElement, type LayoutPosition, type PresenterPosition } from "./designVisuals";
 import type { Scene } from "./splitScenes";
@@ -261,7 +261,7 @@ JSON으로만 응답하세요: {"scenes": [{"order": number, "screenType": strin
 
 /** Designs one contiguous group (or sub-batch) of content scenes with a single AI call, returning assignments keyed by scene order. */
 async function designSceneGroup(
-  client: DeepSeekClient,
+  client: LlmClient,
   groupScenes: Scene[],
   context: {
     documentContext: string;
@@ -277,7 +277,7 @@ async function designSceneGroup(
 
   const raw = await client.complete(
     buildDesignGroupMessages(groupScenes, context.documentContext, context.commonPromptContext, relatedContextByOrder),
-    { jsonMode: true, model: DEEPSEEK_MODELS.flash, maxTokens: LARGE_OUTPUT_MAX_TOKENS, signal: context.signal }
+    { jsonMode: true, tier: "fast", maxTokens: LARGE_OUTPUT_MAX_TOKENS, signal: context.signal }
   );
 
   let parsed: unknown;
@@ -315,7 +315,7 @@ async function designSceneGroup(
 }
 
 export async function selectScreenTypes(
-  client: DeepSeekClient,
+  client: LlmClient,
   scenes: Scene[],
   options: SelectScreenTypesOptions = {}
 ): Promise<Record<string, ScreenTypeAssignment>> {

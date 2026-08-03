@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { MockDeepSeekClient } from "../ai/deepseekClient.mock";
+import { MockLlmClient } from "../ai/llm/mockLlmClient";
 import { analyzeSceneRelations } from "./analyzeSceneRelations";
 import type { Scene } from "./splitScenes";
 
@@ -33,7 +33,7 @@ function analysisResponse(analyses: Array<{ order: number; splitReason: string; 
 
 describe("analyzeSceneRelations", () => {
   it("returns an empty map for an empty scene list without calling the AI", async () => {
-    const client = new MockDeepSeekClient([]);
+    const client = new MockLlmClient([]);
 
     const result = await analyzeSceneRelations(client, []);
 
@@ -42,7 +42,7 @@ describe("analyzeSceneRelations", () => {
   });
 
   it("maps analyses back to existing scene ids by order", async () => {
-    const client = new MockDeepSeekClient([
+    const client = new MockLlmClient([
       analysisResponse([
         { order: 1, splitReason: "새로운 개념 도입", relatedOrders: [] },
         { order: 2, splitReason: "새로운 개념 도입", relatedOrders: [] },
@@ -60,7 +60,7 @@ describe("analyzeSceneRelations", () => {
   });
 
   it("omits relatedSceneIds when the AI returns an empty array", async () => {
-    const client = new MockDeepSeekClient([analysisResponse([{ order: 1, splitReason: "독립적인 내용", relatedOrders: [] }])]);
+    const client = new MockLlmClient([analysisResponse([{ order: 1, splitReason: "독립적인 내용", relatedOrders: [] }])]);
 
     const result = await analyzeSceneRelations(client, [scenes[0]]);
 
@@ -68,7 +68,7 @@ describe("analyzeSceneRelations", () => {
   });
 
   it("drops self-references and unresolvable orders from relatedOrders", async () => {
-    const client = new MockDeepSeekClient([
+    const client = new MockLlmClient([
       analysisResponse([{ order: 1, splitReason: "독립적인 내용", relatedOrders: [1, 99] }]),
     ]);
 
@@ -78,7 +78,7 @@ describe("analyzeSceneRelations", () => {
   });
 
   it("sends every scene's order and narration text in the prompt", async () => {
-    const client = new MockDeepSeekClient([analysisResponse([])]);
+    const client = new MockLlmClient([analysisResponse([])]);
 
     await analyzeSceneRelations(client, scenes);
 
@@ -89,22 +89,22 @@ describe("analyzeSceneRelations", () => {
   });
 
   it("requests the pro model in json mode", async () => {
-    const client = new MockDeepSeekClient([analysisResponse([])]);
+    const client = new MockLlmClient([analysisResponse([])]);
 
     await analyzeSceneRelations(client, scenes);
 
-    expect(client.calls[0].options?.model).toBe("deepseek-v4-pro");
+    expect(client.calls[0].options?.tier).toBe("accurate");
     expect(client.calls[0].options?.jsonMode).toBe(true);
   });
 
   it("throws a clear error when the AI response is malformed", async () => {
-    const client = new MockDeepSeekClient(["이건 JSON이 아님"]);
+    const client = new MockLlmClient(["이건 JSON이 아님"]);
 
     await expect(analyzeSceneRelations(client, scenes)).rejects.toThrow();
   });
 
   it("ignores analysis entries for orders that don't exist in the scene list", async () => {
-    const client = new MockDeepSeekClient([
+    const client = new MockLlmClient([
       analysisResponse([{ order: 999, splitReason: "존재하지 않는 씬" }]),
     ]);
 

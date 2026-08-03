@@ -1,4 +1,4 @@
-import { DEEPSEEK_MODELS, type DeepSeekClient } from "../ai/deepseekClient";
+import type { LlmClient } from "../ai/llm/types";
 import type { Scene } from "./splitScenes";
 
 export interface SceneRelationAnalysis {
@@ -42,7 +42,7 @@ JSON으로만 응답하세요: {"analyses": [{"order": number, "splitReason": st
  * touching anything else about the scene.
  */
 export async function analyzeSceneRelations(
-  client: DeepSeekClient,
+  client: LlmClient,
   scenes: Scene[],
   signal?: AbortSignal
 ): Promise<Record<string, SceneRelationAnalysis>> {
@@ -51,7 +51,7 @@ export async function analyzeSceneRelations(
   const sceneList = scenes.map((s) => `${s.order}. ${s.narrationText}`).join("\n");
   const raw = await client.complete(buildAnalyzeMessages(sceneList), {
     jsonMode: true,
-    model: DEEPSEEK_MODELS.pro,
+    tier: "accurate",
     signal,
   });
 

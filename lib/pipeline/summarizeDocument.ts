@@ -1,4 +1,4 @@
-import { DEEPSEEK_MODELS, type DeepSeekClient } from "../ai/deepseekClient";
+import type { LlmClient } from "../ai/llm/types";
 
 /**
  * Produces a short (3-5 sentence) overview of the whole narration document —
@@ -7,7 +7,7 @@ import { DEEPSEEK_MODELS, type DeepSeekClient } from "../ai/deepseekClient";
  * with the document's big picture in mind, not just its immediate neighbors.
  */
 export async function summarizeDocument(
-  client: DeepSeekClient,
+  client: LlmClient,
   narrationMarkdown: string,
   signal?: AbortSignal
 ): Promise<string> {
@@ -25,6 +25,6 @@ ${narrationMarkdown}
       { role: "system", content: "당신은 교육 콘텐츠 기획 전문가입니다." },
       { role: "user", content: prompt },
     ],
-    { model: DEEPSEEK_MODELS.flash, signal }
+    { tier: "fast", signal }
   );
 }

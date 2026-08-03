@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { MockDeepSeekClient } from "../ai/deepseekClient.mock";
+import { MockLlmClient } from "../ai/llm/mockLlmClient";
 import { splitScenes } from "./splitScenes";
 
 const SAMPLE_RESPONSE = JSON.stringify({
@@ -11,7 +11,7 @@ const SAMPLE_RESPONSE = JSON.stringify({
 
 describe("splitScenes", () => {
   it("assigns sequential scene ids to the AI-produced scenes", async () => {
-    const client = new MockDeepSeekClient([SAMPLE_RESPONSE]);
+    const client = new MockLlmClient([SAMPLE_RESPONSE]);
 
     const scenes = await splitScenes(client, "안녕하세요. 오늘은 이러닝을 배웁니다.");
 
@@ -22,7 +22,7 @@ describe("splitScenes", () => {
   });
 
   it("requests json mode from the client", async () => {
-    const client = new MockDeepSeekClient([SAMPLE_RESPONSE]);
+    const client = new MockLlmClient([SAMPLE_RESPONSE]);
 
     await splitScenes(client, "나레이션");
 
@@ -30,11 +30,11 @@ describe("splitScenes", () => {
   });
 
   it("requests the pro model", async () => {
-    const client = new MockDeepSeekClient([SAMPLE_RESPONSE]);
+    const client = new MockLlmClient([SAMPLE_RESPONSE]);
 
     await splitScenes(client, "나레이션");
 
-    expect(client.calls[0].options?.model).toBe("deepseek-v4-pro");
+    expect(client.calls[0].options?.tier).toBe("accurate");
   });
 
   it("resolves relatedOrders into relatedSceneIds", async () => {
@@ -51,7 +51,7 @@ describe("splitScenes", () => {
         },
       ],
     });
-    const client = new MockDeepSeekClient([response]);
+    const client = new MockLlmClient([response]);
 
     const scenes = await splitScenes(client, "나레이션");
 
@@ -65,7 +65,7 @@ describe("splitScenes", () => {
         { order: 1, narrationText: "씬 하나.", estimatedDurationSec: 5, splitReason: "-", relatedOrders: [1, 99] },
       ],
     });
-    const client = new MockDeepSeekClient([response]);
+    const client = new MockLlmClient([response]);
 
     const scenes = await splitScenes(client, "나레이션");
 
@@ -73,7 +73,7 @@ describe("splitScenes", () => {
   });
 
   it("defaults scenes without an explicit sceneType to content", async () => {
-    const client = new MockDeepSeekClient([SAMPLE_RESPONSE]);
+    const client = new MockLlmClient([SAMPLE_RESPONSE]);
 
     const scenes = await splitScenes(client, "안녕하세요. 오늘은 이러닝을 배웁니다.");
 
@@ -88,7 +88,7 @@ describe("splitScenes", () => {
         { order: 2, narrationText: "이러닝은 온라인 학습입니다.", estimatedDurationSec: 5, splitReason: "본문 시작", sceneType: "content" },
       ],
     });
-    const client = new MockDeepSeekClient([response]);
+    const client = new MockLlmClient([response]);
 
     const scenes = await splitScenes(client, "# 1장 이러닝 개요\n이러닝은 온라인 학습입니다.");
 

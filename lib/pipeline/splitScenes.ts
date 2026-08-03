@@ -1,4 +1,4 @@
-import { DEEPSEEK_MODELS, LARGE_OUTPUT_MAX_TOKENS, type ChatMessage, type DeepSeekClient } from "../ai/deepseekClient";
+import { LARGE_OUTPUT_MAX_TOKENS, type ChatMessage, type LlmClient } from "../ai/llm/types";
 
 export interface Scene {
   id: string;
@@ -96,23 +96,23 @@ export function parseScenesResponse(raw: string): Scene[] {
   });
 }
 
-export async function splitScenes(client: DeepSeekClient, narrationMarkdown: string): Promise<Scene[]> {
+export async function splitScenes(client: LlmClient, narrationMarkdown: string): Promise<Scene[]> {
   const raw = await client.complete(buildSplitScenesMessages(narrationMarkdown), {
     jsonMode: true,
-    model: DEEPSEEK_MODELS.pro,
+    tier: "accurate",
     maxTokens: LARGE_OUTPUT_MAX_TOKENS,
   });
   return parseScenesResponse(raw);
 }
 
 export async function splitScenesStream(
-  client: DeepSeekClient,
+  client: LlmClient,
   narrationMarkdown: string,
   signal?: AbortSignal
 ): Promise<AsyncIterable<string>> {
   return client.completeStream(buildSplitScenesMessages(narrationMarkdown), {
     jsonMode: true,
-    model: DEEPSEEK_MODELS.pro,
+    tier: "accurate",
     maxTokens: LARGE_OUTPUT_MAX_TOKENS,
     signal,
   });
