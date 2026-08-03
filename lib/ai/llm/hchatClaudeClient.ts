@@ -40,7 +40,10 @@ function logError(label: string, model: string, startedAt: number, err: unknown)
 interface ClaudeStreamEvent {
   type?: string;
   delta?: { type?: string; text?: string; stop_reason?: string | null };
+  error?: { type?: string; message?: string };
 }
+
+const HEARTBEAT_INTERVAL_MS = 2000;
 
 async function* parseClaudeSSEStream(
   body: ReadableStream<Uint8Array>,
@@ -52,6 +55,7 @@ async function* parseClaudeSSEStream(
   const decoder = new TextDecoder();
   let buffer = "";
   let totalChars = 0;
+  let lastHeartbeat = startedAt;
 
   while (true) {
     const { done, value } = await reader.read();
@@ -76,6 +80,19 @@ async function* parseClaudeSSEStream(
       if (event.type === "content_block_delta" && event.delta?.type === "text_delta" && event.delta.text) {
         totalChars += event.delta.text.length;
         yield event.delta.text;
+
+        const now = Date.now();
+        if (now - lastHeartbeat >= HEARTBEAT_INTERVAL_MS) {
+          lastHeartbeat = now;
+          console.log(`[H-Chat Claude] ${label} 진행 중... model=${model} elapsedMs=${now - startedAt} outputChars=${totalChars}`);
+        }
+      }
+
+      if (event.type === "error") {
+        const message = event.error?.message ?? "알 수 없는 오류";
+        const err = new Error(`H-Chat 오류: ${message}`);
+        logError(label, model, startedAt, err);
+        throw err;
       }
 
       if (event.type === "message_delta" && event.delta?.stop_reason === "max_tokens") {

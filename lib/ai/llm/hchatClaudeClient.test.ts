@@ -36,6 +36,28 @@ describe("RealHChatClaudeClient", () => {
     expect(requestBody.messages).toEqual([{ role: "user", content: "질문" }]);
   });
 
+  it("forwards the abort signal into fetch() for complete()", async () => {
+    vi.stubEnv("HCHAT_KEY", "test-hchat-key");
+    const fetchMock = mockFetchOk({ content: [{ text: "응답" }] });
+    const client = new RealHChatClaudeClient();
+    const controller = new AbortController();
+
+    await client.complete([{ role: "user", content: "질문" }], { signal: controller.signal });
+
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ signal: controller.signal });
+  });
+
+  it("forwards the abort signal into fetch() for completeStream()", async () => {
+    vi.stubEnv("HCHAT_KEY", "test-hchat-key");
+    const fetchMock = mockFetchOk({});
+    const client = new RealHChatClaudeClient();
+    const controller = new AbortController();
+
+    await client.completeStream([{ role: "user", content: "질문" }], { signal: controller.signal });
+
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ signal: controller.signal });
+  });
+
   it("uses the fast tier's model when requested", async () => {
     vi.stubEnv("HCHAT_KEY", "test-hchat-key");
     const fetchMock = mockFetchOk({ content: [{ text: "응답" }] });
@@ -125,5 +147,30 @@ describe("RealHChatClaudeClient", () => {
       })()
     ).rejects.toThrow(/최대 길이 제한/);
     expect(received.join("")).toBe("받은 부분");
+  });
+
+  it("throws when the stream emits an Anthropic error event", async () => {
+    vi.stubEnv("HCHAT_KEY", "test-hchat-key");
+    const sseBody = `data: ${JSON.stringify({ type: "error", error: { type: "overloaded_error", message: "Overloaded" } })}\n\n`;
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(sseBody));
+          controller.close();
+        },
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new RealHChatClaudeClient();
+
+    const iterable = await client.completeStream([{ role: "user", content: "질문" }]);
+    await expect(
+      (async () => {
+        for await (const _chunk of iterable) {
+          /* drain */
+        }
+      })()
+    ).rejects.toThrow(/Overloaded/);
   });
 });
