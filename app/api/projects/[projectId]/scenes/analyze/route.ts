@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readProject, readProjectFile, writeProjectFile } from "@/lib/projects/store";
-import { createDeepSeekClient } from "@/lib/ai/deepseekClient";
+import { createLlmClient } from "@/lib/ai/llm/factory";
 import { analyzeSceneRelations } from "@/lib/pipeline/analyzeSceneRelations";
 import type { Scene } from "@/lib/pipeline/splitScenes";
 
@@ -33,7 +33,7 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ pr
 
   let client;
   try {
-    client = createDeepSeekClient();
+    client = createLlmClient();
   } catch (err) {
     console.error("씬 추가 정보 분석 실패:", err);
     return NextResponse.json({ error: "AI 추가 정보 분석에 실패했습니다" }, { status: 502 });

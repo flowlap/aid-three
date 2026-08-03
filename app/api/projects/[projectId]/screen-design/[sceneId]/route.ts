@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readProject, readProjectFile, mergeProjectJsonMap } from "@/lib/projects/store";
-import { createDeepSeekClient } from "@/lib/ai/deepseekClient";
+import { createLlmClient } from "@/lib/ai/llm/factory";
 import { selectScreenTypes } from "@/lib/pipeline/selectScreenTypes";
 import { computeVisualDesign } from "@/lib/visual-templates";
 import { DEFAULT_SCREEN_DESIGN_COMMON_PROMPT } from "@/lib/pipeline/commonPromptDefaults";
@@ -37,7 +37,7 @@ export async function POST(
 
   let client;
   try {
-    client = createDeepSeekClient();
+    client = createLlmClient();
   } catch (err) {
     console.error("씬 재생성 실패:", err);
     return NextResponse.json({ error: "AI 화면 설계에 실패했습니다" }, { status: 502 });

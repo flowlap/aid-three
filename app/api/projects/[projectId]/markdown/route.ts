@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readProject, readProjectFile, writeProjectFile, updateProjectStep } from "@/lib/projects/store";
-import { createDeepSeekClient, type DeepSeekClient } from "@/lib/ai/deepseekClient";
+import { createLlmClient } from "@/lib/ai/llm/factory";
+import type { LlmClient } from "@/lib/ai/llm/types";
 import { convertToMarkdownStream } from "@/lib/pipeline/convertMarkdown";
 import { summarizeDocument } from "@/lib/pipeline/summarizeDocument";
 import { createResilientStream } from "@/lib/http/resilientStream";
@@ -27,9 +28,9 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ pr
   }
 
   let chunks: AsyncIterable<string>;
-  let client: DeepSeekClient;
+  let client: LlmClient;
   try {
-    client = createDeepSeekClient();
+    client = createLlmClient();
     chunks = await convertToMarkdownStream(client, rawText, project.scriptType, job.controller.signal);
   } catch (err) {
     console.error("마크다운 변환 실패:", err);

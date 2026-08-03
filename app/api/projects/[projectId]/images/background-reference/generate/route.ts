@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readProject, writeProjectFile, writeProjectReferenceImage } from "@/lib/projects/store";
-import { createOpenAiImageClient } from "@/lib/ai/openaiImageClient";
+import { createImageClient } from "@/lib/ai/image/factory";
 import { describeImageError } from "@/lib/pipeline/generateSceneImage";
 import { DEFAULT_BACKGROUND_IMAGE_PROMPT } from "@/lib/pipeline/commonPromptDefaults";
 
@@ -17,7 +17,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
 
   let client;
   try {
-    client = createOpenAiImageClient();
+    client = createImageClient();
   } catch (err) {
     console.error("배경 참고 이미지 생성 실패:", err);
     return NextResponse.json({ error: "AI 이미지 생성에 실패했습니다" }, { status: 502 });

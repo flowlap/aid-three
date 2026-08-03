@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readProject, readProjectFile, writeProjectFile, updateProjectStep, mergeProjectJsonMap } from "@/lib/projects/store";
-import { createDeepSeekClient } from "@/lib/ai/deepseekClient";
+import { createLlmClient } from "@/lib/ai/llm/factory";
 import { selectScreenTypes, type ScreenTypeAssignment } from "@/lib/pipeline/selectScreenTypes";
 import { computeVisualDesign } from "@/lib/visual-templates";
 import type { VisualDesign } from "@/lib/pipeline/designVisuals";
@@ -65,7 +65,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
 
   let client;
   try {
-    client = createDeepSeekClient();
+    client = createLlmClient();
   } catch (err) {
     console.error("화면 설계 실패:", err);
     finishJob(projectId, STEP, "error", "AI 화면 설계에 실패했습니다");

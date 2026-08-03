@@ -6,7 +6,7 @@ import {
   readProjectReferenceImage,
   writeProjectImage,
 } from "@/lib/projects/store";
-import { createOpenAiImageClient } from "@/lib/ai/openaiImageClient";
+import { createImageClient } from "@/lib/ai/image/factory";
 import { generateSceneImageWithRetry, buildRelatedScenesContext, describeImageError } from "@/lib/pipeline/generateSceneImage";
 import { DEFAULT_IMAGE_COMMON_PROMPT } from "@/lib/pipeline/commonPromptDefaults";
 import type { Scene } from "@/lib/pipeline/splitScenes";
@@ -71,7 +71,7 @@ export async function POST(
 
   let client;
   try {
-    client = createOpenAiImageClient();
+    client = createImageClient();
   } catch (err) {
     console.error("씬 이미지 재생성 실패:", err);
     return NextResponse.json({ error: "AI 이미지 생성에 실패했습니다" }, { status: 502 });
