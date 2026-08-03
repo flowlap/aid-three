@@ -13,6 +13,13 @@ interface GeminiChunk {
   candidates?: Array<{ content?: { parts?: GeminiImagePart[] } }>;
 }
 
+/**
+ * H-Chat의 Gemini streamGenerateContent 엔드포인트는 이미지 생성 요청에도
+ * 일반 JSON이 아니라 청크 단위로 이어붙는 JSON 배열 텍스트를 반환한다
+ * (예: "[", "{...}", ",{...}", "]"를 줄 단위로 이어붙인 형태). response.text()로
+ * 전체를 미리 읽은 뒤에도 이 형태 그대로이므로, 줄 단위로 순회하며 대괄호
+ * 구분자를 건너뛰고 선행 콤마를 제거한 뒤 각 줄을 개별 JSON으로 파싱한다.
+ */
 function extractInlineImageBase64(raw: string): string {
   const lines = raw.split("\n").filter((l) => l.trim());
   let b64Data = "";
