@@ -131,8 +131,8 @@ export function RelatedImageSearch({
       if (!res.ok || !data.resultUrl) throw new Error(data.error ?? "업로드에 실패했습니다");
       window.open(data.resultUrl, "_blank", "noopener,noreferrer");
     } catch {
-      setError("자동 업로드에 실패해 수동 방식으로 전환했습니다");
       await handleImageForSearch(blob, { autoDownload: true });
+      setError("자동 업로드에 실패해 수동 방식으로 전환했습니다");
     } finally {
       setUploading(false);
     }

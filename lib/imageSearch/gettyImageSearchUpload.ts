@@ -20,7 +20,7 @@ export async function uploadToGettyImageSearch(image: Blob): Promise<{ resultUrl
   form.append("site", "creative");
   form.append("watch", "rf");
 
-  const res = await fetch(UPLOAD_URL, { method: "POST", body: form });
+  const res = await fetch(UPLOAD_URL, { method: "POST", body: form, signal: AbortSignal.timeout(15_000) });
   if (!res.ok) {
     throw new Error(`게티이미지코리아 업로드 요청이 실패했습니다 (HTTP ${res.status})`);
   }
