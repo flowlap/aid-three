@@ -109,4 +109,17 @@ describe("reviewSemanticConsistency", () => {
 
     expect(client.calls[0].options?.tier).toBe("fast");
   });
+
+  it("parses a response the AI wrapped in a markdown code fence", async () => {
+    const fenced = `\`\`\`json\n${JSON.stringify({
+      issues: [{ type: "terminology", severity: "warning", sceneIds: ["scene-001"], message: "용어 불일치" }],
+    })}\n\`\`\``;
+    const client = new MockLlmClient([fenced]);
+    const scenes = [makeScene("scene-001", 1)];
+
+    const issues = await reviewSemanticConsistency(client, scenes, {});
+
+    expect(issues).toHaveLength(1);
+    expect(issues[0].type).toBe("terminology");
+  });
 });

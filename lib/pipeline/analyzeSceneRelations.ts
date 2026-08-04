@@ -1,4 +1,5 @@
 import type { LlmClient } from "../ai/llm/types";
+import { stripCodeFence } from "../ai/llm/stripCodeFence";
 import type { Scene } from "./splitScenes";
 
 export interface SceneRelationAnalysis {
@@ -55,7 +56,7 @@ export async function analyzeSceneRelations(
     signal,
   });
 
-  const parsed = JSON.parse(raw) as { analyses?: RawAnalysis[] };
+  const parsed = JSON.parse(stripCodeFence(raw)) as { analyses?: RawAnalysis[] };
   if (!parsed || !Array.isArray(parsed.analyses)) {
     throw new Error("AI 응답 형식이 올바르지 않습니다 (analyses 배열 없음)");
   }

@@ -44,8 +44,14 @@ export interface LlmClient {
  * single-scene JSON responses in selectScreenTypes/reviewConsistency).
  */
 export const DEFAULT_MAX_TOKENS = 16000;
-/** For calls whose output scales with document size (markdown conversion, scene splitting). */
-export const LARGE_OUTPUT_MAX_TOKENS = 65536;
+/**
+ * For calls whose output scales with document size (markdown conversion, scene
+ * splitting, screen design). Capped at 64000 rather than the 65536 some
+ * models allow — claude-haiku-4-5 (the "fast" tier model) rejects anything
+ * above 64000 with a 400 before generation even starts, and 64000 is well
+ * within every other model's ceiling too.
+ */
+export const LARGE_OUTPUT_MAX_TOKENS = 64000;
 
 export const TRUNCATION_ERROR_MESSAGE =
   "AI 응답이 최대 길이 제한(max_tokens)으로 중간에 잘렸습니다. 원고가 너무 길 수 있습니다.";

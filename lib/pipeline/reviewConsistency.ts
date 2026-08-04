@@ -1,4 +1,5 @@
 import type { ChatMessage, LlmClient } from "../ai/llm/types";
+import { stripCodeFence } from "../ai/llm/stripCodeFence";
 import type { Scene } from "./splitScenes";
 import type { ScreenTypeAssignment } from "./selectScreenTypes";
 import type { VisualDesign } from "./designVisuals";
@@ -150,7 +151,7 @@ JSON으로만 응답하세요: {"issues": [{"type": string, "severity": "info"|"
 export function parseSemanticReviewResponse(raw: string): ReviewIssue[] {
   let parsed: unknown;
   try {
-    parsed = JSON.parse(raw);
+    parsed = JSON.parse(stripCodeFence(raw));
   } catch {
     throw new Error("AI 응답이 유효한 JSON이 아닙니다 (일관성 검수)");
   }

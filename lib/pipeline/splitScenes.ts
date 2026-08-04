@@ -1,4 +1,5 @@
 import { LARGE_OUTPUT_MAX_TOKENS, type ChatMessage, type LlmClient } from "../ai/llm/types";
+import { stripCodeFence } from "../ai/llm/stripCodeFence";
 
 const HEADING_LINE_PATTERN = /^#{1,6}\s+/;
 
@@ -176,13 +177,6 @@ export interface RawScene {
   relatedOrders?: number[];
   sceneType?: "title" | "content";
   depth?: number | null;
-}
-
-/** jsonMode instructs the model to respond with JSON only, but it occasionally wraps the response in a markdown code fence anyway — strip one if present before parsing. */
-function stripCodeFence(raw: string): string {
-  const trimmed = raw.trim();
-  const match = trimmed.match(/^```(?:json)?\s*\n([\s\S]*?)\n```$/);
-  return match ? match[1] : trimmed;
 }
 
 export function parseRawScenes(raw: string): RawScene[] {

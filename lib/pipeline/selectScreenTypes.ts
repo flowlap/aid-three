@@ -1,4 +1,5 @@
 import { LARGE_OUTPUT_MAX_TOKENS, type ChatMessage, type LlmClient } from "../ai/llm/types";
+import { stripCodeFence } from "../ai/llm/stripCodeFence";
 import { SCREEN_TYPE_OPTIONS, SCREEN_TYPE_INFO, PRESENTER_EXCLUDED_SCREEN_TYPES } from "../visual-templates";
 import { LAYOUT_POSITIONS, PRESENTER_POSITIONS, type LayoutElement, type LayoutPosition, type PresenterPosition } from "./designVisuals";
 import type { Scene } from "./splitScenes";
@@ -282,7 +283,7 @@ async function designSceneGroup(
 
   let parsed: unknown;
   try {
-    parsed = JSON.parse(raw);
+    parsed = JSON.parse(stripCodeFence(raw));
   } catch {
     throw new Error(`AI 응답이 유효한 JSON이 아닙니다 (scenes: ${groupScenes.map((s) => s.id).join(", ")})`);
   }

@@ -59,6 +59,16 @@ describe("analyzeSceneRelations", () => {
     });
   });
 
+  it("parses a response the AI wrapped in a markdown code fence", async () => {
+    const client = new MockLlmClient([
+      `\`\`\`json\n${analysisResponse([{ order: 1, splitReason: "독립적인 내용", relatedOrders: [] }])}\n\`\`\``,
+    ]);
+
+    const result = await analyzeSceneRelations(client, [scenes[0]]);
+
+    expect(result["scene-001"]).toEqual({ splitReason: "독립적인 내용" });
+  });
+
   it("omits relatedSceneIds when the AI returns an empty array", async () => {
     const client = new MockLlmClient([analysisResponse([{ order: 1, splitReason: "독립적인 내용", relatedOrders: [] }])]);
 

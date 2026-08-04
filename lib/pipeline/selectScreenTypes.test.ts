@@ -144,7 +144,15 @@ describe("selectScreenTypes", () => {
     await selectScreenTypes(client, [scenes[0]]);
 
     expect(client.calls[0].options?.tier).toBe("fast");
-    expect(client.calls[0].options?.maxTokens).toBe(65536);
+    expect(client.calls[0].options?.maxTokens).toBe(64000);
+  });
+
+  it("parses a response the AI wrapped in a markdown code fence", async () => {
+    const client = new MockLlmClient([`\`\`\`json\n${batchResponse(scenes)}\n\`\`\``]);
+
+    const result = await selectScreenTypes(client, scenes);
+
+    expect(Object.keys(result)).toEqual(["scene-001", "scene-002"]);
   });
 
   it("asks for imageOrDiagramDescription and objectPlacement in the prompt", async () => {
