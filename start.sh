@@ -1,6 +1,7 @@
 #!/bin/bash
 set -e
 
+MODE="${1:-dev}"
 PID_FILE=".pid"
 LOG_FILE="dev.log"
 
@@ -9,7 +10,13 @@ if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
   exit 0
 fi
 
-npm run dev > "$LOG_FILE" 2>&1 &
+if [ "$MODE" = "prod" ]; then
+  npm run build
+  nohup npm run start > "$LOG_FILE" 2>&1 &
+else
+  nohup npm run dev > "$LOG_FILE" 2>&1 &
+fi
+disown
 echo $! > "$PID_FILE"
-echo "서버 시작 (PID: $!, 포트: 9625)"
+echo "서버 시작 (모드: $MODE, PID: $!, 포트: 9625)"
 echo "로그: $LOG_FILE"

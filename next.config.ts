@@ -2,6 +2,11 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   serverExternalPackages: ["pdf-parse"],
+  // python/tts/.venv의 python 심볼릭 링크가 프로젝트 루트 밖(시스템 python)을 가리켜
+  // Turbopack의 프로덕션 빌드 파일 추적이 이를 따라가다 패닉을 일으킴 — 추적 대상에서 제외.
+  outputFileTracingExcludes: {
+    "*": ["python/**"],
+  },
   // Next.js dev mode blocks cross-origin requests to internal dev resources
   // (HMR websocket, /_next/* assets) by default — only "localhost" is
   // allowed out of the box. Accessing via the Tailscale MagicDNS hostname

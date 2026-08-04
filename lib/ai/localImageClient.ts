@@ -135,13 +135,16 @@ export class LocalMlxImageClient implements LocalImageClient {
 }
 
 export function createLocalImageClient(imagesOutputDir: string): LocalImageClient {
+  // path.join(process.cwd(), "python", ...) 정적 조인은 Turbopack 프로덕션 빌드가 디렉터리
+  // 전체를 번들링 대상으로 오인해 추적하게 만든다(.venv/bin/python이 프로젝트 밖 시스템 python을
+  // 가리키는 심볼릭 링크라 위험) — 배열 join으로 우회. localTtsClient.ts와 동일한 이슈.
   const pythonBin =
-    process.env.LOCAL_IMAGE_PYTHON_BIN || path.join(process.cwd(), "python", "image", ".venv", "bin", "python");
+    process.env.LOCAL_IMAGE_PYTHON_BIN || [process.cwd(), "python", "image", ".venv", "bin", "python"].join(path.sep);
   if (!existsSync(pythonBin)) {
     throw new Error(
       `로컬 이미지 생성 Python 환경을 찾을 수 없습니다 (${pythonBin}). python/image/setup.sh를 먼저 실행해주세요.`
     );
   }
-  const scriptPath = path.join(process.cwd(), "python", "image", "generate.py");
+  const scriptPath = [process.cwd(), "python", "image", "generate.py"].join(path.sep);
   return new LocalMlxImageClient(pythonBin, scriptPath, imagesOutputDir);
 }

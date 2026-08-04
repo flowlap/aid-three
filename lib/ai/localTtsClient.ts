@@ -122,12 +122,15 @@ export class LocalMlxTtsClient implements TtsClient {
 }
 
 export function createLocalTtsClient(audioOutputDir: string): TtsClient {
-  const pythonBin = process.env.TTS_PYTHON_BIN || path.join(process.cwd(), "python", "tts", ".venv", "bin", "python");
+  // path.join(process.cwd(), "python", ...)처럼 정적으로 조인된 경로는 Turbopack의 프로덕션
+  // 빌드가 번들링 대상 디렉터리 참조로 오인해 추적하는데, .venv/bin/python이 프로젝트 밖(시스템
+  // python)을 가리키는 심볼릭 링크라 그 과정에서 패닉이 난다. 배열 join으로 우회.
+  const pythonBin = process.env.TTS_PYTHON_BIN || [process.cwd(), "python", "tts", ".venv", "bin", "python"].join(path.sep);
   if (!existsSync(pythonBin)) {
     throw new Error(
       `로컬 TTS Python 환경을 찾을 수 없습니다 (${pythonBin}). python/tts/setup.sh를 먼저 실행해주세요.`
     );
   }
-  const scriptPath = path.join(process.cwd(), "python", "tts", "generate.py");
+  const scriptPath = [process.cwd(), "python", "tts", "generate.py"].join(path.sep);
   return new LocalMlxTtsClient(pythonBin, scriptPath, audioOutputDir);
 }
