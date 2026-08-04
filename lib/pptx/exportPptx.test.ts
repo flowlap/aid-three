@@ -43,6 +43,35 @@ async function buildTemplateBytes(): Promise<Buffer> {
   return zip.generateAsync({ type: "nodebuffer" });
 }
 
+const SLIDE_XML_WITH_IMAGE_BOX = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+<p:cSld><p:spTree>
+<p:sp><p:txBody><a:p><a:r><a:t>{{과정명}}</a:t></a:r></a:p></p:txBody></p:sp>
+<p:sp><p:nvSpPr><p:cNvPr id="5" name="화면 영역"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="100" y="200"/><a:ext cx="4000000" cy="2000000"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr><p:txBody><a:p><a:r><a:t>화면 (스크린샷을 붙여넣으세요)</a:t></a:r></a:p></p:txBody></p:sp>
+</p:spTree></p:cSld>
+</p:sld>`;
+
+async function buildTemplateBytesWithImageBox(contentTypesXml: string = CONTENT_TYPES): Promise<Buffer> {
+  const zip = new JSZip();
+  zip.file("[Content_Types].xml", contentTypesXml);
+  zip.file("ppt/presentation.xml", PRESENTATION_XML);
+  zip.file("ppt/_rels/presentation.xml.rels", PRESENTATION_RELS);
+  zip.file("ppt/slides/slide1.xml", SLIDE_XML_WITH_IMAGE_BOX);
+  zip.file("ppt/slides/_rels/slide1.xml.rels", SLIDE_RELS);
+  return zip.generateAsync({ type: "nodebuffer" });
+}
+
+/** Not a fully valid PNG — just enough of the signature + IHDR chunk for readPngDimensions to parse the given size. */
+function buildFakePngBuffer(width: number, height: number): Buffer {
+  const buf = Buffer.alloc(24);
+  buf.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 0);
+  buf.writeUInt32BE(13, 8);
+  buf.write("IHDR", 12, "ascii");
+  buf.writeUInt32BE(width, 16);
+  buf.writeUInt32BE(height, 20);
+  return buf;
+}
+
 describe("buildScenePptx", () => {
   it("duplicates the template slide once per scene and fills in placeholders", async () => {
     const template = await buildTemplateBytes();
@@ -132,5 +161,92 @@ describe("buildScenePptx", () => {
   it("throws when given no slide data", async () => {
     const template = await buildTemplateBytes();
     await expect(buildScenePptx(template, [])).rejects.toThrow();
+  });
+
+  it("embeds a scene image into the 화면 영역 placeholder and removes the placeholder shape", async () => {
+    const template = await buildTemplateBytesWithImageBox();
+    const image = buildFakePngBuffer(400, 200);
+
+    const output = await buildScenePptx(template, [{ 과정명: "테스트 과정" }], [image]);
+    const outZip = await JSZip.loadAsync(output);
+    const slide1 = await outZip.file("ppt/slides/slide1.xml")!.async("string");
+
+    expect(slide1).not.toContain('name="화면 영역"');
+    expect(slide1).toContain("<p:pic>");
+    expect(slide1).toContain('<a:off x="100" y="200"/>');
+    expect(slide1).toContain('<a:ext cx="4000000" cy="2000000"/>');
+
+    const rels = await outZip.file("ppt/slides/_rels/slide1.xml.rels")!.async("string");
+    const relMatch = rels.match(/Id="(rId\d+)"[^>]*Target="\.\.\/media\/(pptxImage\d+\.png)"/);
+    expect(relMatch).not.toBeNull();
+    expect(slide1).toContain(`r:embed="${relMatch![1]}"`);
+
+    const mediaFile = outZip.file(`ppt/media/${relMatch![2]}`);
+    expect(mediaFile).not.toBeNull();
+    expect(await mediaFile!.async("nodebuffer")).toEqual(image);
+
+    const contentTypes = await outZip.file("[Content_Types].xml")!.async("string");
+    expect(contentTypes).toContain('Extension="png"');
+  });
+
+  it("computes a cover-fit crop when the image aspect ratio doesn't match the placeholder box", async () => {
+    const template = await buildTemplateBytesWithImageBox();
+    const image = buildFakePngBuffer(400, 400); // square image, 2:1 box -> crop top/bottom
+
+    const output = await buildScenePptx(template, [{ 과정명: "x" }], [image]);
+    const outZip = await JSZip.loadAsync(output);
+    const slide1 = await outZip.file("ppt/slides/slide1.xml")!.async("string");
+
+    const srcRectMatch = slide1.match(/<a:srcRect\s+l="(\d+)"\s+t="(\d+)"\s+r="(\d+)"\s+b="(\d+)"\s*\/>/);
+    expect(srcRectMatch).not.toBeNull();
+    const [, l, t, r, b] = srcRectMatch!;
+    expect(l).toBe("0");
+    expect(r).toBe("0");
+    expect(Number(t)).toBeGreaterThan(0);
+    expect(Number(b)).toBeGreaterThan(0);
+  });
+
+  it("leaves scenes without a provided image as plain text output", async () => {
+    const template = await buildTemplateBytesWithImageBox();
+    const image = buildFakePngBuffer(400, 200);
+
+    const output = await buildScenePptx(template, [{ 과정명: "A" }, { 과정명: "B" }], [image, undefined]);
+    const outZip = await JSZip.loadAsync(output);
+
+    const slide1 = await outZip.file("ppt/slides/slide1.xml")!.async("string");
+    expect(slide1).toContain("<p:pic>");
+
+    const otherSlideName = Object.keys(outZip.files).find(
+      (n) => /ppt\/slides\/slide\d+\.xml$/.test(n) && n !== "ppt/slides/slide1.xml"
+    );
+    const slide2 = await outZip.file(otherSlideName!)!.async("string");
+    expect(slide2).toContain('name="화면 영역"');
+    expect(slide2).not.toContain("<p:pic>");
+  });
+
+  it("does nothing when perSlideImages is passed but the template has no 화면 영역 shape", async () => {
+    const template = await buildTemplateBytes();
+    const image = buildFakePngBuffer(400, 200);
+
+    const output = await buildScenePptx(template, [{ 과정명: "x", 나레이션: "y" }], [image]);
+    const outZip = await JSZip.loadAsync(output);
+    const slide1 = await outZip.file("ppt/slides/slide1.xml")!.async("string");
+
+    expect(slide1).not.toContain("<p:pic>");
+    expect(slide1).toContain("y");
+  });
+
+  it("doesn't duplicate the png content-type entry if the template already declares one", async () => {
+    const contentTypesWithPng = CONTENT_TYPES.replace(
+      '<Default Extension="xml" ContentType="application/xml"/>',
+      '<Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/>'
+    );
+    const template = await buildTemplateBytesWithImageBox(contentTypesWithPng);
+
+    const output = await buildScenePptx(template, [{ 과정명: "x" }], [buildFakePngBuffer(400, 200)]);
+    const outZip = await JSZip.loadAsync(output);
+    const contentTypes = await outZip.file("[Content_Types].xml")!.async("string");
+
+    expect([...contentTypes.matchAll(/Extension="png"/g)]).toHaveLength(1);
   });
 });

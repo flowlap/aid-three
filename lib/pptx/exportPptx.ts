@@ -140,16 +140,161 @@ function extractAttr(tag: string, name: string): string | null {
   return m ? m[1] : null;
 }
 
+const IMAGE_RELATIONSHIP_TYPE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image";
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+/** Reads width/height out of a PNG's IHDR chunk, or null if `buffer` isn't a PNG. */
+function readPngDimensions(buffer: Buffer): { width: number; height: number } | null {
+  if (buffer.length < 24 || !buffer.subarray(0, 8).equals(PNG_SIGNATURE)) return null;
+  return { width: buffer.readUInt32BE(16), height: buffer.readUInt32BE(20) };
+}
+
+/**
+ * Computes an `<a:srcRect>` crop (in 1/1000ths of a percent, per OOXML) that
+ * makes an `imgWidth`x`imgHeight` image cover a `boxCx`x`boxCy` box without
+ * distorting its aspect ratio — cropping the wider dimension's excess evenly
+ * from both edges, the same "cover" behavior the in-app preview/video frame
+ * use for scene images.
+ */
+function computeSrcRectCropPermille(
+  imgWidth: number,
+  imgHeight: number,
+  boxCx: number,
+  boxCy: number
+): { l: number; t: number; r: number; b: number } {
+  if (imgWidth <= 0 || imgHeight <= 0 || boxCx <= 0 || boxCy <= 0) {
+    return { l: 0, t: 0, r: 0, b: 0 };
+  }
+  const imgRatio = imgWidth / imgHeight;
+  const boxRatio = boxCx / boxCy;
+
+  if (imgRatio > boxRatio) {
+    const visibleFraction = boxRatio / imgRatio;
+    const each = Math.round(((1 - visibleFraction) / 2) * 100000);
+    return { l: each, t: 0, r: each, b: 0 };
+  }
+  if (imgRatio < boxRatio) {
+    const visibleFraction = imgRatio / boxRatio;
+    const each = Math.round(((1 - visibleFraction) / 2) * 100000);
+    return { l: 0, t: each, r: 0, b: each };
+  }
+  return { l: 0, t: 0, r: 0, b: 0 };
+}
+
+interface ScreenBoxShape {
+  start: number;
+  end: number;
+  id: string;
+  x: string;
+  y: string;
+  cx: string;
+  cy: string;
+}
+
+/** Finds the `<p:sp>` shape named "화면 영역" (the pptx export's designated image placeholder — see lib/pptx/defaultTemplate.ts's screenBoxXml) in a slide's XML, if any. */
+function findScreenBoxShape(slideXml: string): ScreenBoxShape | null {
+  const spRegex = /<p:sp>[\s\S]*?<\/p:sp>/g;
+  let m: RegExpExecArray | null;
+  while ((m = spRegex.exec(slideXml))) {
+    const block = m[0];
+    if (!/name="화면 영역"/.test(block)) continue;
+    const idMatch = block.match(/<p:cNvPr\s+id="(\d+)"/);
+    const offMatch = block.match(/<a:off\s+x="(-?\d+)"\s+y="(-?\d+)"\s*\/>/);
+    const extMatch = block.match(/<a:ext\s+cx="(\d+)"\s+cy="(\d+)"\s*\/>/);
+    if (!idMatch || !offMatch || !extMatch) return null;
+    return {
+      start: m.index,
+      end: m.index + block.length,
+      id: idMatch[1],
+      x: offMatch[1],
+      y: offMatch[2],
+      cx: extMatch[1],
+      cy: extMatch[2],
+    };
+  }
+  return null;
+}
+
+function buildPicXml(
+  id: string,
+  rid: string,
+  x: string,
+  y: string,
+  cx: string,
+  cy: string,
+  crop: { l: number; t: number; r: number; b: number }
+): string {
+  const srcRectAttrs =
+    crop.l || crop.t || crop.r || crop.b ? ` l="${crop.l}" t="${crop.t}" r="${crop.r}" b="${crop.b}"` : "";
+  return (
+    `<p:pic><p:nvPicPr><p:cNvPr id="${id}" name="화면 이미지"/><p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr><p:nvPr/></p:nvPicPr>` +
+    `<p:blipFill><a:blip r:embed="${rid}"/><a:srcRect${srcRectAttrs}/><a:stretch><a:fillRect/></a:stretch></p:blipFill>` +
+    `<p:spPr><a:xfrm><a:off x="${x}" y="${y}"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr>` +
+    `</p:pic>`
+  );
+}
+
+function nextAvailableRelId(relsXml: string): number {
+  const ids = [...relsXml.matchAll(/Id="rId(\d+)"/g)].map((m) => Number(m[1]));
+  return (ids.length ? Math.max(...ids) : 0) + 1;
+}
+
+/**
+ * Replaces the slide's "화면 영역" placeholder shape (if any) with a `<p:pic>`
+ * showing `imageBuffer`, cropped to cover the placeholder's box. Returns
+ * null (leaving the slide untouched) when there's no such shape, or no rels
+ * file to attach the image relationship to — the caller then keeps the
+ * plain-text slide exactly as before, so custom templates without this
+ * shape aren't affected.
+ */
+function embedScreenImage(
+  slideXml: string,
+  slideRelsXml: string | undefined,
+  imageBuffer: Buffer,
+  mediaFileName: string
+): { slideXml: string; relsXml: string } | null {
+  if (!slideRelsXml) return null;
+  const shape = findScreenBoxShape(slideXml);
+  if (!shape) return null;
+
+  const rid = `rId${nextAvailableRelId(slideRelsXml)}`;
+  const dims = readPngDimensions(imageBuffer);
+  const crop = dims
+    ? computeSrcRectCropPermille(dims.width, dims.height, Number(shape.cx), Number(shape.cy))
+    : { l: 0, t: 0, r: 0, b: 0 };
+  const picXml = buildPicXml(shape.id, rid, shape.x, shape.y, shape.cx, shape.cy, crop);
+
+  const newSlideXml = slideXml.slice(0, shape.start) + picXml + slideXml.slice(shape.end);
+  const newRelsXml = slideRelsXml.replace(
+    "</Relationships>",
+    `<Relationship Id="${rid}" Type="${IMAGE_RELATIONSHIP_TYPE}" Target="../media/${mediaFileName}"/></Relationships>`
+  );
+
+  return { slideXml: newSlideXml, relsXml: newRelsXml };
+}
+
+/** Adds a `png` Default content-type declaration if the template doesn't already have one. */
+function ensurePngContentType(contentTypesXml: string): string {
+  if (/Extension="png"/i.test(contentTypesXml)) return contentTypesXml;
+  return contentTypesXml.replace("</Types>", `<Default Extension="png" ContentType="image/png"/></Types>`);
+}
+
 /**
  * Takes a .pptx template whose first slide contains `{{placeholder}}` text,
  * and returns a new .pptx with that slide duplicated once per entry in
- * `perSlideData`, each copy with its placeholders filled in. Only text is
- * substituted — images, layout, and formatting are left exactly as designed
- * in the template.
+ * `perSlideData`, each copy with its placeholders filled in.
+ *
+ * When `perSlideImages[i]` is given (parallel to `perSlideData[i]`) and the
+ * template's slide has a shape named "화면 영역" (see
+ * lib/pptx/defaultTemplate.ts), that shape is replaced with the image,
+ * cropped to cover its box. Slides with no image for that index, or
+ * templates with no such shape, are produced exactly as before — text
+ * substitution only, layout/formatting untouched.
  */
 export async function buildScenePptx(
   templateBytes: Buffer | Uint8Array,
-  perSlideData: PptxPlaceholderData[]
+  perSlideData: PptxPlaceholderData[],
+  perSlideImages?: (Buffer | undefined)[]
 ): Promise<Buffer> {
   if (perSlideData.length === 0) {
     throw new Error("생성할 슬라이드 데이터가 없습니다");
@@ -217,12 +362,30 @@ export async function buildScenePptx(
   const newOverrides: string[] = [];
   const newRelationships: string[] = [];
   const newSldIdTags: string[] = [];
+  let nextMediaNum = 1;
+  let anyImageEmbedded = false;
 
   for (let i = 0; i < perSlideData.length; i++) {
     const filledXml = substitutePlaceholders(templateSlideXml, perSlideData[i]);
 
+    let outputSlideXml = filledXml;
+    let outputRelsXml = templateSlideRelsXml;
+    const imageBuffer = perSlideImages?.[i];
+    if (imageBuffer) {
+      const mediaFileName = `pptxImage${nextMediaNum}.png`;
+      const embedded = embedScreenImage(filledXml, templateSlideRelsXml, imageBuffer, mediaFileName);
+      if (embedded) {
+        outputSlideXml = embedded.slideXml;
+        outputRelsXml = embedded.relsXml;
+        zip.file(`ppt/media/${mediaFileName}`, imageBuffer);
+        nextMediaNum++;
+        anyImageEmbedded = true;
+      }
+    }
+
     if (i === 0) {
-      zip.file(templateSlidePath, filledXml);
+      zip.file(templateSlidePath, outputSlideXml);
+      if (outputRelsXml !== templateSlideRelsXml) zip.file(slideRelsPath, outputRelsXml!);
       newSldIdTags.push(`<p:sldId id="${templateSlideId}" r:id="${templateRid}"/>`);
       continue;
     }
@@ -233,8 +396,8 @@ export async function buildScenePptx(
     const slidePath = `ppt/slides/slide${slideNum}.xml`;
     const relsPath = `ppt/slides/_rels/slide${slideNum}.xml.rels`;
 
-    zip.file(slidePath, filledXml);
-    if (templateSlideRelsXml) zip.file(relsPath, templateSlideRelsXml);
+    zip.file(slidePath, outputSlideXml);
+    if (outputRelsXml) zip.file(relsPath, outputRelsXml);
 
     newOverrides.push(`<Override PartName="/${slidePath}" ContentType="${slideContentType}"/>`);
     newRelationships.push(`<Relationship Id="${rid}" Type="${templateRelType}" Target="slides/slide${slideNum}.xml"/>`);
@@ -246,7 +409,8 @@ export async function buildScenePptx(
     "</Relationships>",
     `${newRelationships.join("")}</Relationships>`
   );
-  const updatedContentTypesXml = contentTypesXml.replace("</Types>", `${newOverrides.join("")}</Types>`);
+  const contentTypesWithPng = anyImageEmbedded ? ensurePngContentType(contentTypesXml) : contentTypesXml;
+  const updatedContentTypesXml = contentTypesWithPng.replace("</Types>", `${newOverrides.join("")}</Types>`);
 
   zip.file(presentationPath, updatedPresentationXml);
   zip.file(presentationRelsPath, updatedPresentationRelsXml);
