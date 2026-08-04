@@ -34,10 +34,11 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ pr
   }
 
   const narrationChunks = chunkNarration(narration);
-  const client = createLlmClient();
 
+  let client: ReturnType<typeof createLlmClient>;
   let firstChunkStream: AsyncIterable<string>;
   try {
+    client = createLlmClient();
     firstChunkStream = await splitScenesStream(client, narrationChunks[0], job.controller.signal);
   } catch (err) {
     console.error("씬 분할 실패:", err);
