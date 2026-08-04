@@ -182,10 +182,23 @@ describe("selectScreenTypes", () => {
     ]);
   });
 
-  it("rejects when the AI response is missing one of the requested scenes", async () => {
+  it("rejects when the AI response is missing one of the requested scenes on every attempt", async () => {
     const client = new MockLlmClient([batchResponse([scenes[0]])]); // only order 1, order 2 missing
 
     await expect(selectScreenTypes(client, scenes)).rejects.toThrow();
+    expect(client.calls).toHaveLength(2); // retried once before giving up
+  });
+
+  it("retries a group call that came back missing a scene, and succeeds if the retry is complete", async () => {
+    const client = new MockLlmClient([
+      batchResponse([scenes[0]]), // first attempt: order 2 missing
+      batchResponse(scenes), // retry: complete
+    ]);
+
+    const result = await selectScreenTypes(client, scenes);
+
+    expect(client.calls).toHaveLength(2);
+    expect(Object.keys(result)).toEqual(["scene-001", "scene-002"]);
   });
 
   it("rejects a scene entry missing the keywords field", async () => {

@@ -260,25 +260,22 @@ JSON으로만 응답하세요: {"scenes": [{"order": number, "screenType": strin
   ];
 }
 
-/** Designs one contiguous group (or sub-batch) of content scenes with a single AI call, returning assignments keyed by scene order. */
-async function designSceneGroup(
+/**
+ * A single group call to the AI. Split out from designSceneGroup so a
+ * missing-scene response (see MAX_GROUP_ATTEMPTS) can be retried with a fresh
+ * call instead of failing the whole group outright.
+ */
+async function requestSceneGroupAssignments(
   client: LlmClient,
   groupScenes: Scene[],
-  context: {
-    documentContext: string;
-    commonPromptContext: string;
-    sceneById: Map<string, Scene>;
-    result: Record<string, ScreenTypeAssignment>;
-    signal: AbortSignal;
-  }
+  documentContext: string,
+  commonPromptContext: string,
+  relatedContextByOrder: Map<number, string>,
+  signal: AbortSignal
 ): Promise<Map<number, ScreenTypeAssignment>> {
-  const relatedContextByOrder = new Map(
-    groupScenes.map((scene) => [scene.order, buildRelatedSceneContext(scene, context.sceneById, context.result)])
-  );
-
   const raw = await client.complete(
-    buildDesignGroupMessages(groupScenes, context.documentContext, context.commonPromptContext, relatedContextByOrder),
-    { jsonMode: true, tier: "fast", maxTokens: LARGE_OUTPUT_MAX_TOKENS, signal: context.signal }
+    buildDesignGroupMessages(groupScenes, documentContext, commonPromptContext, relatedContextByOrder),
+    { jsonMode: true, tier: "fast", maxTokens: LARGE_OUTPUT_MAX_TOKENS, signal }
   );
 
   let parsed: unknown;
@@ -307,12 +304,56 @@ async function designSceneGroup(
     byOrder.set(order, assignment);
   }
 
-  const missing = groupScenes.filter((scene) => !byOrder.has(scene.order));
-  if (missing.length > 0) {
-    throw new Error(`AI 응답에 씬이 누락되었습니다 (${missing.map((s) => s.id).join(", ")})`);
+  return byOrder;
+}
+
+/**
+ * A group call occasionally comes back missing one of the requested orders —
+ * observed as non-deterministic (rerunning the exact same group succeeds),
+ * so it's treated as an AI sampling fluke rather than a parsing bug: retried
+ * with a fresh call before giving up.
+ */
+const MAX_GROUP_ATTEMPTS = 2;
+
+/** Designs one contiguous group (or sub-batch) of content scenes with a single AI call, returning assignments keyed by scene order. */
+async function designSceneGroup(
+  client: LlmClient,
+  groupScenes: Scene[],
+  context: {
+    documentContext: string;
+    commonPromptContext: string;
+    sceneById: Map<string, Scene>;
+    result: Record<string, ScreenTypeAssignment>;
+    signal: AbortSignal;
+  }
+): Promise<Map<number, ScreenTypeAssignment>> {
+  const relatedContextByOrder = new Map(
+    groupScenes.map((scene) => [scene.order, buildRelatedSceneContext(scene, context.sceneById, context.result)])
+  );
+
+  let missing: Scene[] = groupScenes;
+  let byOrder = new Map<number, ScreenTypeAssignment>();
+
+  for (let attempt = 1; attempt <= MAX_GROUP_ATTEMPTS; attempt++) {
+    byOrder = await requestSceneGroupAssignments(
+      client,
+      groupScenes,
+      context.documentContext,
+      context.commonPromptContext,
+      relatedContextByOrder,
+      context.signal
+    );
+    missing = groupScenes.filter((scene) => !byOrder.has(scene.order));
+    if (missing.length === 0) return byOrder;
+
+    if (attempt < MAX_GROUP_ATTEMPTS) {
+      console.warn(
+        `[selectScreenTypes] 그룹 응답에 씬 누락, 재시도 (${attempt}/${MAX_GROUP_ATTEMPTS}): ${missing.map((s) => s.id).join(", ")}`
+      );
+    }
   }
 
-  return byOrder;
+  throw new Error(`AI 응답에 씬이 누락되었습니다 (${missing.map((s) => s.id).join(", ")})`);
 }
 
 export async function selectScreenTypes(
