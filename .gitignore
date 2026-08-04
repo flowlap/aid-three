@@ -57,3 +57,10 @@ skills-lock.json
 # Local Python TTS runtime (mlx-audio venv + HF model cache) — set up via python/tts/setup.sh, machine-specific
 python/tts/.venv/
 python/tts/_probe.py
+
+# Local Python image-generation runtime (mflux venv + HF model cache) — set up via python/image/setup.sh, machine-specific
+python/image/.venv/
+
+# Python bytecode cache
+__pycache__/
+*.pyc

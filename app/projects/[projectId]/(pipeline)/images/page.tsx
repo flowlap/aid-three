@@ -1,5 +1,6 @@
 import { readProjectFile, readProjectReferenceImage, listProjectImageIds } from "@/lib/projects/store";
 import { ImagesEditor } from "./ImagesEditor";
+import type { ImageEngine, LocalModelSize } from "@/components/ImageEngineSelector";
 import {
   DEFAULT_IMAGE_COMMON_PROMPT,
   DEFAULT_BACKGROUND_IMAGE_PROMPT,
@@ -32,6 +33,10 @@ export default async function ImagesPage({ params }: { params: Promise<{ project
   const initialPresenterGender = genderRaw === "male" ? "male" : "female";
   const initialHasBackgroundImage = (await readProjectReferenceImage(projectId, "background")) !== null;
   const initialHasPresenterImage = (await readProjectReferenceImage(projectId, "presenter")) !== null;
+  const engineRaw = (await readProjectFile(projectId, "image-engine.txt"))?.trim();
+  const initialEngine: ImageEngine = engineRaw === "local" ? "local" : "openai";
+  const modelSizeRaw = (await readProjectFile(projectId, "image-local-model-size.txt"))?.trim();
+  const initialModelSize: LocalModelSize = modelSizeRaw === "9b" ? "9b" : "4b";
 
   return (
     <>
@@ -53,6 +58,8 @@ export default async function ImagesPage({ params }: { params: Promise<{ project
         initialPresenterGender={initialPresenterGender}
         initialHasBackgroundImage={initialHasBackgroundImage}
         initialHasPresenterImage={initialHasPresenterImage}
+        initialEngine={initialEngine}
+        initialModelSize={initialModelSize}
       />
     </>
   );

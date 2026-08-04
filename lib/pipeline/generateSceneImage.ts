@@ -66,6 +66,14 @@ export interface BuildImagePromptOptions {
   presenterGender?: "male" | "female";
   /** Whether a presenter reference image is being attached to this call (see SceneReferenceImages) — switches the instruction from "pick a look" to "match this exact person". */
   hasPresenterReferenceImage?: boolean;
+  /**
+   * Whether the model may render the screen caption as in-image typography
+   * for text-forward screen types. Defaults to true (existing OpenAI
+   * behavior). The local FLUX.2 Klein engine passes false — captions are
+   * placed as PPTX text at export time instead of baked into the image, so
+   * every scene gets the plain NO_TEXT_INSTRUCTION regardless of screen type.
+   */
+  allowTextInImage?: boolean;
 }
 
 /** Reference images attached to a single generateSceneImage(WithRetry) call — forwarded to the client as multi-image /images/edits input. */
@@ -144,7 +152,12 @@ function buildTextInstruction(scene: Scene, design: VisualDesign): string {
 
 export function buildImagePrompt(scene: Scene, design: VisualDesign, promptOptions?: BuildImagePromptOptions): string {
   const isTextForward = promptOptions?.screenType ? TEXT_FORWARD_SCREEN_TYPES.has(promptOptions.screenType) : false;
-  const textInstruction = isTextForward ? buildTextInstruction(scene, design) : NO_TEXT_INSTRUCTION;
+  const textInstruction =
+    promptOptions?.allowTextInImage === false
+      ? NO_TEXT_INSTRUCTION
+      : isTextForward
+        ? buildTextInstruction(scene, design)
+        : NO_TEXT_INSTRUCTION;
   const styleGuide = promptOptions?.commonPrompt?.trim()
     ? `\n\n공통 스타일 가이드(모든 화면에 일관되게 적용):\n${promptOptions.commonPrompt.trim()}`
     : "";

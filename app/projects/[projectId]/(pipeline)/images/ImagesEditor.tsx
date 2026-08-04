@@ -8,6 +8,7 @@ import { ScreenMockup } from "@/components/ScreenMockup";
 import { AiJobStatus } from "@/components/AiJobStatus";
 import { CommonPromptField } from "@/components/CommonPromptField";
 import { ReferenceImageSection, type PresenterGender } from "@/components/ReferenceImageSection";
+import { ImageEngineSelector, type ImageEngine, type LocalModelSize } from "@/components/ImageEngineSelector";
 import { computeMockupVariantIndexes } from "@/lib/visual-templates";
 import type { Scene } from "@/lib/pipeline/splitScenes";
 import type { ScreenTypeAssignment } from "@/lib/pipeline/selectScreenTypes";
@@ -16,7 +17,7 @@ import { buildSceneHierarchy } from "@/lib/pipeline/sceneHierarchy";
 import { useAiJob } from "@/lib/client/useAiJob";
 import { useNextStepAction } from "@/lib/client/StepNavContext";
 import { estimateSecondsForScenes } from "@/lib/client/estimateAiDuration";
-import { IMAGE_GENERATION_CONCURRENCY } from "@/lib/pipeline/imageGenerationConfig";
+import { IMAGE_GENERATION_CONCURRENCY, LOCAL_IMAGE_CONCURRENCY } from "@/lib/pipeline/imageGenerationConfig";
 import {
   DEFAULT_IMAGE_COMMON_PROMPT,
   DEFAULT_BACKGROUND_IMAGE_PROMPT,
@@ -45,6 +46,8 @@ export function ImagesEditor({
   initialPresenterGender,
   initialHasBackgroundImage,
   initialHasPresenterImage,
+  initialEngine,
+  initialModelSize,
 }: {
   projectId: string;
   scenes: Scene[];
@@ -59,6 +62,8 @@ export function ImagesEditor({
   initialPresenterGender: PresenterGender;
   initialHasBackgroundImage: boolean;
   initialHasPresenterImage: boolean;
+  initialEngine: ImageEngine;
+  initialModelSize: LocalModelSize;
 }) {
   const router = useRouter();
   const [localScreenTypes, setLocalScreenTypes] = useState(screenTypes);
@@ -73,6 +78,7 @@ export function ImagesEditor({
   const [presenterSaving, setPresenterSaving] = useState(false);
   const [backgroundFixed, setBackgroundFixed] = useState(initialBackgroundFixed);
   const [backgroundFixedSaving, setBackgroundFixedSaving] = useState(false);
+  const [engine, setEngine] = useState<ImageEngine>(initialEngine);
   const [versions, setVersions] = useState<Record<string, number>>({});
   const [regeneratingIds, setRegeneratingIds] = useState<Set<string>>(new Set());
   const [regenerateError, setRegenerateError] = useState<string | null>(null);
@@ -206,6 +212,12 @@ export function ImagesEditor({
 
   return (
     <div className="space-y-4">
+      <ImageEngineSelector
+        projectId={projectId}
+        initialEngine={initialEngine}
+        initialModelSize={initialModelSize}
+        onEngineChange={setEngine}
+      />
       <CommonPromptField
         saveUrl={`/api/projects/${projectId}/images/common-prompt`}
         initialValue={initialCommonPrompt}
@@ -301,7 +313,11 @@ export function ImagesEditor({
           label={discoveredRunning ? "다른 곳에서 시작된 이미지 생성이 진행 중입니다" : "AI가 씬별 이미지를 생성하는 중입니다"}
           startedAt={startedAt}
           progress={progress}
-          estimateSeconds={estimateSecondsForScenes(eligibleScenes.length, 45, IMAGE_GENERATION_CONCURRENCY)}
+          estimateSeconds={
+            engine === "local"
+              ? estimateSecondsForScenes(eligibleScenes.length, 40, LOCAL_IMAGE_CONCURRENCY)
+              : estimateSecondsForScenes(eligibleScenes.length, 45, IMAGE_GENERATION_CONCURRENCY)
+          }
           activityLines={activityLines}
         />
       </Card>

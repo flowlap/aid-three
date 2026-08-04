@@ -2,14 +2,16 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ScreenMockup } from "@/components/ScreenMockup";
 import { PptxQuickExportButton, PptxTemplateSection } from "@/components/PptxExportButton";
+import { RelatedImageSearch } from "@/components/RelatedImageSearch";
 import { computeMockupVariantIndexes } from "@/lib/visual-templates";
 import { buildSceneHierarchy } from "@/lib/pipeline/sceneHierarchy";
 import { cn } from "@/lib/utils";
+import { IMAGE_SEARCH_SITES, DEFAULT_IMAGE_SEARCH_SITE, type ImageSearchSiteId } from "@/lib/imageSearchSites";
 import type { Scene } from "@/lib/pipeline/splitScenes";
 import type { ScreenTypeAssignment } from "@/lib/pipeline/selectScreenTypes";
 import type { VisualDesign } from "@/lib/pipeline/designVisuals";
@@ -37,6 +39,7 @@ export function PreviewViewer({
   const [activeIndex, setActiveIndex] = useState(0);
   const [downloading, setDownloading] = useState(false);
   const [mockupStyle, setMockupStyle] = useState<MockupStyle>("storyboard");
+  const [imageSearchSite, setImageSearchSite] = useState<ImageSearchSiteId>(DEFAULT_IMAGE_SEARCH_SITE);
   const sectionRefs = useRef<Record<string, HTMLElement | null>>({});
   const exportRef = useRef<HTMLDivElement>(null);
 
@@ -176,25 +179,42 @@ ${clone.outerHTML}
           </Link>
           <div className="mb-6 flex flex-col gap-3 print:hidden">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="inline-flex rounded-full border bg-muted p-1">
-                {([
-                  { value: "storyboard", label: "스토리보드" },
-                  { value: "notebooklm", label: "노트북LM" },
-                ] as const).map((option) => (
-                  <button
-                    key={option.value}
-                    type="button"
-                    onClick={() => setMockupStyle(option.value)}
-                    className={cn(
-                      "rounded-full px-3.5 py-1.5 text-xs font-medium transition-colors",
-                      mockupStyle === option.value
-                        ? "bg-background text-foreground shadow-[0_1px_2px_rgba(15,15,15,0.06)]"
-                        : "text-muted-foreground hover:text-foreground"
-                    )}
-                  >
-                    {option.label}
-                  </button>
-                ))}
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="inline-flex rounded-full border bg-muted p-1">
+                  {([
+                    { value: "storyboard", label: "스토리보드" },
+                    { value: "notebooklm", label: "노트북LM" },
+                  ] as const).map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => setMockupStyle(option.value)}
+                      className={cn(
+                        "rounded-full px-3.5 py-1.5 text-xs font-medium transition-colors",
+                        mockupStyle === option.value
+                          ? "bg-background text-foreground shadow-[0_1px_2px_rgba(15,15,15,0.06)]"
+                          : "text-muted-foreground hover:text-foreground"
+                      )}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[11px] font-medium text-muted-foreground">연관 이미지 검색</span>
+                  <Select value={imageSearchSite} onValueChange={(value) => setImageSearchSite(value as ImageSearchSiteId)}>
+                    <SelectTrigger size="sm" className="w-36">
+                      <SelectValue>{(value: ImageSearchSiteId) => IMAGE_SEARCH_SITES.find((s) => s.id === value)?.label}</SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {IMAGE_SEARCH_SITES.map((s) => (
+                        <SelectItem key={s.id} value={s.id}>
+                          {s.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
               <div className="flex flex-wrap items-start justify-end gap-2">
                 <div className="flex flex-col items-end gap-1">
@@ -279,15 +299,11 @@ ${clone.outerHTML}
                   <p className="font-medium">{design?.caption ?? "(자막 없음)"}</p>
                   <p className="text-muted-foreground">{design?.imageOrDiagramDescription}</p>
                   <p className="text-muted-foreground">배치: {design?.objectPlacement}</p>
-                  {design?.keywords && design.keywords.length > 0 && (
-                    <div className="flex flex-wrap gap-1">
-                      {design.keywords.map((kw) => (
-                        <Badge key={kw} variant="outline">
-                          {kw}
-                        </Badge>
-                      ))}
-                    </div>
-                  )}
+                  <RelatedImageSearch
+                    imageUrl={hasImage ? `/api/projects/${projectId}/images/${scene.id}` : undefined}
+                    keywords={design?.keywords ?? []}
+                    site={imageSearchSite}
+                  />
                 </div>
                 <p className="border-t bg-muted/40 px-5 py-3 text-sm text-muted-foreground">{scene.narrationText}</p>
               </Card>

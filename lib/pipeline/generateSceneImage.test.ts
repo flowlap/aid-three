@@ -190,6 +190,17 @@ describe("generateSceneImage", () => {
     const prompt = buildImagePrompt(scene, design);
     expect(prompt).not.toContain("관련 씬 참고자료");
   });
+
+  it("forces the no-text instruction when allowTextInImage is false, even for a text-forward screen type", () => {
+    const prompt = buildImagePrompt(scene, design, { screenType: "간지/타이틀형", allowTextInImage: false });
+    expect(prompt).toContain("텍스트 렌더링 없이");
+    expect(prompt).not.toContain("명사형");
+  });
+
+  it("keeps the default text-forward behavior when allowTextInImage is unset", () => {
+    const prompt = buildImagePrompt(scene, design, { screenType: "간지/타이틀형" });
+    expect(prompt).toContain("명사형");
+  });
 });
 
 describe("buildRelatedScenesContext", () => {

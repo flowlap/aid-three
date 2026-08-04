@@ -27,7 +27,7 @@
 | 2. 씬 분할 | `scenes.json` | 있음 | 씬 경계/시간 수정, 씬 삭제(인접 씬에 자동 병합)·인접 씬 병합 |
 | 3. 화면 설계 | `screen-design.json`(`screenTypes`+`visualDesigns` 한 파일) | 화면 유형 선정만 AI(씬별 1회 호출), 비주얼 설계는 `lib/visual-templates`의 코드 템플릿(AI 호출 없음) | 전 필드 편집 가능, 씬별 재생성 버튼 |
 | 4. 일관성 검수 | `review.json` | 있음(결정적 검사 3종 + AI 검사 1종) | 편집 없음, 이슈 목록 확인 후 다음 단계로 이동 |
-| 5. 이미지 생성(선택) | `images/{sceneId}.png`(바이너리, 인덱스 파일 없음) | 있음(OpenAI, 씬별 1회 호출, **실제 과금**) | 편집 불가, 씬별 재생성만 가능 — 필수 아님, 이미지 없이도 다음 단계 진행 가능 |
+| 5. 이미지 생성(선택) | `images/{sceneId}.png`(바이너리, 인덱스 파일 없음) | 있음 — 엔진 선택 가능: OpenAI(씬별 1회 호출, **실제 과금**) 또는 로컬 FLUX.2 Klein(mflux, Mac 전용, 무료) | 편집 불가, 씬별 재생성만 가능 — 필수 아님, 이미지 없이도 다음 단계 진행 가능 |
 | 6. 최종 스토리보드 뷰 | 없음(조합 렌더링) | 없음 | 읽기 전용 |
 | (선택) 미리보기 | 없음(조합 렌더링) | 없음 | 읽기 전용 — 좌측 씬 목차 + 구조화 화면/이미지 나란히 표시, `storyboard`에서 진입 |
 
@@ -37,6 +37,7 @@
 - **UI**: React + shadcn/ui(Base UI 기반, Radix 아님 — `asChild` 대신 `render`/`nativeButton` prop 사용) + Tailwind CSS v4
 - **테스트**: Vitest — `lib/**/*.test.ts` (총 75개 테스트, 11개 파일)
 - **AI(텍스트/이미지)**: provider 추상화 도입(2026-08-03) — `LlmClient`/`ImageClient` 인터페이스(`lib/ai/llm/types.ts`, `lib/ai/image/types.ts`)를 두고, `LLM_PROVIDER`/`IMAGE_PROVIDER` env var로 구현체를 선택한다. 기본값은 기존과 동일하게 `deepseek`/`openai`(하위호환, 설정 변경 없이 그대로 동작). 사내 게이트웨이 "H-CHAT"을 통한 Claude/ChatGPT/Gemini(텍스트), Gemini(이미지)도 선택지로 추가됨. 상세: [`docs/superpowers/specs/2026-08-03-hchat-provider-abstraction-design.md`](superpowers/specs/2026-08-03-hchat-provider-abstraction-design.md), DeepSeek 자체 스펙은 [`docs/reference/deepseek-api.md`](reference/deepseek-api.md)
+- **AI(이미지, 로컬)**: 위 provider 추상화와 별도로, 5단계 상단 엔진 선택기(`ImageEngineSelector`)에서 프로젝트별로 클라우드(`IMAGE_PROVIDER`가 고르는 openai/hchat-gemini) 대신 이 Mac에서 완전히 로컬로 도는 FLUX.2 Klein(`lib/ai/localImageClient.ts` + `python/image/`, mflux/MLX 기반, Mac 전용, 무료)을 선택할 수 있다 — env var가 아니라 프로젝트별 런타임 토글이라는 점이 다르다. 상세: [`docs/reference/local-image-generation.md`](reference/local-image-generation.md)
 - **PDF 파싱**: `pdf-parse` v2.x (v1과 API가 완전히 다름 — `PDFParse` 클래스의 `getText()`, `import pdfParse from "pdf-parse"` 형태의 v1 코드는 동작하지 않음)
 - **저장소**: DB 없음. `data/projects/{project-id}/` 폴더 + JSON/markdown 파일 (전체 gitignore 대상)
 
@@ -65,6 +66,7 @@ lib/
                   #   llm/: deepseekClient, hchatClaudeClient, hchatChatGptClient, hchatGeminiClient (+ 공용 mockLlmClient)
                   #   image/: openaiImageClient, hchatGeminiImageClient (+ 공용 mockImageClient)
                   #   hchatShared.ts — H-CHAT 게이트웨이 공통 URL/인증 헤더
+                  #   localImageClient.ts(+.mock) — factory 밖의 프로젝트별 로컬 엔진(FLUX.2 Klein via mflux), ImageEngineSelector가 선택
   pipeline/       # extractText, convertMarkdown, splitScenes, validateNarrationIntegrity,
                   # selectScreenTypes, designVisuals(VisualDesign 타입만, AI 함수는 Phase 5에서 제거됨), reviewConsistency, generateSceneImage
                   # → 모두 (input) => Promise<output> 순수 함수형, AI 클라이언트를 인자로 주입받음
@@ -90,6 +92,7 @@ app/
     [projectId]/route.ts (DELETE)
     [projectId]/jobs/[step]/route.ts (GET 상태 폴링, DELETE 취소)
     [projectId]/{markdown,scenes,screen-design,images}/route.ts (POST 생성, PUT 저장 — images는 PUT 없음)
+    [projectId]/images/engine/route.ts (PUT — 이미지 생성 엔진(openai/local) + 로컬 모델 크기 저장)
     [projectId]/screen-design/[sceneId]/route.ts, [projectId]/images/[sceneId]/route.ts (POST 씬 하나만 재생성, 작업 레지스트리 미사용 / images는 GET도 있음 — PNG 서빙)
     [projectId]/review/route.ts (POST만)
     [projectId]/storyboard/route.ts (POST — currentStep을 storyboard로 기록만 함, images 단계의 "다음 단계"가 호출)
@@ -113,8 +116,9 @@ npm test                      # 전체 유닛 테스트
 npx tsc --noEmit               # 타입 체크 (테스트에 안 걸리는 실제 버그를 여러 번 잡아냈음 — 항상 같이 확인할 것)
 ```
 
-## 5. 현재 상태 (2026-07-29 기준)
+## 5. 현재 상태 (2026-08-04 기준)
 
+- 2026-08-04: 5단계(이미지 생성)에 로컬 모델(FLUX.2 Klein 4B/9B, mflux/MLX 기반) 옵션 추가 — 상단 엔진 선택기로 OpenAI/로컬 전환, 참조 이미지(배경 고정/강사 표시) 조건부 생성도 로컬에서 동일 지원, 텍스트는 이미지에 굽지 않고 PPTX 텍스트로 배치. 상세: [`docs/reference/local-image-generation.md`](reference/local-image-generation.md).
 - v1 전체 파이프라인 구현 완료 후, 같은 세션에서 사용자가 요청한 v2 전면 개편(Phase 0~7)을 전부 구현 완료 — 더 이상 미착수 Phase 없음. 상세는 [`docs/superpowers/plans/2026-07-29-v2-redesign-roadmap.md`](superpowers/plans/2026-07-29-v2-redesign-roadmap.md).
 - v2에서 바뀐 것: AI 모델 이원화(1·2단계 pro / 3·4단계 flash), 작업 엔진(중복실행 방지·진행률·취소·재진입 유지), 디자인 셸(1000px+sticky 헤더/푸터), 홈 신호등 상태+텍스트 붙여넣기, 1단계 자동진행+2단계 씬 삭제/병합, 3-4단계를 "화면 설계" 한 단계로 통합(비주얼 설계는 AI 대신 코드 템플릿), OpenAI 이미지 생성(선택 단계, 자동진행 범위 밖), 씬별 미리보기 화면(독자적 셸).
 - 각 Phase마다 실제 DeepSeek/OpenAI API 키로 Playwright(headless Chromium) E2E 검증(이미지 생성은 실제 API 호출로 생성물까지 육안 확인) + `tsc`/`eslint`/`npm test`/`next build` 통과를 거쳐 완료 처리함.
@@ -141,6 +145,7 @@ npx tsc --noEmit               # 타입 체크 (테스트에 안 걸리는 실�
 - [v2 전면 개편 로드맵 (Phase 0~7)](superpowers/plans/2026-07-29-v2-redesign-roadmap.md)
 - [파이프라인 단계별 입출력 계약](reference/pipeline-steps.md)
 - [DeepSeek API 레퍼런스](reference/deepseek-api.md)
+- [로컬 이미지 생성 레퍼런스 (FLUX.2 Klein via mflux)](reference/local-image-generation.md)
 - [향후 개발 계획](ROADMAP.md)
 - [디자인 평가 및 개선 계획 (2026-07-29)](DESIGN_REVIEW.md) — v2 개편 직후 전체 화면 스크린샷 기반 평가, 모바일 레이아웃 버그 3건 포함
 - 루트 [`CLAUDE.md`](../CLAUDE.md) — Claude Code 세션용 빠른 요약(이 문서와 중복 최소화, 여기 문서를 정본으로 참조)

@@ -9,7 +9,7 @@ cd python/tts
 ./setup.sh
 ```
 
-`python/tts/.venv`에 가상환경을 만들고 `mlx-audio`를 설치한다. 모델 가중치는 최초 실행 시 Hugging Face 캐시(`~/.cache/huggingface`)로 자동 다운로드된다.
+`python/tts/.venv`에 가상환경을 만들고 `mlx-audio`를 설치한 뒤, `prefetch_model.py`로 모델 가중치까지 미리 Hugging Face 캐시(`~/.cache/huggingface`)에 다운로드해둔다 — 그래서 실제 "내레이션 음성 생성" 첫 실행이 다운로드 대기 없이 바로 시작된다. `setup.sh` 실행 중 터미널에 다운로드 진행률이 그대로 보인다.
 
 ## 동작 방식
 

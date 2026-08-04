@@ -3,12 +3,21 @@ import {
   readProject,
   readProjectFile,
   readProjectReferenceImage,
+  projectReferenceImagePath,
+  projectImagesDir,
   writeProjectImage,
   updateProjectStep,
   listProjectImageIds,
 } from "@/lib/projects/store";
 import { createImageClient } from "@/lib/ai/image/factory";
-import { generateSceneImageWithRetry, buildRelatedScenesContext, describeImageError } from "@/lib/pipeline/generateSceneImage";
+import type { ImageClient } from "@/lib/ai/image/types";
+import { createLocalImageClient, type LocalImageClient } from "@/lib/ai/localImageClient";
+import {
+  generateSceneImageWithRetry,
+  buildImagePrompt,
+  buildRelatedScenesContext,
+  describeImageError,
+} from "@/lib/pipeline/generateSceneImage";
 import type { Scene } from "@/lib/pipeline/splitScenes";
 import type { ScreenTypeAssignment } from "@/lib/pipeline/selectScreenTypes";
 import type { VisualDesign } from "@/lib/pipeline/designVisuals";
@@ -16,7 +25,14 @@ import { createResilientStream } from "@/lib/http/resilientStream";
 import { startJob, finishJob, recordProgress, JobAlreadyRunningError } from "@/lib/jobs/registry";
 import { runWithConcurrencyLimit } from "@/lib/concurrency";
 import { groupContentScenesByParentTitle } from "@/lib/pipeline/sceneHierarchy";
-import { IMAGE_GENERATION_CONCURRENCY } from "@/lib/pipeline/imageGenerationConfig";
+import {
+  IMAGE_GENERATION_CONCURRENCY,
+  LOCAL_IMAGE_DRAFT_WIDTH,
+  LOCAL_IMAGE_DRAFT_HEIGHT,
+  LOCAL_IMAGE_STEPS,
+  LOCAL_IMAGE_QUANTIZE,
+  type LocalImageModelSize,
+} from "@/lib/pipeline/imageGenerationConfig";
 import { DEFAULT_IMAGE_COMMON_PROMPT } from "@/lib/pipeline/commonPromptDefaults";
 
 const STEP = "images" as const;
@@ -40,10 +56,20 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
   const backgroundFixed = (await readProjectFile(projectId, "background-fixed-enabled.txt"))?.trim() === "true";
   const genderRaw = (await readProjectFile(projectId, "presenter-gender.txt"))?.trim();
   const presenterGender = genderRaw === "male" || genderRaw === "female" ? genderRaw : undefined;
+  const engineRaw = (await readProjectFile(projectId, "image-engine.txt"))?.trim();
+  const engine: "openai" | "local" = engineRaw === "local" ? "local" : "openai";
+  const modelSizeRaw = (await readProjectFile(projectId, "image-local-model-size.txt"))?.trim();
+  const localModelSize: LocalImageModelSize = modelSizeRaw === "9b" ? "9b" : "4b";
   const referenceImages = {
     background: backgroundFixed ? (await readProjectReferenceImage(projectId, "background")) ?? undefined : undefined,
     presenter: presenterEnabled ? (await readProjectReferenceImage(projectId, "presenter")) ?? undefined : undefined,
   };
+  // Same reference set for every scene — used as the multi-image /images/edits input for OpenAI, or as
+  // Flux2KleinEdit's image_paths for the local engine (paths, not buffers — mflux reads files directly).
+  const referenceImagePaths = [
+    referenceImages.background ? projectReferenceImagePath(projectId, "background") : null,
+    referenceImages.presenter ? projectReferenceImagePath(projectId, "presenter") : null,
+  ].filter((p): p is string => p !== null);
 
   let scenes: Scene[];
   let visualDesigns: Record<string, VisualDesign>;
@@ -70,16 +96,28 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
     throw err;
   }
 
-  let client;
-  try {
-    client = createImageClient();
-  } catch (err) {
-    console.error("이미지 생성 실패:", err);
-    finishJob(projectId, STEP, "error", "AI 이미지 생성에 실패했습니다");
-    return NextResponse.json(
-      { error: "AI 이미지 생성에 실패했습니다. 잠시 후 다시 시도해주세요." },
-      { status: 502 }
-    );
+  let client: ImageClient | undefined;
+  let localClient: LocalImageClient | undefined;
+  if (engine === "local") {
+    try {
+      localClient = createLocalImageClient(projectImagesDir(projectId));
+    } catch (err) {
+      console.error("로컬 이미지 생성 실패:", err);
+      const message = err instanceof Error ? err.message : "로컬 이미지 생성에 실패했습니다";
+      finishJob(projectId, STEP, "error", message);
+      return NextResponse.json({ error: message }, { status: 502 });
+    }
+  } else {
+    try {
+      client = createImageClient();
+    } catch (err) {
+      console.error("이미지 생성 실패:", err);
+      finishJob(projectId, STEP, "error", "AI 이미지 생성에 실패했습니다");
+      return NextResponse.json(
+        { error: "AI 이미지 생성에 실패했습니다. 잠시 후 다시 시도해주세요." },
+        { status: 502 }
+      );
+    }
   }
 
   const stream = createResilientStream(async (emit) => {
@@ -93,13 +131,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
 
       // Grouped the same way as screen design (see selectScreenTypes.ts /
       // sceneHierarchy.ts): each nearest-title cluster of content scenes is
-      // one unit of parallel work, so a chapter's images generate together
-      // instead of being interleaved arbitrarily with unrelated scenes.
-      // Unlike screen design's uncapped Promise.all (cheap text calls),
-      // image generation stays capped at IMAGE_GENERATION_CONCURRENCY
-      // concurrent *groups* — real image API calls are costlier and more
-      // rate-limit-sensitive, so groups queue behind the cap the same way
-      // individual scenes used to.
+      // one unit of work, so a chapter's images generate together instead of
+      // being interleaved arbitrarily with unrelated scenes.
       const pendingGroups = groupContentScenesByParentTitle(scenes)
         .map((group) => ({
           ...group,
@@ -108,33 +141,73 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
         .filter((group) => group.scenes.length > 0);
       let completedSoFar = eligibleScenes.filter((scene) => alreadyGenerated.has(scene.id)).length;
 
-      await runWithConcurrencyLimit(pendingGroups, IMAGE_GENERATION_CONCURRENCY, async (group) => {
-        for (const scene of group.scenes) {
-          if (job.controller.signal.aborted) throw new DOMException("Aborted", "AbortError");
-
+      if (localClient) {
+        // Local generation runs one Python process that loads the model once and
+        // generates strictly in order (LOCAL_IMAGE_CONCURRENCY=1) — no benefit to
+        // OpenAI's uncapped-groups-behind-a-limit shape, so every pending scene is
+        // flattened into a single ordered batch call instead.
+        const pendingScenes = pendingGroups.flatMap((group) => group.scenes);
+        const items = pendingScenes.map((scene) => {
           const design = visualDesigns[scene.id];
-          const buffer = await generateSceneImageWithRetry(
-            client,
-            scene,
-            design,
-            {
-              screenType: screenTypes[scene.id]?.screenType,
-              commonPrompt,
-              presenterEnabled,
-              presenterPosition: design.presenterPosition,
-              presenterGender,
-              backgroundFixed,
-              relatedScenes: buildRelatedScenesContext(scene, visualDesigns),
-            },
-            job.controller.signal,
-            referenceImages
-          );
-          await writeProjectImage(projectId, scene.id, buffer);
-          completedSoFar += 1;
-          recordProgress(projectId, STEP, completedSoFar - 1, total);
-          emit(JSON.stringify({ type: "scene", sceneId: scene.id, index: completedSoFar - 1, total }) + "\n");
-        }
-      });
+          const prompt = buildImagePrompt(scene, design, {
+            screenType: screenTypes[scene.id]?.screenType,
+            commonPrompt,
+            presenterEnabled,
+            presenterPosition: design.presenterPosition,
+            presenterGender,
+            backgroundFixed,
+            relatedScenes: buildRelatedScenesContext(scene, visualDesigns),
+            allowTextInImage: false,
+          });
+          return { sceneId: scene.id, prompt, referenceImagePaths };
+        });
+
+        await localClient.generateBatch(items, {
+          modelSize: localModelSize,
+          width: LOCAL_IMAGE_DRAFT_WIDTH,
+          height: LOCAL_IMAGE_DRAFT_HEIGHT,
+          steps: LOCAL_IMAGE_STEPS,
+          quantize: LOCAL_IMAGE_QUANTIZE,
+          signal: job.controller.signal,
+          onScene: async ({ sceneId, image }) => {
+            await writeProjectImage(projectId, sceneId, image);
+            completedSoFar += 1;
+            recordProgress(projectId, STEP, completedSoFar - 1, total);
+            emit(JSON.stringify({ type: "scene", sceneId, index: completedSoFar - 1, total }) + "\n");
+          },
+        });
+      } else if (client) {
+        // Image generation stays capped at IMAGE_GENERATION_CONCURRENCY
+        // concurrent *groups* — real image API calls are costlier and more
+        // rate-limit-sensitive, so groups queue behind the cap.
+        await runWithConcurrencyLimit(pendingGroups, IMAGE_GENERATION_CONCURRENCY, async (group) => {
+          for (const scene of group.scenes) {
+            if (job.controller.signal.aborted) throw new DOMException("Aborted", "AbortError");
+
+            const design = visualDesigns[scene.id];
+            const buffer = await generateSceneImageWithRetry(
+              client,
+              scene,
+              design,
+              {
+                screenType: screenTypes[scene.id]?.screenType,
+                commonPrompt,
+                presenterEnabled,
+                presenterPosition: design.presenterPosition,
+                presenterGender,
+                backgroundFixed,
+                relatedScenes: buildRelatedScenesContext(scene, visualDesigns),
+              },
+              job.controller.signal,
+              referenceImages
+            );
+            await writeProjectImage(projectId, scene.id, buffer);
+            completedSoFar += 1;
+            recordProgress(projectId, STEP, completedSoFar - 1, total);
+            emit(JSON.stringify({ type: "scene", sceneId: scene.id, index: completedSoFar - 1, total }) + "\n");
+          }
+        });
+      }
 
       await updateProjectStep(projectId, STEP);
       finishJob(projectId, STEP, "done");
