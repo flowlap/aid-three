@@ -116,7 +116,26 @@ const SCENE_LENGTH_GUIDE =
 const SPLIT_CRITERIA =
   "문장종결, 주제전환, 설명 대상 변경, 화면 유형 변경, 열거 시작과 종료, 사례 또는 질문, 표/그래프 등장, 예상 재생시간";
 
-function buildSplitScenesMessages(narrationMarkdown: string): ChatMessage[] {
+function buildSplitScenesMessages(
+  narrationMarkdown: string,
+  priorScenes?: { order: number; narrationText: string }[],
+  startOrder?: number
+): ChatMessage[] {
+  const priorScenesBlock =
+    priorScenes && priorScenes.length > 0
+      ? `\n이전 구간에서 이미 분할된 씬 목록(참고용 — 다시 만들지 말고, relatedOrders에서 참조만 하세요):\n${priorScenes
+          .map((s) => `[order=${s.order}] ${s.narrationText}`)
+          .join("\n")}\n`
+      : "";
+  const startOrderInstruction =
+    typeof startOrder === "number" && startOrder > 1
+      ? `\n이번 구간은 더 긴 원고의 일부입니다. 새로 만드는 씬은 order ${startOrder}부터 이어서 번호를 매기세요(1부터 다시 시작하지 마세요).\n`
+      : "";
+  const relatedOrdersNote =
+    priorScenes && priorScenes.length > 0
+      ? " 위에 나열된 이전 구간의 order도 참조할 수 있습니다."
+      : "";
+
   const prompt = `다음 나레이션을 씬으로 분할하세요. 나레이션 문구는 절대 수정하지 말고 분절만 하세요.
 
 이 결과물은 최종적으로 나레이션 음성 + 화면 이미지를 이어붙인 "동영상"으로 제작됩니다. 씬 하나 = 화면이 실제로 전환되는 한 컷이라고 생각하고, 화면 전환이 자연스러운 지점에서 분할하세요 — 문장을 기계적으로 끊는 것이 아니라, "여기서 화면이 바뀌어야 시청자가 자연스럽다"고 판단되는 지점을 찾으세요.
@@ -134,8 +153,8 @@ ${SCENE_LENGTH_GUIDE}
 
 splitReason: 왜 하필 이 지점에서 화면을 나눴는지 구체적으로 설명하세요. "문장이 끝나서"처럼 형식적인 이유가 아니라 "새로운 개념 도입", "질문 제기 후 답변 전환", "사례 나열 시작", "이전 두 내용을 하나로 연결" 등 실제 내용/화면 전환 근거를 쓰세요. title 씬은 "장/절 제목"처럼 간단히 써도 됩니다.
 
-relatedOrders: 이 씬이 다른 씬과 하나의 이야기 흐름으로 묶인다면(예: 두 개념을 각각 소개한 뒤 하나로 잇거나 요약하는 씬), 관련된 씬들의 order 번호를 배열로 쓰세요. 특히 여러 씬에서 각각 다룬 내용을 종합·연결·비교하는 씬이라면 그 대상이 되는 씬들의 order를 반드시 표시하세요. 독립적인 씬이면 빈 배열로 두세요.
-
+relatedOrders: 이 씬이 다른 씬과 하나의 이야기 흐름으로 묶인다면(예: 두 개념을 각각 소개한 뒤 하나로 잇거나 요약하는 씬), 관련된 씬들의 order 번호를 배열로 쓰세요. 특히 여러 씬에서 각각 다룬 내용을 종합·연결·비교하는 씬이라면 그 대상이 되는 씬들의 order를 반드시 표시하세요. 독립적인 씬이면 빈 배열로 두세요.${relatedOrdersNote}
+${priorScenesBlock}${startOrderInstruction}
 나레이션:
 """
 ${narrationMarkdown}
@@ -206,12 +225,16 @@ export async function splitScenes(client: LlmClient, narrationMarkdown: string):
 export async function splitScenesStream(
   client: LlmClient,
   narrationMarkdown: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  context?: { priorScenes?: { order: number; narrationText: string }[]; startOrder?: number }
 ): Promise<AsyncIterable<string>> {
-  return client.completeStream(buildSplitScenesMessages(narrationMarkdown), {
-    jsonMode: true,
-    tier: "accurate",
-    maxTokens: LARGE_OUTPUT_MAX_TOKENS,
-    signal,
-  });
+  return client.completeStream(
+    buildSplitScenesMessages(narrationMarkdown, context?.priorScenes, context?.startOrder),
+    {
+      jsonMode: true,
+      tier: "accurate",
+      maxTokens: LARGE_OUTPUT_MAX_TOKENS,
+      signal,
+    }
+  );
 }

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { MockLlmClient } from "../ai/llm/mockLlmClient";
-import { splitScenes, chunkNarration, parseRawScenes, assignSceneIds } from "./splitScenes";
+import { splitScenes, splitScenesStream, chunkNarration, parseRawScenes, assignSceneIds } from "./splitScenes";
 
 const SAMPLE_RESPONSE = JSON.stringify({
   scenes: [
@@ -160,5 +160,31 @@ describe("parseRawScenes / assignSceneIds", () => {
 
   it("throws on malformed JSON, same as parseScenesResponse used to", () => {
     expect(() => parseRawScenes("not json")).toThrow();
+  });
+});
+
+describe("splitScenesStream prior-chunk context", () => {
+  it("does not mention prior scenes or a start order when none are given", async () => {
+    const client = new MockLlmClient([SAMPLE_RESPONSE]);
+
+    await splitScenesStream(client, "나레이션");
+
+    const prompt = client.calls[0].messages[1].content;
+    expect(prompt).not.toContain("이전 구간에서 이미 분할된 씬 목록");
+    expect(prompt).not.toContain("이어서 번호를 매기세요");
+  });
+
+  it("includes the prior scene list and start-order instruction when given", async () => {
+    const client = new MockLlmClient([SAMPLE_RESPONSE]);
+
+    await splitScenesStream(client, "나레이션", undefined, {
+      priorScenes: [{ order: 1, narrationText: "이전 씬 내용" }],
+      startOrder: 2,
+    });
+
+    const prompt = client.calls[0].messages[1].content;
+    expect(prompt).toContain("[order=1] 이전 씬 내용");
+    expect(prompt).toContain("order 2");
+    expect(prompt).toContain("이어서 번호를 매기세요");
   });
 });
