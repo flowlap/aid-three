@@ -58,11 +58,17 @@ function downloadBlob(blob: Blob, filename: string) {
  * to open a text search on the chosen site, or crop a region of the scene's
  * generated image (or paste an OS screenshot) to search visually.
  *
- * No supported site can be linked to automatically with a locally captured
- * image (see lib/imageSearchSites.ts) — every image-based search copies the
- * image to the clipboard, opens the site in a new tab, and also offers a
- * draggable thumbnail fallback for sites whose upload widget doesn't accept
- * paste. The user finishes the hand-off themselves (Cmd+V or drag).
+ * Most sites can't be linked to automatically with a locally captured image
+ * (see lib/imageSearchSites.ts) — those image-based searches copy the image
+ * to the clipboard, open the site in a new tab, and also offer a draggable
+ * thumbnail fallback for sites whose upload widget doesn't accept paste. The
+ * user finishes the hand-off themselves (Cmd+V or drag).
+ *
+ * Getty Images Korea ("스크린샷 검색" button, isGettyKorea) is the exception:
+ * the crop is uploaded automatically via handleGettyKoreaAutoSearch (proxied
+ * server-side, see lib/imageSearch/gettyImageSearchUpload.ts) and the results
+ * page opens directly. If that upload fails, it falls back to the same manual
+ * clipboard/download flow as every other site.
  */
 export function RelatedImageSearch({
   imageUrl,
@@ -84,6 +90,7 @@ export function RelatedImageSearch({
   const [pendingThumbnail, setPendingThumbnail] = useState<string | null>(null);
   const [pendingBlob, setPendingBlob] = useState<Blob | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
     return () => {
@@ -105,11 +112,30 @@ export function RelatedImageSearch({
     setPendingBlob(blob);
     setPendingThumbnail(URL.createObjectURL(blob));
     if (opts?.autoDownload) {
-      // 게티이미지코리아는 클립보드 붙여넣기가 아니라 실제 파일 업로드(카메라 아이콘)로 이미지 검색을
-      // 하므로, 새 탭을 열기 전에 파일을 미리 다운로드해 사용자가 바로 업로드할 수 있게 한다.
+      // 게티이미지코리아 자동 업로드(handleGettyKoreaAutoSearch)가 실패했을 때만 여기로 온다 —
+      // 클립보드 붙여넣기가 안 통하는 사이트이므로, 새 탭을 열기 전에 파일을 미리 다운로드해
+      // 사용자가 수동으로 업로드할 수 있게 한다.
       downloadBlob(blob, `screenshot-${Date.now()}.png`);
     }
     window.open(site.imageSearchUrl(), "_blank", "noopener,noreferrer");
+  }
+
+  async function handleGettyKoreaAutoSearch(blob: Blob) {
+    setError(null);
+    setUploading(true);
+    try {
+      const form = new FormData();
+      form.append("image", blob, "screenshot.png");
+      const res = await fetch("/api/imageSearch/gettyimageskorea", { method: "POST", body: form });
+      const data = await res.json();
+      if (!res.ok || !data.resultUrl) throw new Error(data.error ?? "업로드에 실패했습니다");
+      window.open(data.resultUrl, "_blank", "noopener,noreferrer");
+    } catch {
+      setError("자동 업로드에 실패해 수동 방식으로 전환했습니다");
+      await handleImageForSearch(blob, { autoDownload: true });
+    } finally {
+      setUploading(false);
+    }
   }
 
   function startCrop(intent: "select" | "koreaSearch") {
@@ -204,8 +230,12 @@ export function RelatedImageSearch({
     if (!ctx) return;
     ctx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
     canvas.toBlob((blob) => {
-      if (blob) void handleImageForSearch(blob, { autoDownload: intent === "koreaSearch" });
-      else setError("영역 캡처에 실패했습니다");
+      if (!blob) {
+        setError("영역 캡처에 실패했습니다");
+        return;
+      }
+      if (intent === "koreaSearch") void handleGettyKoreaAutoSearch(blob);
+      else void handleImageForSearch(blob);
     }, "image/png");
   }
 
@@ -240,9 +270,16 @@ export function RelatedImageSearch({
             {pasteArmed ? "붙여넣기 대기 중... (Cmd+V)" : "스크린샷 붙여넣기"}
           </Button>
           {isGettyKorea && (
-            <Button type="button" variant="outline" size="sm" onClick={() => startCrop("koreaSearch")} title="영역을 선택하면 자동으로 저장하고 게티이미지코리아를 엽니다">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => startCrop("koreaSearch")}
+              disabled={uploading}
+              title="영역을 선택하면 자동으로 업로드하고 게티이미지코리아 검색 결과를 엽니다"
+            >
               <Camera className="size-3.5" />
-              {cropMode && cropIntent === "koreaSearch" ? "영역 선택 취소" : "스크린샷 검색"}
+              {uploading ? "업로드 중..." : cropMode && cropIntent === "koreaSearch" ? "영역 선택 취소" : "스크린샷 검색"}
             </Button>
           )}
         </div>
