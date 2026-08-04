@@ -98,10 +98,6 @@ export function PreviewViewer({
     sectionRefs.current[scene.id]?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
-  function handlePrint() {
-    window.print();
-  }
-
   // Produces a standalone HTML snapshot of the preview (image + mockup + text per
   // scene) that opens without the app running. Images are inlined as base64 data
   // URIs; page CSS is copied from the live stylesheets so the layout matches what's
@@ -253,9 +249,6 @@ ${clone.outerHTML}
                   <div className="flex flex-wrap justify-end gap-2">
                     <Button variant="outline" onClick={handleDownloadHtml} disabled={downloading}>
                       {downloading ? "다운로드 준비 중..." : "HTML로 다운로드"}
-                    </Button>
-                    <Button variant="outline" onClick={handlePrint}>
-                      PDF로 저장
                     </Button>
                     <PptxQuickExportButton projectId={projectId} mockupStyle={mockupStyle} />
                   </div>

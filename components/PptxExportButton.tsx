@@ -32,7 +32,7 @@ async function downloadPptxBlob(res: Response): Promise<void> {
 /**
  * One-click pptx export using the bundled default template matching
  * `mockupStyle` — no upload needed. Belongs in a "다운로드" (download) group:
- * same category as "HTML로 다운로드"/"PDF로 저장", just another instant result.
+ * same category as "HTML로 다운로드", just another instant result.
  */
 export function PptxQuickExportButton({
   projectId,

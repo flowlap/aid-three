@@ -5,6 +5,7 @@ import {
   readProject,
   readProjectFile,
   readProjectImage,
+  readProjectAudio,
   listProjectAudioIds,
   listProjectVideoClipIds,
   writeProjectVideoFrame,
@@ -18,6 +19,7 @@ import { renderSceneFrameToPng } from "@/lib/video/renderSceneFrameToPng";
 import { buildVideoClip } from "@/lib/video/buildVideoClip";
 import { concatClips } from "@/lib/video/concatClips";
 import { assertFfmpegAvailable } from "@/lib/media/ffmpeg";
+import { getWavDurationSec } from "@/lib/media/wavDuration";
 import { runWithConcurrencyLimit } from "@/lib/concurrency";
 import { VIDEO_RENDER_CONCURRENCY } from "@/lib/pipeline/videoRenderConfig";
 import type { Scene } from "@/lib/pipeline/splitScenes";
@@ -62,6 +64,18 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
   const visualDesigns: Record<string, VisualDesign> = screenDesignRaw
     ? (JSON.parse(screenDesignRaw).visualDesigns ?? {})
     : {};
+  let durations: number[];
+  try {
+    durations = await Promise.all(
+      scenes.map(async (scene) => {
+        const audio = await readProjectAudio(projectId, scene.id);
+        if (!audio) throw new Error(`씬 ${scene.order}의 내레이션 음성을 찾을 수 없습니다`);
+        return getWavDurationSec(audio);
+      })
+    );
+  } catch (err) {
+    return NextResponse.json({ error: err instanceof Error ? err.message : "내레이션 음성 길이를 읽을 수 없습니다" }, { status: 400 });
+  }
 
   try {
     await assertFfmpegAvailable();
@@ -107,7 +121,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
 
       emit(JSON.stringify({ type: "concatenating" }) + "\n");
       const clipPaths = scenes.map((scene) => projectVideoClipPath(projectId, scene.id));
-      await concatClips(clipPaths, projectVideoPath(projectId), job.controller.signal);
+      await concatClips(clipPaths, durations, projectVideoPath(projectId), job.controller.signal);
 
       finishJob(projectId, STEP, "done");
       emit(JSON.stringify({ type: "result" }) + "\n");

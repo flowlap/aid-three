@@ -189,7 +189,7 @@ export function NarrationAudioEditor({
           <div>
             <p className="text-sm font-medium">동영상 생성</p>
             <p className="text-xs text-muted-foreground">
-              노트북LM 스타일 프레임 + 내레이션 음성을 이어붙여 mp4로 만듭니다. ffmpeg 필요.
+              제목 목업과 생성 이미지를 내레이션 음성·페이지 전환 효과와 함께 mp4로 만듭니다. ffmpeg 필요.
             </p>
           </div>
           <Button className="ml-auto" onClick={handleGenerateVideo} disabled={videoLoading || !allAudioReady}>

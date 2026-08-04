@@ -47,16 +47,25 @@ describe("buildSceneFrameLayout", () => {
     expect(findText(layout, "변수는 값을 저장하는 상자입니다")).toBe(true);
   });
 
-  it("includes up to 3 keyword chips", () => {
+  it("includes up to 3 keyword chips on a mockup frame", () => {
     const layout = buildSceneFrameLayout(scene, { ...design, keywords: ["A", "B", "C", "D"] });
     expect(findText(layout, "A")).toBe(true);
     expect(findText(layout, "C")).toBe(true);
     expect(findText(layout, "D")).toBe(false);
   });
 
-  it("embeds the provided image data URI", () => {
+  it("uses a generated content image as the full video page", () => {
     const layout = buildSceneFrameLayout(scene, design, "data:image/png;base64,AAAA");
-    const imgNode = layout.props.children[0];
+    const imgNode = layout.props.children;
     expect(imgNode.props.src).toBe("data:image/png;base64,AAAA");
+    expect(imgNode.props.width).toBe(FRAME_WIDTH);
+    expect(imgNode.props.height).toBe(FRAME_HEIGHT);
+  });
+
+  it("keeps title scenes as mockup cards even when an image is present", () => {
+    const titleScene: Scene = { ...scene, sceneType: "title", narrationText: "1장. 변수" };
+    const layout = buildSceneFrameLayout(titleScene, design, "data:image/png;base64,AAAA");
+    expect(findText(layout, "변수와 상자")).toBe(true);
+    expect(findText(layout, "AAAA")).toBe(false);
   });
 });

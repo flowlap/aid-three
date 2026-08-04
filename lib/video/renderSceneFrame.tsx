@@ -9,12 +9,25 @@ export const FRAME_HEIGHT = 1080;
  * Satori supports only a CSS subset — no Tailwind classes, no CSS custom
  * properties, no imported icon components — so this can't reuse
  * ScreenMockup.tsx/NotebookLmMockup.tsx directly. It's a separate,
- * purpose-built layout using only inline styles, matching NotebookLmMockup's
- * warm/minimal visual language (see components/NotebookLmMockup.tsx).
+ * purpose-built layout using only inline styles. Title scenes are rendered as
+ * a simple title-card mockup; content scenes use their generated image as the
+ * actual full-screen video page rather than placing it inside another mockup.
  */
 export function buildSceneFrameLayout(scene: Scene, design: VisualDesign | undefined, imageDataUri?: string) {
   const caption = design?.caption?.trim() || scene.narrationText.slice(0, 40);
   const keywords = design?.keywords ?? [];
+
+  // Generated content images are the page itself. Keeping these free of the
+  // caption/card chrome avoids turning the final video into a sequence of
+  // wireframes, while `objectFit: cover` adapts the 3:2 source images to 16:9.
+  if (scene.sceneType !== "title" && imageDataUri) {
+    return (
+      <div style={{ width: FRAME_WIDTH, height: FRAME_HEIGHT, display: "flex", backgroundColor: "#18181B" }}>
+        {/* eslint-disable-next-line jsx-a11y/alt-text -- Satori rendering, not real DOM/a11y tree */}
+        <img src={imageDataUri} width={FRAME_WIDTH} height={FRAME_HEIGHT} style={{ objectFit: "cover" }} />
+      </div>
+    );
+  }
 
   return (
     <div
@@ -31,25 +44,15 @@ export function buildSceneFrameLayout(scene: Scene, design: VisualDesign | undef
         fontFamily: "Pretendard",
       }}
     >
-      {imageDataUri ? (
-        // eslint-disable-next-line jsx-a11y/alt-text -- Satori rendering, not real DOM/a11y tree
-        <img
-          src={imageDataUri}
-          width={960}
-          height={640}
-          style={{ borderRadius: 32, objectFit: "cover", boxShadow: "0 20px 60px rgba(0,0,0,0.12)" }}
-        />
-      ) : (
-        <div
-          style={{
-            display: "flex",
-            width: 160,
-            height: 160,
-            borderRadius: 80,
-            backgroundColor: "rgba(217,119,6,0.15)",
-          }}
-        />
-      )}
+      <div
+        style={{
+          display: "flex",
+          width: 160,
+          height: 160,
+          borderRadius: 80,
+          backgroundColor: "rgba(217,119,6,0.15)",
+        }}
+      />
       <div
         style={{
           display: "flex",

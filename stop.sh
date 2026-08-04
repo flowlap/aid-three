@@ -1,18 +1,11 @@
 #!/bin/bash
 
-PID_FILE=".pid"
+APP_NAME="aid-three"
 
-if [ ! -f "$PID_FILE" ]; then
+if ! npx pm2 describe "$APP_NAME" > /dev/null 2>&1; then
   echo "실행 중인 서버가 없습니다"
   exit 0
 fi
 
-PID=$(cat "$PID_FILE")
-if kill -0 "$PID" 2>/dev/null; then
-  kill "$PID"
-  rm "$PID_FILE"
-  echo "서버 종료 (PID: $PID)"
-else
-  rm "$PID_FILE"
-  echo "서버가 이미 종료되어 있습니다"
-fi
+npx pm2 delete "$APP_NAME" > /dev/null
+echo "서버 종료 (pm2 프로세스: $APP_NAME)"

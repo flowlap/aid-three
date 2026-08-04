@@ -2,21 +2,20 @@
 set -e
 
 MODE="${1:-dev}"
-PID_FILE=".pid"
+APP_NAME="aid-three"
 LOG_FILE="dev.log"
 
-if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
-  echo "이미 실행 중입니다 (PID: $(cat "$PID_FILE"))"
+if npx pm2 describe "$APP_NAME" > /dev/null 2>&1; then
+  echo "이미 실행 중입니다 (pm2 프로세스: $APP_NAME)"
   exit 0
 fi
 
 if [ "$MODE" = "prod" ]; then
   npm run build
-  nohup npm run start > "$LOG_FILE" 2>&1 &
+  npx pm2 start npm --name "$APP_NAME" --log "$LOG_FILE" -- run start
 else
-  nohup npm run dev > "$LOG_FILE" 2>&1 &
+  npx pm2 start npm --name "$APP_NAME" --log "$LOG_FILE" -- run dev
 fi
-disown
-echo $! > "$PID_FILE"
-echo "서버 시작 (모드: $MODE, PID: $!, 포트: 9625)"
-echo "로그: $LOG_FILE"
+
+echo "서버 시작 (모드: $MODE, pm2 프로세스명: $APP_NAME, 포트: 9625)"
+echo "로그: $LOG_FILE (또는 npx pm2 logs $APP_NAME)"
