@@ -14,6 +14,12 @@ const nextConfig: NextConfig = {
   // gets rejected with a 403 (surfaces to the client as a socket/connection
   // error on the HMR websocket). Allowlisting it here fixes remote access.
   allowedDevOrigins: ["macmini.tail0d4349.ts.net"],
+  images: {
+    // The header logo's `?v=<version>` cache-busting query string (see
+    // app/AppHeader.tsx) needs an explicit local pattern — next/image
+    // rejects local src query strings by default as of Next 15.3+.
+    localPatterns: [{ pathname: "/icons/**" }],
+  },
 };
 
 export default nextConfig;
