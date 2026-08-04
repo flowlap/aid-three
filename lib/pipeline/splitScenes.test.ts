@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { MockLlmClient } from "../ai/llm/mockLlmClient";
-import { splitScenes, chunkNarration } from "./splitScenes";
+import { splitScenes, chunkNarration, parseRawScenes, assignSceneIds } from "./splitScenes";
 
 const SAMPLE_RESPONSE = JSON.stringify({
   scenes: [
@@ -129,5 +129,36 @@ describe("chunkNarration", () => {
   it("keeps an oversized single paragraph whole when it has no blank lines to split further", () => {
     const longParagraph = "매우 긴 문단입니다. ".repeat(20);
     expect(chunkNarration(longParagraph, 20)).toEqual([longParagraph]);
+  });
+});
+
+describe("parseRawScenes / assignSceneIds", () => {
+  it("resolves relatedOrders that point at scenes merged in from an earlier chunk", () => {
+    const chunk1 = parseRawScenes(
+      JSON.stringify({
+        scenes: [{ order: 1, narrationText: "개념 A", estimatedDurationSec: 5, splitReason: "도입" }],
+      })
+    );
+    const chunk2 = parseRawScenes(
+      JSON.stringify({
+        scenes: [
+          {
+            order: 2,
+            narrationText: "A와 B를 연결",
+            estimatedDurationSec: 5,
+            splitReason: "연결",
+            relatedOrders: [1],
+          },
+        ],
+      })
+    );
+
+    const scenes = assignSceneIds([...chunk1, ...chunk2]);
+
+    expect(scenes[1].relatedSceneIds).toEqual(["scene-001"]);
+  });
+
+  it("throws on malformed JSON, same as parseScenesResponse used to", () => {
+    expect(() => parseRawScenes("not json")).toThrow();
   });
 });

@@ -149,7 +149,7 @@ JSON으로만 응답하세요: {"scenes": [{"order": number, "narrationText": st
   ];
 }
 
-interface RawScene {
+export interface RawScene {
   order: number;
   narrationText: string;
   estimatedDurationSec: number;
@@ -159,15 +159,19 @@ interface RawScene {
   depth?: number | null;
 }
 
-export function parseScenesResponse(raw: string): Scene[] {
+export function parseRawScenes(raw: string): RawScene[] {
   const parsed = JSON.parse(raw) as { scenes: RawScene[] };
   if (!parsed || !Array.isArray(parsed.scenes)) {
     throw new Error("AI 응답 형식이 올바르지 않습니다 (scenes 배열 없음)");
   }
+  return parsed.scenes;
+}
 
-  const idByOrder = new Map(parsed.scenes.map((scene, index) => [scene.order, `scene-${String(index + 1).padStart(3, "0")}`]));
+/** Assigns global sequential ids and resolves relatedOrders → relatedSceneIds. Call once on the full, order-concatenated list — see chunkNarration/splitScenesStream for how multi-chunk runs build that list before calling this. */
+export function assignSceneIds(rawScenes: RawScene[]): Scene[] {
+  const idByOrder = new Map(rawScenes.map((scene, index) => [scene.order, `scene-${String(index + 1).padStart(3, "0")}`]));
 
-  return parsed.scenes.map((scene, index) => {
+  return rawScenes.map((scene, index) => {
     const id = `scene-${String(index + 1).padStart(3, "0")}`;
     const relatedSceneIds = (scene.relatedOrders ?? [])
       .map((order) => idByOrder.get(order))
@@ -184,6 +188,10 @@ export function parseScenesResponse(raw: string): Scene[] {
       ...(sceneType === "title" && typeof scene.depth === "number" ? { depth: scene.depth } : {}),
     };
   });
+}
+
+export function parseScenesResponse(raw: string): Scene[] {
+  return assignSceneIds(parseRawScenes(raw));
 }
 
 export async function splitScenes(client: LlmClient, narrationMarkdown: string): Promise<Scene[]> {
