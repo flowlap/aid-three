@@ -1,10 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readProject, readProjectFile, writeProjectFile, updateProjectStep } from "@/lib/projects/store";
 import { createLlmClient } from "@/lib/ai/llm/factory";
-import { splitScenesStream, parseScenesResponse, type Scene } from "@/lib/pipeline/splitScenes";
+import {
+  splitScenesStream,
+  parseRawScenes,
+  assignSceneIds,
+  chunkNarration,
+  type Scene,
+  type RawScene,
+} from "@/lib/pipeline/splitScenes";
 import { validateNarrationIntegrity } from "@/lib/pipeline/validateNarrationIntegrity";
 import { createResilientStream } from "@/lib/http/resilientStream";
-import { startJob, finishJob, recordChunk, getJob, JobAlreadyRunningError } from "@/lib/jobs/registry";
+import { startJob, finishJob, recordChunk, recordProgress, getJob, JobAlreadyRunningError } from "@/lib/jobs/registry";
 
 const STEP = "scenes" as const;
 
@@ -26,10 +33,12 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ pr
     throw err;
   }
 
-  let chunks: AsyncIterable<string>;
+  const narrationChunks = chunkNarration(narration);
+  const client = createLlmClient();
+
+  let firstChunkStream: AsyncIterable<string>;
   try {
-    const client = createLlmClient();
-    chunks = await splitScenesStream(client, narration, job.controller.signal);
+    firstChunkStream = await splitScenesStream(client, narrationChunks[0], job.controller.signal);
   } catch (err) {
     console.error("씬 분할 실패:", err);
     finishJob(projectId, STEP, "error", "AI 씬 분할에 실패했습니다");
@@ -40,23 +49,45 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ pr
   }
 
   const stream = createResilientStream(async (emit) => {
-    let raw = "";
-    try {
-      for await (const delta of chunks) {
+    async function consumeChunk(chunkStream: AsyncIterable<string>): Promise<string> {
+      let raw = "";
+      for await (const delta of chunkStream) {
         raw += delta;
         recordChunk(projectId, STEP, delta);
         emit(JSON.stringify({ type: "chunk", text: delta }) + "\n");
       }
+      return raw;
+    }
 
-      let scenes: Scene[];
-      try {
-        scenes = parseScenesResponse(raw);
-      } catch (err) {
-        console.error("씬 분할 응답 파싱 실패:", err);
-        finishJob(projectId, STEP, "error", "AI 응답 형식이 올바르지 않습니다");
-        emit(JSON.stringify({ type: "error", message: "AI 응답 형식이 올바르지 않습니다" }) + "\n");
-        return;
+    try {
+      const allRawScenes: RawScene[] = [];
+
+      for (let i = 0; i < narrationChunks.length; i++) {
+        const chunkStream =
+          i === 0
+            ? firstChunkStream
+            : await splitScenesStream(client, narrationChunks[i], job.controller.signal, {
+                priorScenes: allRawScenes.map((s) => ({ order: s.order, narrationText: s.narrationText })),
+                startOrder: allRawScenes.length + 1,
+              });
+
+        const raw = await consumeChunk(chunkStream);
+
+        let chunkScenes: RawScene[];
+        try {
+          chunkScenes = parseRawScenes(raw);
+        } catch (err) {
+          console.error("씬 분할 응답 파싱 실패:", err);
+          finishJob(projectId, STEP, "error", "AI 응답 형식이 올바르지 않습니다");
+          emit(JSON.stringify({ type: "error", message: "AI 응답 형식이 올바르지 않습니다" }) + "\n");
+          return;
+        }
+        allRawScenes.push(...chunkScenes);
+
+        if (narrationChunks.length > 1) recordProgress(projectId, STEP, i + 1, narrationChunks.length);
       }
+
+      const scenes = assignSceneIds(allRawScenes);
 
       const integrityOk = validateNarrationIntegrity(
         narration,
