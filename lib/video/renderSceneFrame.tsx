@@ -2,7 +2,7 @@ import type { Scene } from "@/lib/pipeline/splitScenes";
 import type { VisualDesign } from "@/lib/pipeline/designVisuals";
 
 export const FRAME_WIDTH = 1920;
-export const FRAME_HEIGHT = 1080;
+export const FRAME_HEIGHT = 1280;
 
 /**
  * JSX for one video frame, rendered via next/og's `ImageResponse` (Satori).

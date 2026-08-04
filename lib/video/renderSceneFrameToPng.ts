@@ -8,7 +8,7 @@ function toDataUri(buffer: Buffer): string {
   return `data:image/png;base64,${buffer.toString("base64")}`;
 }
 
-/** Rasterizes one scene's NotebookLM-style video frame to a 1920x1080 PNG. */
+/** Rasterizes one scene's video frame to a 1920x1280 (3:2) PNG. */
 export async function renderSceneFrameToPng(
   scene: Scene,
   design: VisualDesign | undefined,

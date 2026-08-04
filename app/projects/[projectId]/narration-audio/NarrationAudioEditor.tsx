@@ -118,7 +118,7 @@ export function NarrationAudioEditor({
 
   async function handleGenerateVideo() {
     setVideoActivityLines([]);
-    await startVideo({ body: { mode: "resume" } });
+    await startVideo({ body: { mode: "full" } });
   }
 
   const completedCount = scenes.filter((s) => audioIds.has(s.id)).length;
@@ -189,7 +189,7 @@ export function NarrationAudioEditor({
           <div>
             <p className="text-sm font-medium">동영상 생성</p>
             <p className="text-xs text-muted-foreground">
-              제목 목업과 생성 이미지를 내레이션 음성·페이지 전환 효과와 함께 mp4로 만듭니다. ffmpeg 필요.
+              제목 목업과 생성 이미지를 3:2 mp4로 만들며, 각 내레이션 뒤에는 짧은 텀과 페이지 전환 효과가 적용됩니다. ffmpeg 필요.
             </p>
           </div>
           <Button className="ml-auto" onClick={handleGenerateVideo} disabled={videoLoading || !allAudioReady}>

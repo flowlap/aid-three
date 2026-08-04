@@ -7,35 +7,39 @@ export const PAGE_TRANSITION_DURATION_SEC = 0.45;
 
 /**
  * Builds the ffmpeg filter graph that overlaps every adjacent pair with a
- * fade. `xfade` needs an offset in the already-joined timeline, whereas
- * `acrossfade` advances implicitly, so both paths are kept in lockstep.
+ * fade. Narration tracks are then concatenated without overlap: every scene's
+ * audio, including its trailing silent hold, fully completes before the next
+ * narration begins.
  */
 export function buildTransitionFilter(durations: number[], transitionDuration = PAGE_TRANSITION_DURATION_SEC): string {
   if (durations.length < 2) return "";
 
   let videoInput = "[0:v]";
-  let audioInput = "[0:a]";
   let elapsed = durations[0];
+  let totalOverlap = 0;
   const filters: string[] = [];
 
   for (let index = 1; index < durations.length; index += 1) {
     const duration = Math.min(transitionDuration, elapsed / 2, durations[index] / 2);
     const offset = Math.max(0, elapsed - duration);
     const videoOutput = `[v${index}]`;
-    const audioOutput = `[a${index}]`;
     filters.push(`${videoInput}[${index}:v]xfade=transition=fade:duration=${duration.toFixed(3)}:offset=${offset.toFixed(3)}${videoOutput}`);
-    filters.push(`${audioInput}[${index}:a]acrossfade=d=${duration.toFixed(3)}:c1=tri:c2=tri${audioOutput}`);
     videoInput = videoOutput;
-    audioInput = audioOutput;
     elapsed += durations[index] - duration;
+    totalOverlap += duration;
   }
+
+  // xfade overlaps the video streams. Pad its end by the same total overlap
+  // so it remains aligned with the non-overlapping audio timeline.
+  filters.push(`${videoInput}tpad=stop_mode=clone:stop_duration=${totalOverlap.toFixed(3)}[vout]`);
+  filters.push(`${durations.map((_, index) => `[${index}:a]`).join("")}concat=n=${durations.length}:v=0:a=1[aout]`);
 
   return filters.join(";");
 }
 
 /**
- * Joins per-scene clips in order, applying a short fade and audio crossfade at
- * every page boundary. The clips are re-encoded once here because ffmpeg's
+ * Joins per-scene clips in order, applying a short fade only after the
+ * narration's trailing silent hold. The clips are re-encoded once here because ffmpeg's
  * transition filters cannot be stream-copied.
  */
 export async function concatClips(
@@ -63,8 +67,8 @@ export async function concatClips(
       "-y",
       ...inputs,
       "-filter_complex", filter,
-      "-map", `[v${lastIndex}]`,
-      "-map", `[a${lastIndex}]`,
+      "-map", "[vout]",
+      "-map", "[aout]",
       "-c:v", "libx264",
       "-pix_fmt", "yuv420p",
       "-c:a", "aac",

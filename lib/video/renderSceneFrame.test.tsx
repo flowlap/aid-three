@@ -31,7 +31,7 @@ function findText(node: unknown, text: string): boolean {
 }
 
 describe("buildSceneFrameLayout", () => {
-  it("renders at the fixed 1920x1080 frame size", () => {
+  it("renders at the fixed 1920x1280 (3:2) frame size", () => {
     const layout = buildSceneFrameLayout(scene, design);
     expect(layout.props.style.width).toBe(FRAME_WIDTH);
     expect(layout.props.style.height).toBe(FRAME_HEIGHT);

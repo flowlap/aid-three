@@ -16,7 +16,7 @@ import {
   statProjectVideo,
 } from "@/lib/projects/store";
 import { renderSceneFrameToPng } from "@/lib/video/renderSceneFrameToPng";
-import { buildVideoClip } from "@/lib/video/buildVideoClip";
+import { buildVideoClip, SCENE_BREAK_HOLD_SEC } from "@/lib/video/buildVideoClip";
 import { concatClips } from "@/lib/video/concatClips";
 import { assertFfmpegAvailable } from "@/lib/media/ffmpeg";
 import { getWavDurationSec } from "@/lib/media/wavDuration";
@@ -121,7 +121,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
 
       emit(JSON.stringify({ type: "concatenating" }) + "\n");
       const clipPaths = scenes.map((scene) => projectVideoClipPath(projectId, scene.id));
-      await concatClips(clipPaths, durations, projectVideoPath(projectId), job.controller.signal);
+      await concatClips(
+        clipPaths,
+        durations.map((duration) => duration + SCENE_BREAK_HOLD_SEC),
+        projectVideoPath(projectId),
+        job.controller.signal
+      );
 
       finishJob(projectId, STEP, "done");
       emit(JSON.stringify({ type: "result" }) + "\n");
