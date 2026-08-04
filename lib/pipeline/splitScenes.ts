@@ -178,8 +178,15 @@ export interface RawScene {
   depth?: number | null;
 }
 
+/** jsonMode instructs the model to respond with JSON only, but it occasionally wraps the response in a markdown code fence anyway — strip one if present before parsing. */
+function stripCodeFence(raw: string): string {
+  const trimmed = raw.trim();
+  const match = trimmed.match(/^```(?:json)?\s*\n([\s\S]*?)\n```$/);
+  return match ? match[1] : trimmed;
+}
+
 export function parseRawScenes(raw: string): RawScene[] {
-  const parsed = JSON.parse(raw) as { scenes: RawScene[] };
+  const parsed = JSON.parse(stripCodeFence(raw)) as { scenes: RawScene[] };
   if (!parsed || !Array.isArray(parsed.scenes)) {
     throw new Error("AI 응답 형식이 올바르지 않습니다 (scenes 배열 없음)");
   }

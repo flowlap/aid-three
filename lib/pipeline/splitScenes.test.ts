@@ -161,6 +161,14 @@ describe("parseRawScenes / assignSceneIds", () => {
   it("throws on malformed JSON, same as parseScenesResponse used to", () => {
     expect(() => parseRawScenes("not json")).toThrow();
   });
+
+  it("strips a markdown code fence the AI sometimes wraps the JSON in despite jsonMode", () => {
+    const fenced = '```json\n{"scenes":[{"order":1,"narrationText":"안녕하세요.","estimatedDurationSec":5,"splitReason":"-"}]}\n```';
+
+    const scenes = parseRawScenes(fenced);
+
+    expect(scenes).toEqual([{ order: 1, narrationText: "안녕하세요.", estimatedDurationSec: 5, splitReason: "-" }]);
+  });
 });
 
 describe("splitScenesStream prior-chunk context", () => {
