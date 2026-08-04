@@ -193,7 +193,7 @@ interface ScreenBoxShape {
 
 /** Finds the `<p:sp>` shape named "화면 영역" (the pptx export's designated image placeholder — see lib/pptx/defaultTemplate.ts's screenBoxXml) in a slide's XML, if any. */
 function findScreenBoxShape(slideXml: string): ScreenBoxShape | null {
-  const spRegex = /<p:sp>[\s\S]*?<\/p:sp>/g;
+  const spRegex = /<p:sp\b[^>]*>[\s\S]*?<\/p:sp>/g;
   let m: RegExpExecArray | null;
   while ((m = spRegex.exec(slideXml))) {
     const block = m[0];

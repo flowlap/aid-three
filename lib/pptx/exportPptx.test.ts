@@ -51,15 +51,26 @@ const SLIDE_XML_WITH_IMAGE_BOX = `<?xml version="1.0" encoding="UTF-8" standalon
 </p:spTree></p:cSld>
 </p:sld>`;
 
-async function buildTemplateBytesWithImageBox(contentTypesXml: string = CONTENT_TYPES): Promise<Buffer> {
+async function buildTemplateBytesWithImageBox(
+  contentTypesXml: string = CONTENT_TYPES,
+  slideRelsXml: string = SLIDE_RELS
+): Promise<Buffer> {
   const zip = new JSZip();
   zip.file("[Content_Types].xml", contentTypesXml);
   zip.file("ppt/presentation.xml", PRESENTATION_XML);
   zip.file("ppt/_rels/presentation.xml.rels", PRESENTATION_RELS);
   zip.file("ppt/slides/slide1.xml", SLIDE_XML_WITH_IMAGE_BOX);
-  zip.file("ppt/slides/_rels/slide1.xml.rels", SLIDE_RELS);
+  zip.file("ppt/slides/_rels/slide1.xml.rels", slideRelsXml);
   return zip.generateAsync({ type: "nodebuffer" });
 }
+
+/** Non-sequential rId set (rId1, rId5 — deliberately skips rId2-4) to catch a nextAvailableRelId
+ * implementation that uses `ids.length + 1` instead of `Math.max(...ids) + 1`. */
+const SLIDE_RELS_NON_SEQUENTIAL = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/>
+<Relationship Id="rId5" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/notesSlide" Target="../notesSlides/notesSlide1.xml"/>
+</Relationships>`;
 
 /** Not a fully valid PNG — just enough of the signature + IHDR chunk for readPngDimensions to parse the given size. */
 function buildFakePngBuffer(width: number, height: number): Buffer {
@@ -248,5 +259,18 @@ describe("buildScenePptx", () => {
     const contentTypes = await outZip.file("[Content_Types].xml")!.async("string");
 
     expect([...contentTypes.matchAll(/Extension="png"/g)]).toHaveLength(1);
+  });
+
+  it("assigns the new image relationship the next rId after the highest existing one, not count+1", async () => {
+    const template = await buildTemplateBytesWithImageBox(CONTENT_TYPES, SLIDE_RELS_NON_SEQUENTIAL);
+    const image = buildFakePngBuffer(400, 200);
+
+    const output = await buildScenePptx(template, [{ 과정명: "x" }], [image]);
+    const outZip = await JSZip.loadAsync(output);
+    const slide1 = await outZip.file("ppt/slides/slide1.xml")!.async("string");
+    const rels = await outZip.file("ppt/slides/_rels/slide1.xml.rels")!.async("string");
+
+    expect(rels).toContain('Id="rId6"');
+    expect(slide1).toContain('r:embed="rId6"');
   });
 });
