@@ -169,6 +169,31 @@ describe("parseRawScenes / assignSceneIds", () => {
 
     expect(scenes).toEqual([{ order: 1, narrationText: "안녕하세요.", estimatedDurationSec: 5, splitReason: "-" }]);
   });
+
+  it("strips a code fence with no language tag too", () => {
+    const fenced = '```\n{"scenes":[{"order":1,"narrationText":"안녕하세요.","estimatedDurationSec":5,"splitReason":"-"}]}\n```';
+
+    const scenes = parseRawScenes(fenced);
+
+    expect(scenes).toEqual([{ order: 1, narrationText: "안녕하세요.", estimatedDurationSec: 5, splitReason: "-" }]);
+  });
+
+  it("does not corrupt a non-fenced response whose content legitimately contains triple backticks", () => {
+    const raw = JSON.stringify({
+      scenes: [
+        {
+          order: 1,
+          narrationText: "예시 코드는 ```print(1)``` 입니다.",
+          estimatedDurationSec: 5,
+          splitReason: "-",
+        },
+      ],
+    });
+
+    const scenes = parseRawScenes(raw);
+
+    expect(scenes[0].narrationText).toBe("예시 코드는 ```print(1)``` 입니다.");
+  });
 });
 
 describe("splitScenesStream prior-chunk context", () => {
