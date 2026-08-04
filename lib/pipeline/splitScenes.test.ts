@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { MockLlmClient } from "../ai/llm/mockLlmClient";
-import { splitScenes } from "./splitScenes";
+import { splitScenes, chunkNarration } from "./splitScenes";
 
 const SAMPLE_RESPONSE = JSON.stringify({
   scenes: [
@@ -96,5 +96,38 @@ describe("splitScenes", () => {
     expect(scenes[0].depth).toBe(1);
     expect(scenes[1].sceneType).toBe("content");
     expect(scenes[1].depth).toBeUndefined();
+  });
+});
+
+describe("chunkNarration", () => {
+  it("returns the whole narration as a single chunk when under budget", () => {
+    const text = "안녕하세요.\n오늘은 이러닝을 배웁니다.";
+    expect(chunkNarration(text, 1000)).toEqual([text]);
+  });
+
+  it("splits at header boundaries once the budget is exceeded", () => {
+    const text = "# 1장\n내용1\n\n# 2장\n내용2\n\n# 3장\n내용3";
+    const chunks = chunkNarration(text, 20);
+    expect(chunks.length).toBeGreaterThan(1);
+    expect(chunks[0]).toContain("# 1장");
+  });
+
+  it("reconstructs the original text exactly when chunks are concatenated", () => {
+    const text =
+      "# 1장\n내용1입니다.\n\n# 2장\n내용2입니다.\n\n일반 문단도 있습니다.\n\n# 3장\n내용3입니다.";
+    const chunks = chunkNarration(text, 15);
+    expect(chunks.join("")).toBe(text);
+  });
+
+  it("splits an oversized header section by paragraph", () => {
+    const text = "# 1장\n첫 문단입니다.\n\n둘째 문단입니다.\n\n셋째 문단입니다.";
+    const chunks = chunkNarration(text, 20);
+    expect(chunks.length).toBeGreaterThan(1);
+    expect(chunks.join("")).toBe(text);
+  });
+
+  it("keeps an oversized single paragraph whole when it has no blank lines to split further", () => {
+    const longParagraph = "매우 긴 문단입니다. ".repeat(20);
+    expect(chunkNarration(longParagraph, 20)).toEqual([longParagraph]);
   });
 });

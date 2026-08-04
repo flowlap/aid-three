@@ -1,5 +1,95 @@
 import { LARGE_OUTPUT_MAX_TOKENS, type ChatMessage, type LlmClient } from "../ai/llm/types";
 
+const HEADING_LINE_PATTERN = /^#{1,6}\s+/;
+
+/** Splits text into lines, keeping each line's trailing newline attached so `lines.join("")` reconstructs the input exactly. */
+function splitIntoLines(text: string): string[] {
+  return text.split(/(?<=\n)/);
+}
+
+/** Splits text at the start of each heading line — a "section" spans from one heading (inclusive) to just before the next. Leading content before the first heading (if any) is its own section. */
+function splitIntoHeaderSections(text: string): string[] {
+  const lines = splitIntoLines(text);
+  const sections: string[] = [];
+  let current = "";
+  for (const line of lines) {
+    const isHeading = HEADING_LINE_PATTERN.test(line.replace(/\n$/, ""));
+    if (isHeading && current.length > 0) {
+      sections.push(current);
+      current = line;
+    } else {
+      current += line;
+    }
+  }
+  if (current.length > 0) sections.push(current);
+  return sections;
+}
+
+/** Splits text at blank-line boundaries — a "paragraph" ends right before the first non-blank line that follows one or more blank lines. Blank lines stay attached to the end of the preceding paragraph. */
+function splitIntoParagraphs(text: string): string[] {
+  const lines = splitIntoLines(text);
+  const paragraphs: string[] = [];
+  let current = "";
+  let sawBlank = false;
+  for (const line of lines) {
+    const isBlank = line.replace(/\n$/, "").trim() === "";
+    if (isBlank) {
+      current += line;
+      sawBlank = true;
+      continue;
+    }
+    if (sawBlank && current.length > 0) {
+      paragraphs.push(current);
+      current = line;
+    } else {
+      current += line;
+    }
+    sawBlank = false;
+  }
+  if (current.length > 0) paragraphs.push(current);
+  return paragraphs;
+}
+
+/** Greedily packs blocks (in order) into chunks no larger than `budget`, never splitting a block. A single block already over budget becomes its own chunk. */
+function packByBudget(blocks: string[], budget: number): string[] {
+  const chunks: string[] = [];
+  let current = "";
+  for (const block of blocks) {
+    if (current.length > 0 && current.length + block.length > budget) {
+      chunks.push(current);
+      current = block;
+    } else {
+      current += block;
+    }
+  }
+  if (current.length > 0) chunks.push(current);
+  return chunks;
+}
+
+/** Conservative starting budget: see docs/superpowers/specs/2026-08-04-scene-split-chunking-design.md for the reasoning (a 35,928-char narration already overflowed the 65536-token output ceiling). */
+export const SCENE_SPLIT_CHUNK_CHAR_BUDGET = 8000;
+
+/**
+ * Splits a long narration into character-budget-sized chunks so a single AI
+ * call's JSON output (original text + per-scene metadata) doesn't exceed the
+ * model's max_tokens ceiling. Boundaries prefer document headers; a header
+ * section that alone exceeds the budget is further split by paragraph. The
+ * concatenation of the returned chunks always reconstructs the input exactly
+ * (validateNarrationIntegrity depends on this).
+ */
+export function chunkNarration(
+  narrationMarkdown: string,
+  budget: number = SCENE_SPLIT_CHUNK_CHAR_BUDGET
+): string[] {
+  if (narrationMarkdown.length <= budget) return [narrationMarkdown];
+
+  const sections = splitIntoHeaderSections(narrationMarkdown);
+  const blocks = sections.flatMap((section) =>
+    section.length > budget ? splitIntoParagraphs(section) : [section]
+  );
+  return packByBudget(blocks, budget);
+}
+
 export interface Scene {
   id: string;
   order: number;
