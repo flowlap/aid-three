@@ -59,7 +59,13 @@ function textBoxXml(
   );
 }
 
-/** Empty bordered placeholder frame — reserved for a screenshot/scene image to be pasted in manually (pptx export doesn't embed images yet). */
+/**
+ * Bordered placeholder frame for a scene's screen image. The shape name
+ * "화면 영역" is load-bearing — lib/pptx/exportPptx.ts's `buildScenePptx`
+ * finds this exact shape (by name) to replace with the scene's actual
+ * generated image or a mockup; templates without a shape of this exact
+ * name just keep this text-only placeholder untouched.
+ */
 function screenBoxXml(id: number, x: number, y: number, cx: number, cy: number): string {
   return (
     `<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="화면 영역"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>` +

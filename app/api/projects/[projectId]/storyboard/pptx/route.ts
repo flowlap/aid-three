@@ -1,18 +1,26 @@
 import { NextRequest, NextResponse } from "next/server";
-import { readProject, readProjectFile, readProjectPptxTemplate } from "@/lib/projects/store";
+import { readProject, readProjectFile, readProjectPptxTemplate, readProjectImage } from "@/lib/projects/store";
 import { buildScenePptx, type PptxPlaceholderData } from "@/lib/pptx/exportPptx";
 import { buildDefaultPptxTemplate, buildNotebookLmPptxTemplate } from "@/lib/pptx/defaultTemplate";
+import { renderMockupImage } from "@/lib/pptx/renderMockupImage";
+import { runWithConcurrencyLimit } from "@/lib/concurrency";
 import type { Scene } from "@/lib/pipeline/splitScenes";
 import type { ScreenTypeAssignment } from "@/lib/pipeline/selectScreenTypes";
 import type { VisualDesign } from "@/lib/pipeline/designVisuals";
+
+// Same rationale/value as VIDEO_RENDER_CONCURRENCY (lib/pipeline/videoRenderConfig.ts):
+// mockup rendering is CPU-bound Satori work, kept low to avoid firing every scene at once.
+const MOCKUP_RENDER_CONCURRENCY = 2;
 
 /**
  * Fills in the per-scene pptx template — an ad-hoc file attached to this
  * request takes priority, otherwise the project's saved custom template
  * (registered via `/pptx-template`) is used if one exists, otherwise falls
  * back to the bundled default/노트북LM template for a one-click "PPTX로 저장"
- * with no upload step. Text only — the template's own images/design are left
- * untouched.
+ * with no upload step. Each scene's generated image (or, if none exists
+ * yet, a layout-grid mockup — see lib/pptx/renderMockupImage.ts) is
+ * embedded into the template's "화면 영역" placeholder shape when present;
+ * templates without that shape still get text-only slides as before.
  */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ projectId: string }> }) {
   const { projectId } = await params;
@@ -65,9 +73,24 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
     };
   });
 
+  const perSlideImages: (Buffer | undefined)[] = new Array(scenes.length);
+  await runWithConcurrencyLimit(scenes, MOCKUP_RENDER_CONCURRENCY, async (scene, index) => {
+    const generated = await readProjectImage(projectId, scene.id);
+    if (generated) {
+      perSlideImages[index] = generated;
+      return;
+    }
+    try {
+      perSlideImages[index] = await renderMockupImage(visualDesigns[scene.id], screenTypes[scene.id]?.screenType);
+    } catch (err) {
+      console.error(`목업 이미지 생성 실패 (씬 ${scene.id}):`, err);
+      perSlideImages[index] = undefined;
+    }
+  });
+
   let output: Buffer;
   try {
-    output = await buildScenePptx(templateBytes, perSlideData);
+    output = await buildScenePptx(templateBytes, perSlideData, perSlideImages);
   } catch (err) {
     console.error("pptx 생성 실패:", err);
     const message = err instanceof Error ? err.message : "pptx 생성에 실패했습니다";
