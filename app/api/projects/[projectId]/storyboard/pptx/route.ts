@@ -3,9 +3,14 @@ import { readProject, readProjectFile, readProjectPptxTemplate, readProjectImage
 import { buildScenePptx, type PptxPlaceholderData } from "@/lib/pptx/exportPptx";
 import { buildDefaultPptxTemplate, buildNotebookLmPptxTemplate } from "@/lib/pptx/defaultTemplate";
 import { renderMockupImage } from "@/lib/pptx/renderMockupImage";
+import { runWithConcurrencyLimit } from "@/lib/concurrency";
 import type { Scene } from "@/lib/pipeline/splitScenes";
 import type { ScreenTypeAssignment } from "@/lib/pipeline/selectScreenTypes";
 import type { VisualDesign } from "@/lib/pipeline/designVisuals";
+
+// Same rationale/value as VIDEO_RENDER_CONCURRENCY (lib/pipeline/videoRenderConfig.ts):
+// mockup rendering is CPU-bound Satori work, kept low to avoid firing every scene at once.
+const MOCKUP_RENDER_CONCURRENCY = 2;
 
 /**
  * Fills in the per-scene pptx template — an ad-hoc file attached to this
@@ -68,18 +73,20 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
     };
   });
 
-  const perSlideImages: (Buffer | undefined)[] = await Promise.all(
-    scenes.map(async (scene) => {
-      const generated = await readProjectImage(projectId, scene.id);
-      if (generated) return generated;
-      try {
-        return await renderMockupImage(visualDesigns[scene.id], screenTypes[scene.id]?.screenType);
-      } catch (err) {
-        console.error(`목업 이미지 생성 실패 (씬 ${scene.id}):`, err);
-        return undefined;
-      }
-    })
-  );
+  const perSlideImages: (Buffer | undefined)[] = new Array(scenes.length);
+  await runWithConcurrencyLimit(scenes, MOCKUP_RENDER_CONCURRENCY, async (scene, index) => {
+    const generated = await readProjectImage(projectId, scene.id);
+    if (generated) {
+      perSlideImages[index] = generated;
+      return;
+    }
+    try {
+      perSlideImages[index] = await renderMockupImage(visualDesigns[scene.id], screenTypes[scene.id]?.screenType);
+    } catch (err) {
+      console.error(`목업 이미지 생성 실패 (씬 ${scene.id}):`, err);
+      perSlideImages[index] = undefined;
+    }
+  });
 
   let output: Buffer;
   try {

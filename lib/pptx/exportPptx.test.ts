@@ -217,6 +217,38 @@ describe("buildScenePptx", () => {
     expect(Number(b)).toBeGreaterThan(0);
   });
 
+  it("embeds distinct images into multiple slides without collisions", async () => {
+    const template = await buildTemplateBytesWithImageBox();
+    const imageA = buildFakePngBuffer(400, 200);
+    const imageB = buildFakePngBuffer(300, 300);
+
+    const output = await buildScenePptx(template, [{ 과정명: "A" }, { 과정명: "B" }], [imageA, imageB]);
+    const outZip = await JSZip.loadAsync(output);
+
+    const mediaFiles = Object.keys(outZip.files).filter((n) => /^ppt\/media\/pptxImage\d+\.png$/.test(n));
+    expect(mediaFiles).toHaveLength(2);
+
+    const slideFiles = Object.keys(outZip.files).filter((n) => /ppt\/slides\/slide\d+\.xml$/.test(n)).sort();
+    expect(slideFiles).toHaveLength(2);
+    const relsFiles = Object.keys(outZip.files).filter((n) => /ppt\/slides\/_rels\/slide\d+\.xml\.rels$/.test(n));
+    expect(relsFiles).toHaveLength(2);
+
+    for (const relsFile of relsFiles) {
+      const relsXml = await outZip.file(relsFile)!.async("string");
+      const imageRels = [...relsXml.matchAll(/Type="[^"]*\/image"[^>]*Target="\.\.\/media\/(pptxImage\d+\.png)"/g)];
+      expect(imageRels).toHaveLength(1);
+    }
+
+    const mediaBuffers = await Promise.all(mediaFiles.map((f) => outZip.file(f)!.async("nodebuffer")));
+    const matchesA = mediaBuffers.filter((b) => b.equals(imageA)).length;
+    const matchesB = mediaBuffers.filter((b) => b.equals(imageB)).length;
+    expect(matchesA).toBe(1);
+    expect(matchesB).toBe(1);
+
+    const contentTypes = await outZip.file("[Content_Types].xml")!.async("string");
+    expect([...contentTypes.matchAll(/Extension="png"/g)]).toHaveLength(1);
+  });
+
   it("leaves scenes without a provided image as plain text output", async () => {
     const template = await buildTemplateBytesWithImageBox();
     const image = buildFakePngBuffer(400, 200);

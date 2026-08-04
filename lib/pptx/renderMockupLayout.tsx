@@ -1,7 +1,22 @@
-import { LAYOUT_POSITIONS, type LayoutPosition, type VisualDesign } from "@/lib/pipeline/designVisuals";
+import { LAYOUT_POSITIONS, type LayoutElement, type LayoutPosition, type VisualDesign } from "@/lib/pipeline/designVisuals";
 
 const GRID_CELL_BG = "rgba(214,211,209,0.4)";
 const GRID_CELL_BORDER = "2px dashed rgba(87,83,78,0.4)";
+const MOCKUP_BG = "#F5F5F4";
+
+/**
+ * Fraction of `height`/`width` reserved as a safe-area padding buffer around
+ * real content (grid labels, the caption bar/card) on every edge.
+ * lib/pptx/exportPptx.ts cover-crops whatever mockup image this renders to
+ * fit the destination template's "화면 영역" placeholder box, and that crop
+ * can eat into any edge (top/bottom or left/right) depending on how the
+ * box's aspect ratio compares to this render's — e.g. the bundled default
+ * template's box ratio (1.9038) vs. this file's 16:9 render (1.7778) crops
+ * ~3.31% (~30px of a 900px-tall render) off the top and bottom alone. 7%
+ * comfortably clears that with margin to spare for other template ratios
+ * too, so a crop only ever removes background color, never text.
+ */
+const SAFE_AREA_FRACTION = 0.07;
 
 /**
  * JSX for a generic layout-grid mockup frame, rendered via next/og's
@@ -24,38 +39,54 @@ export function buildMockupLayout(
   const elements = design?.layoutElements ?? [];
 
   if (elements.length === 0) {
-    return (
-      <div
-        style={{
-          width,
-          height,
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: 16,
-          padding: 64,
-          backgroundColor: "#F5F5F4",
-          fontFamily: "Pretendard",
-        }}
-      >
-        {screenType && <div style={{ display: "flex", fontSize: 22, color: "#78716C" }}>{screenType}</div>}
-        <div
-          style={{
-            display: "flex",
-            maxWidth: width - 128,
-            fontSize: 32,
-            fontWeight: 700,
-            color: "#44403C",
-            textAlign: "center",
-          }}
-        >
-          {caption}
-        </div>
-      </div>
-    );
+    return buildEmptyMockupLayout(caption, screenType, width, height);
   }
 
+  return buildGridMockupLayout(elements, caption, width, height);
+}
+
+/** Caption-only fallback card (no `layoutElements` to draw a grid from). */
+function buildEmptyMockupLayout(caption: string, screenType: string | undefined, width: number, height: number) {
+  const padY = Math.round(height * SAFE_AREA_FRACTION);
+  const padX = Math.round(width * SAFE_AREA_FRACTION);
+
+  return (
+    <div
+      style={{
+        width,
+        height,
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 16,
+        paddingTop: padY,
+        paddingBottom: padY,
+        paddingLeft: padX,
+        paddingRight: padX,
+        backgroundColor: MOCKUP_BG,
+        fontFamily: "Pretendard",
+      }}
+    >
+      {screenType && <div style={{ display: "flex", fontSize: 22, color: "#78716C" }}>{screenType}</div>}
+      <div
+        style={{
+          display: "flex",
+          maxWidth: width - padX * 2,
+          fontSize: 32,
+          fontWeight: 700,
+          color: "#44403C",
+          textAlign: "center",
+        }}
+      >
+        {caption}
+      </div>
+    </div>
+  );
+}
+
+/** 3x3 layout-elements grid with a caption bar underneath. */
+function buildGridMockupLayout(elements: LayoutElement[], caption: string, width: number, height: number) {
   const byPosition = new Map<LayoutPosition, string[]>();
   for (const el of elements) {
     const list = byPosition.get(el.position) ?? [];
@@ -63,8 +94,24 @@ export function buildMockupLayout(
     byPosition.set(el.position, list);
   }
 
+  const padY = Math.round(height * SAFE_AREA_FRACTION);
+  const padX = Math.round(width * SAFE_AREA_FRACTION);
+
   return (
-    <div style={{ width, height, display: "flex", flexDirection: "column", backgroundColor: "#F5F5F4", fontFamily: "Pretendard" }}>
+    <div
+      style={{
+        width,
+        height,
+        display: "flex",
+        flexDirection: "column",
+        paddingTop: padY,
+        paddingBottom: padY,
+        paddingLeft: padX,
+        paddingRight: padX,
+        backgroundColor: MOCKUP_BG,
+        fontFamily: "Pretendard",
+      }}
+    >
       <div style={{ display: "flex", flexWrap: "wrap", flex: 1 }}>
         {LAYOUT_POSITIONS.map((pos) => {
           const labels = byPosition.get(pos) ?? [];
@@ -102,19 +149,17 @@ export function buildMockupLayout(
           );
         })}
       </div>
-      {caption && (
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "center",
-            borderTop: "1px solid #D6D3D1",
-            backgroundColor: "rgba(255,255,255,0.9)",
-            padding: "20px 32px",
-          }}
-        >
-          <div style={{ display: "flex", fontSize: 26, fontWeight: 700, color: "#292524", textAlign: "center" }}>{caption}</div>
-        </div>
-      )}
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "center",
+          borderTop: "1px solid #D6D3D1",
+          backgroundColor: "rgba(255,255,255,0.9)",
+          padding: "20px 32px",
+        }}
+      >
+        <div style={{ display: "flex", fontSize: 26, fontWeight: 700, color: "#292524", textAlign: "center" }}>{caption}</div>
+      </div>
     </div>
   );
 }
