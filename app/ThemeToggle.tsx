@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Moon, Sun } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-export function ThemeToggle() {
+export function ThemeToggle({ className }: { className?: string }) {
   const [isDark, setIsDark] = useState(false);
 
   useEffect(() => {
@@ -27,7 +27,7 @@ export function ThemeToggle() {
       variant="outline"
       size="icon"
       onClick={toggle}
-      className="fixed top-4 right-4 z-50"
+      className={className}
       aria-label={isDark ? "라이트 모드로 전환" : "다크 모드로 전환"}
     >
       {isDark ? <Sun /> : <Moon />}

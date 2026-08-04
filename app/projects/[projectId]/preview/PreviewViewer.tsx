@@ -11,7 +11,12 @@ import { RelatedImageSearch } from "@/components/RelatedImageSearch";
 import { computeMockupVariantIndexes } from "@/lib/visual-templates";
 import { buildSceneHierarchy } from "@/lib/pipeline/sceneHierarchy";
 import { cn } from "@/lib/utils";
-import { IMAGE_SEARCH_SITES, DEFAULT_IMAGE_SEARCH_SITE, type ImageSearchSiteId } from "@/lib/imageSearchSites";
+import {
+  IMAGE_SEARCH_SITES,
+  DEFAULT_IMAGE_SEARCH_SITE,
+  IMAGE_SEARCH_SITE_STORAGE_KEY,
+  type ImageSearchSiteId,
+} from "@/lib/imageSearchSites";
 import type { Scene } from "@/lib/pipeline/splitScenes";
 import type { ScreenTypeAssignment } from "@/lib/pipeline/selectScreenTypes";
 import type { VisualDesign } from "@/lib/pipeline/designVisuals";
@@ -42,6 +47,28 @@ export function PreviewViewer({
   const [imageSearchSite, setImageSearchSite] = useState<ImageSearchSiteId>(DEFAULT_IMAGE_SEARCH_SITE);
   const sectionRefs = useRef<Record<string, HTMLElement | null>>({});
   const exportRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    queueMicrotask(() => {
+      try {
+        const saved = localStorage.getItem(IMAGE_SEARCH_SITE_STORAGE_KEY);
+        if (saved && IMAGE_SEARCH_SITES.some((s) => s.id === saved)) {
+          setImageSearchSite(saved as ImageSearchSiteId);
+        }
+      } catch {
+        // localStorage unavailable (private browsing) — keep the default.
+      }
+    });
+  }, []);
+
+  function handleImageSearchSiteChange(value: ImageSearchSiteId) {
+    setImageSearchSite(value);
+    try {
+      localStorage.setItem(IMAGE_SEARCH_SITE_STORAGE_KEY, value);
+    } catch {
+      // localStorage unavailable — selection just won't persist across reloads.
+    }
+  }
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -145,7 +172,7 @@ ${clone.outerHTML}
   return (
     <div className="min-h-screen bg-muted">
       <div className="mx-auto flex max-w-[1400px]">
-        <aside className="sticky top-0 hidden h-screen w-56 shrink-0 overflow-y-auto border-r bg-background p-4 md:block print:hidden">
+        <aside className="sticky top-11 hidden h-[calc(100vh-2.75rem)] w-56 shrink-0 overflow-y-auto border-r bg-background p-4 md:block print:hidden">
           <Link href={`/projects/${projectId}/storyboard`} className="mb-4 block text-sm font-medium text-muted-foreground hover:text-foreground">
             ← {projectTitle}
           </Link>
@@ -160,7 +187,11 @@ ${clone.outerHTML}
                 }}
                 style={{ marginLeft: `${(hierarchy[scene.id]?.indentDepth ?? 0) * 12}px` }}
                 className={`block truncate rounded-lg px-2.5 py-1.5 text-sm transition-colors ${
-                  index === activeIndex ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                  index === activeIndex
+                    ? "bg-primary text-primary-foreground"
+                    : scene.sceneType === "title"
+                      ? "font-semibold text-primary hover:bg-muted"
+                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
                 }`}
               >
                 {index + 1}. {scene.narrationText}
@@ -202,7 +233,7 @@ ${clone.outerHTML}
                 </div>
                 <div className="flex items-center gap-1.5">
                   <span className="text-[11px] font-medium text-muted-foreground">연관 이미지 검색</span>
-                  <Select value={imageSearchSite} onValueChange={(value) => setImageSearchSite(value as ImageSearchSiteId)}>
+                  <Select value={imageSearchSite} onValueChange={(value) => handleImageSearchSiteChange(value as ImageSearchSiteId)}>
                     <SelectTrigger size="sm" className="w-36">
                       <SelectValue>{(value: ImageSearchSiteId) => IMAGE_SEARCH_SITES.find((s) => s.id === value)?.label}</SelectValue>
                     </SelectTrigger>

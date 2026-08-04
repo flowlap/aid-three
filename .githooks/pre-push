@@ -1,0 +1,20 @@
+#!/bin/sh
+# push할 때마다 package.json 버전을 0.1(minor)씩 올려 별도 커밋으로 남긴다.
+#
+# git은 pre-push 훅을 부르기 전에 이번 push로 보낼 커밋(sha)을 이미 확정하므로,
+# 이 훅 안에서 새로 만든 버전업 커밋은 "이번" push에는 포함되지 않고 로컬에 남았다가
+# 다음 push 때 함께 올라간다. 원래 push 자체는 절대 막지 않는다(항상 exit 0).
+repo_root=$(git rev-parse --show-toplevel) || exit 0
+
+node "$repo_root/scripts/bump-version.mjs" || exit 0
+
+if git -C "$repo_root" diff --quiet -- package.json; then
+  exit 0
+fi
+
+new_version=$(node -p "require('$repo_root/package.json').version")
+git -C "$repo_root" add package.json
+git -C "$repo_root" commit --quiet -m "chore: bump version to v$new_version"
+echo "[pre-push] 버전을 v$new_version(으)로 올려 커밋했습니다 (다음 push에 반영됩니다)."
+
+exit 0

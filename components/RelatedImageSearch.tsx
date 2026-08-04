@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Search, Crop, ClipboardPaste, X } from "lucide-react";
+import { Search, Crop, ClipboardPaste, X, Download, Camera } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { getImageSearchSite, type ImageSearchSiteId } from "@/lib/imageSearchSites";
@@ -44,6 +44,15 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   ]);
 }
 
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 /**
  * Per-scene "연관 이미지 찾기" controls for the preview page: click a keyword
  * to open a text search on the chosen site, or crop a region of the scene's
@@ -65,12 +74,15 @@ export function RelatedImageSearch({
   site: ImageSearchSiteId;
 }) {
   const site = getImageSearchSite(siteId);
+  const isGettyKorea = siteId === "gettyimageskorea-pro";
   const imgRef = useRef<HTMLImageElement>(null);
   const [cropMode, setCropMode] = useState(false);
+  const [cropIntent, setCropIntent] = useState<"select" | "koreaSearch">("select");
   const [dragOrigin, setDragOrigin] = useState<{ x: number; y: number } | null>(null);
   const [dragRect, setDragRect] = useState<Rect | null>(null);
   const [pasteArmed, setPasteArmed] = useState(false);
   const [pendingThumbnail, setPendingThumbnail] = useState<string | null>(null);
+  const [pendingBlob, setPendingBlob] = useState<Blob | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -80,7 +92,7 @@ export function RelatedImageSearch({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only run on unmount, not every pendingThumbnail change
   }, []);
 
-  async function handleImageForSearch(blob: Blob) {
+  async function handleImageForSearch(blob: Blob, opts?: { autoDownload?: boolean }) {
     setError(null);
     try {
       await withTimeout(navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })]), 1500);
@@ -90,8 +102,23 @@ export function RelatedImageSearch({
       // below still lets the user complete the hand-off manually either way.
     }
     if (pendingThumbnail) URL.revokeObjectURL(pendingThumbnail);
+    setPendingBlob(blob);
     setPendingThumbnail(URL.createObjectURL(blob));
+    if (opts?.autoDownload) {
+      // 게티이미지코리아는 클립보드 붙여넣기가 아니라 실제 파일 업로드(카메라 아이콘)로 이미지 검색을
+      // 하므로, 새 탭을 열기 전에 파일을 미리 다운로드해 사용자가 바로 업로드할 수 있게 한다.
+      downloadBlob(blob, `screenshot-${Date.now()}.png`);
+    }
     window.open(site.imageSearchUrl(), "_blank", "noopener,noreferrer");
+  }
+
+  function startCrop(intent: "select" | "koreaSearch") {
+    if (cropMode && cropIntent === intent) {
+      setCropMode(false);
+      return;
+    }
+    setCropIntent(intent);
+    setCropMode(true);
   }
 
   useEffect(() => {
@@ -132,6 +159,7 @@ export function RelatedImageSearch({
   // release point, which left dragRect stale at zero-size and silently dropped every crop.
   async function handleMouseUp(e: React.MouseEvent<HTMLDivElement>) {
     const origin = dragOrigin;
+    const intent = cropIntent;
     setDragOrigin(null);
     const img = imgRef.current;
     if (!img || !origin) {
@@ -176,7 +204,7 @@ export function RelatedImageSearch({
     if (!ctx) return;
     ctx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
     canvas.toBlob((blob) => {
-      if (blob) void handleImageForSearch(blob);
+      if (blob) void handleImageForSearch(blob, { autoDownload: intent === "koreaSearch" });
       else setError("영역 캡처에 실패했습니다");
     }, "image/png");
   }
@@ -203,14 +231,20 @@ export function RelatedImageSearch({
 
       {imageUrl && (
         <div className="flex flex-wrap items-center gap-2">
-          <Button type="button" variant="outline" size="sm" onClick={() => setCropMode((v) => !v)}>
+          <Button type="button" variant="outline" size="sm" onClick={() => startCrop("select")}>
             <Crop className="size-3.5" />
-            {cropMode ? "영역 선택 취소" : "이미지에서 영역 선택"}
+            {cropMode && cropIntent === "select" ? "영역 선택 취소" : "이미지에서 영역 선택"}
           </Button>
           <Button type="button" variant="outline" size="sm" onClick={() => setPasteArmed(true)}>
             <ClipboardPaste className="size-3.5" />
             {pasteArmed ? "붙여넣기 대기 중... (Cmd+V)" : "스크린샷 붙여넣기"}
           </Button>
+          {isGettyKorea && (
+            <Button type="button" variant="outline" size="sm" onClick={() => startCrop("koreaSearch")} title="영역을 선택하면 자동으로 저장하고 게티이미지코리아를 엽니다">
+              <Camera className="size-3.5" />
+              {cropMode && cropIntent === "koreaSearch" ? "영역 선택 취소" : "스크린샷 검색"}
+            </Button>
+          )}
         </div>
       )}
 
@@ -238,7 +272,24 @@ export function RelatedImageSearch({
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={pendingThumbnail} draggable alt="" className="size-12 shrink-0 cursor-grab rounded border object-cover" />
           <span>클립보드에 복사됨 — 새로 연 창에 Cmd+V로 붙여넣거나, 이 이미지를 그 창으로 드래그하세요.</span>
-          <Button type="button" variant="ghost" size="sm" onClick={() => setPendingThumbnail(null)}>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => pendingBlob && downloadBlob(pendingBlob, `screenshot-${Date.now()}.png`)}
+          >
+            <Download className="size-3.5" />
+            스크린샷 저장
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setPendingThumbnail(null);
+              setPendingBlob(null);
+            }}
+          >
             <X className="size-3.5" />
           </Button>
         </div>

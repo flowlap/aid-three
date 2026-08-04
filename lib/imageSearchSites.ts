@@ -52,7 +52,9 @@ export const IMAGE_SEARCH_SITES: readonly ImageSearchSite[] = [
   },
 ] as const;
 
-export const DEFAULT_IMAGE_SEARCH_SITE: ImageSearchSiteId = "getty";
+export const DEFAULT_IMAGE_SEARCH_SITE: ImageSearchSiteId = "gettyimageskorea-pro";
+
+export const IMAGE_SEARCH_SITE_STORAGE_KEY = "imageSearchSite";
 
 export function getImageSearchSite(id: ImageSearchSiteId): ImageSearchSite {
   const site = IMAGE_SEARCH_SITES.find((s) => s.id === id);

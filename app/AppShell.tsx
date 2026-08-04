@@ -53,8 +53,8 @@ export function AppShell({
   const viewedStep = STEPS[currentIndex];
 
   return (
-    <div className="flex min-h-dvh flex-col bg-muted">
-      <header className="sticky top-0 z-10 shrink-0 transform-gpu border-b bg-background shadow-[0_1px_2px_rgba(15,15,15,0.04)] [backface-visibility:hidden]">
+    <div className="flex min-h-[calc(100dvh-2.75rem)] flex-col bg-muted">
+      <header className="sticky top-11 z-10 shrink-0 transform-gpu border-b bg-background shadow-[0_1px_2px_rgba(15,15,15,0.04)] [backface-visibility:hidden]">
         <div className="mx-auto max-w-[1000px] px-6 md:px-8">
           <div className="flex items-center gap-2 pt-3 pr-14">
             <Link
