@@ -134,7 +134,7 @@ export function NarrationAudioEditor({
       >
         ← {projectTitle}
       </Link>
-      <h1 className="mb-1 text-3xl font-semibold tracking-tight">내레이션 음성 생성</h1>
+      <h1 className="mb-1 text-3xl font-semibold tracking-tight">동영상으로 보기</h1>
       <p className="mb-6 text-sm text-muted-foreground">
         이 Mac에 설치된 로컬 TTS(Qwen3-TTS)로 씬별 내레이션 음성을 생성합니다. Windows에서는 사용할 수 없습니다.
       </p>
@@ -189,7 +189,7 @@ export function NarrationAudioEditor({
           <div>
             <p className="text-sm font-medium">동영상 생성</p>
             <p className="text-xs text-muted-foreground">
-              제목 목업과 생성 이미지를 3:2 mp4로 만들며, 각 내레이션 뒤에는 짧은 텀과 페이지 전환 효과가 적용됩니다. ffmpeg 필요.
+              제목 목업과 생성 이미지를 생성된 이미지 비율에 맞는 mp4로 만들며, 각 내레이션 뒤에는 짧은 텀과 페이지 전환 효과가 적용됩니다. ffmpeg 필요.
             </p>
           </div>
           <Button className="ml-auto" onClick={handleGenerateVideo} disabled={videoLoading || !allAudioReady}>

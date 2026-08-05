@@ -8,8 +8,8 @@ export type ImageEngine = "openai" | "local";
 export type LocalModelSize = "4b" | "9b";
 
 const ENGINE_LABELS: Record<ImageEngine, string> = {
-  openai: "ChatGPT (OpenAI)",
-  local: "로컬 모델 (FLUX.2 Klein)",
+  openai: "외부 API (Gemini, OpenAI)",
+  local: "로컬 모델 (FLUX.2)",
 };
 
 const MODEL_SIZE_LABELS: Record<LocalModelSize, string> = {
@@ -90,7 +90,7 @@ export function ImageEngineSelector({
       </div>
       {engine === "openai" ? (
         <p className="text-xs text-muted-foreground">
-          OpenAI Images API를 호출합니다 — 인터넷 연결과 API 키가 필요하고, 호출마다 비용이 발생합니다.
+          외부 이미지 생성 API(OpenAI 또는 Gemini — 서버의 IMAGE_PROVIDER 설정에 따름)를 호출합니다 — 인터넷 연결과 API 키가 필요하고, 호출마다 비용이 발생합니다.
         </p>
       ) : (
         <p className="text-xs text-muted-foreground">

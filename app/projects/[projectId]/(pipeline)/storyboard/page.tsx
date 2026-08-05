@@ -6,6 +6,7 @@ import { ScreenMockupThumbnail } from "@/components/ScreenMockup";
 import { PptxExportButton } from "@/components/PptxExportButton";
 import { computeMockupVariantIndexes } from "@/lib/visual-templates";
 import { buildSceneHierarchy } from "@/lib/pipeline/sceneHierarchy";
+import { getProjectImageAspectRatio } from "@/lib/pipeline/imageAspectRatio";
 import { cn } from "@/lib/utils";
 import { getDepthBorderClass } from "@/lib/depthColors";
 import type { Scene } from "@/lib/pipeline/splitScenes";
@@ -24,6 +25,7 @@ export default async function StoryboardPage({ params }: { params: Promise<{ pro
   const imageIds = new Set(await listProjectImageIds(projectId));
   const mockupVariants = computeMockupVariantIndexes(scenes, screenTypes);
   const hierarchy = buildSceneHierarchy(scenes);
+  const imageAspectRatio = await getProjectImageAspectRatio(projectId);
 
   return (
     <>
@@ -37,7 +39,7 @@ export default async function StoryboardPage({ params }: { params: Promise<{ pro
             <Button
               variant="outline"
               nativeButton={false}
-              render={<Link href={`/projects/${projectId}/narration-audio`}>내레이션 음성 생성</Link>}
+              render={<Link href={`/projects/${projectId}/narration-audio`}>동영상으로 보기</Link>}
             />
             <Button nativeButton={false} render={<Link href={`/projects/${projectId}/preview`}>미리보기로 보기</Link>} />
           </div>
@@ -70,7 +72,8 @@ export default async function StoryboardPage({ params }: { params: Promise<{ pro
                     <img
                       src={`/api/projects/${projectId}/images/${scene.id}`}
                       alt={design?.caption ?? scene.narrationText}
-                      className="aspect-[3/2] w-32 shrink-0 rounded-lg border object-cover"
+                      className="w-32 shrink-0 rounded-lg border object-cover"
+                      style={{ aspectRatio: `${imageAspectRatio.width} / ${imageAspectRatio.height}` }}
                     />
                   )}
                   <ScreenMockupThumbnail
@@ -78,6 +81,7 @@ export default async function StoryboardPage({ params }: { params: Promise<{ pro
                     screenType={screenType?.screenType}
                     design={design}
                     variantIndex={mockupVariants[scene.id] ?? 0}
+                    aspectRatio={imageAspectRatio}
                   />
                 </div>
                 <div className="min-w-0 flex-1 space-y-1.5">

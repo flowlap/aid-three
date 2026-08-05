@@ -100,6 +100,7 @@ export function ScreenMockup({
   variantIndex = 0,
   className,
   style = "storyboard",
+  aspectRatio,
 }: {
   screenType?: string;
   design?: VisualDesign;
@@ -108,9 +109,11 @@ export function ScreenMockup({
   className?: string;
   /** "storyboard" (default) is this file's dense per-type wireframe; "notebooklm" delegates to NotebookLmMockup's minimal warm-tone card. Same VisualDesign data, different rendering. */
   style?: "storyboard" | "notebooklm";
+  /** Actual generated-image pixel ratio (see lib/pipeline/imageAspectRatio.ts) so the mockup sits at the same aspect as the AI image next to it, instead of always 3:2 — omit where no image exists yet (e.g. screen-design step). */
+  aspectRatio?: { width: number; height: number };
 }) {
   if (style === "notebooklm") {
-    return <NotebookLmMockup screenType={screenType} design={design} className={className} />;
+    return <NotebookLmMockup screenType={screenType} design={design} className={className} aspectRatio={aspectRatio} />;
   }
 
   const caption = design?.caption ?? "";
@@ -386,7 +389,10 @@ export function ScreenMockup({
           {screenType}
         </span>
       )}
-      <div className="relative aspect-[3/2] w-full overflow-hidden rounded-lg border border-dashed bg-[radial-gradient(circle,var(--color-border)_1px,transparent_1px)] [background-size:14px_14px]">
+      <div
+        className="relative w-full overflow-hidden rounded-lg border border-dashed bg-[radial-gradient(circle,var(--color-border)_1px,transparent_1px)] [background-size:14px_14px]"
+        style={{ aspectRatio: aspectRatio ? `${aspectRatio.width} / ${aspectRatio.height}` : "3 / 2" }}
+      >
         <div className="absolute inset-0 bg-background/70" />
         <div className="relative h-full">{body}</div>
       </div>
@@ -418,20 +424,33 @@ export function ScreenMockupThumbnail({
   screenType,
   design,
   variantIndex,
+  aspectRatio,
 }: {
   width: number;
   screenType?: string;
   design?: VisualDesign;
   variantIndex?: number;
+  /** See ScreenMockup's aspectRatio prop. Applied to both the outer box and the inner ScreenMockup so the transform:scale() math (which scales width/height uniformly) lines up. */
+  aspectRatio?: { width: number; height: number };
 }) {
   const scale = width / MOCKUP_NATURAL_WIDTH;
   return (
-    <div className="relative aspect-[3/2] shrink-0 overflow-hidden rounded-lg" style={{ width }}>
+    <div
+      className="relative shrink-0 overflow-hidden rounded-lg"
+      style={{ width, aspectRatio: aspectRatio ? `${aspectRatio.width} / ${aspectRatio.height}` : "3 / 2" }}
+    >
       <div
         className="absolute top-0 left-0"
         style={{ width: MOCKUP_NATURAL_WIDTH, transform: `scale(${scale})`, transformOrigin: "top left" }}
       >
-        <ScreenMockup screenType={screenType} design={design} showTypeBadge={false} variantIndex={variantIndex} className="w-full" />
+        <ScreenMockup
+          screenType={screenType}
+          design={design}
+          showTypeBadge={false}
+          variantIndex={variantIndex}
+          className="w-full"
+          aspectRatio={aspectRatio}
+        />
       </div>
     </div>
   );

@@ -22,6 +22,7 @@ import {
   DEFAULT_IMAGE_COMMON_PROMPT,
   DEFAULT_BACKGROUND_IMAGE_PROMPT,
   DEFAULT_PRESENTER_IMAGE_PROMPT,
+  DEFAULT_STYLE_IMAGE_PROMPT,
 } from "@/lib/pipeline/commonPromptDefaults";
 import { cn } from "@/lib/utils";
 import { getDepthBorderClass } from "@/lib/depthColors";
@@ -46,8 +47,11 @@ export function ImagesEditor({
   initialPresenterGender,
   initialHasBackgroundImage,
   initialHasPresenterImage,
+  initialStylePrompt,
+  initialHasStyleImage,
   initialEngine,
   initialModelSize,
+  imageAspectRatio,
 }: {
   projectId: string;
   scenes: Scene[];
@@ -62,8 +66,12 @@ export function ImagesEditor({
   initialPresenterGender: PresenterGender;
   initialHasBackgroundImage: boolean;
   initialHasPresenterImage: boolean;
+  initialStylePrompt: string;
+  initialHasStyleImage: boolean;
   initialEngine: ImageEngine;
   initialModelSize: LocalModelSize;
+  /** Actual generated-image pixel ratio (see lib/pipeline/imageAspectRatio.ts) — OpenAI defaults to 3:2, Gemini to 16:9, so the thumbnail/mockup aspect follows whatever this project actually generated instead of a hardcoded 3:2. */
+  imageAspectRatio: { width: number; height: number };
 }) {
   const router = useRouter();
   const [localScreenTypes, setLocalScreenTypes] = useState(screenTypes);
@@ -280,6 +288,21 @@ export function ImagesEditor({
         )}
       </Card>
       <Card className="gap-3 p-4">
+        <div>
+          <span className="text-sm font-medium">톤앤매너 기준 이미지</span>
+          <p className="text-xs text-muted-foreground">
+            모든 씬 이미지 생성 시 이 이미지의 색감·일러스트 스타일·분위기를 참고해 톤앤매너를 통일합니다. 아래에서 생성하거나 직접 업로드하세요.
+          </p>
+        </div>
+        <ReferenceImageSection
+          projectId={projectId}
+          kind="style"
+          initialPrompt={initialStylePrompt}
+          defaultPrompt={DEFAULT_STYLE_IMAGE_PROMPT}
+          initialHasImage={initialHasStyleImage}
+        />
+      </Card>
+      <Card className="gap-3 p-4">
         <div className="flex flex-wrap items-center gap-2">
           <Button onClick={() => handleGenerate(isPartial ? "resume" : "full")} disabled={loading}>
             {loading
@@ -418,10 +441,14 @@ export function ImagesEditor({
                     <img
                       src={`/api/projects/${projectId}/images/${scene.id}?v=${version}`}
                       alt={design?.caption ?? scene.narrationText}
-                      className="aspect-[3/2] w-full rounded-lg border object-cover"
+                      className="w-full rounded-lg border object-cover"
+                      style={{ aspectRatio: `${imageAspectRatio.width} / ${imageAspectRatio.height}` }}
                     />
                   ) : (
-                    <div className="flex aspect-[3/2] w-full items-center justify-center rounded-lg border border-dashed text-sm text-muted-foreground">
+                    <div
+                      className="flex w-full items-center justify-center rounded-lg border border-dashed text-sm text-muted-foreground"
+                      style={{ aspectRatio: `${imageAspectRatio.width} / ${imageAspectRatio.height}` }}
+                    >
                       {isTitle
                         ? "제목 씬은 이미지를 생성하지 않습니다"
                         : design
@@ -444,6 +471,7 @@ export function ImagesEditor({
                     design={design}
                     showTypeBadge={false}
                     variantIndex={mockupVariants[scene.id] ?? 0}
+                    aspectRatio={imageAspectRatio}
                   />
                 </div>
               </div>

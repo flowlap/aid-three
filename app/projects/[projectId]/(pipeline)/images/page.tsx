@@ -1,10 +1,12 @@
 import { readProjectFile, readProjectReferenceImage, listProjectImageIds } from "@/lib/projects/store";
+import { getProjectImageAspectRatio } from "@/lib/pipeline/imageAspectRatio";
 import { ImagesEditor } from "./ImagesEditor";
 import type { ImageEngine, LocalModelSize } from "@/components/ImageEngineSelector";
 import {
   DEFAULT_IMAGE_COMMON_PROMPT,
   DEFAULT_BACKGROUND_IMAGE_PROMPT,
   DEFAULT_PRESENTER_IMAGE_PROMPT,
+  DEFAULT_STYLE_IMAGE_PROMPT,
 } from "@/lib/pipeline/commonPromptDefaults";
 import type { Scene } from "@/lib/pipeline/splitScenes";
 import type { ScreenTypeAssignment } from "@/lib/pipeline/selectScreenTypes";
@@ -33,16 +35,20 @@ export default async function ImagesPage({ params }: { params: Promise<{ project
   const initialPresenterGender = genderRaw === "male" ? "male" : "female";
   const initialHasBackgroundImage = (await readProjectReferenceImage(projectId, "background")) !== null;
   const initialHasPresenterImage = (await readProjectReferenceImage(projectId, "presenter")) !== null;
+  const initialStylePrompt =
+    (await readProjectFile(projectId, "style-image-prompt.txt"))?.trim() || DEFAULT_STYLE_IMAGE_PROMPT;
+  const initialHasStyleImage = (await readProjectReferenceImage(projectId, "style")) !== null;
   const engineRaw = (await readProjectFile(projectId, "image-engine.txt"))?.trim();
   const initialEngine: ImageEngine = engineRaw === "local" ? "local" : "openai";
   const modelSizeRaw = (await readProjectFile(projectId, "image-local-model-size.txt"))?.trim();
   const initialModelSize: LocalModelSize = modelSizeRaw === "9b" ? "9b" : "4b";
+  const imageAspectRatio = await getProjectImageAspectRatio(projectId);
 
   return (
     <>
       <h1 className="mb-1 text-3xl font-semibold tracking-tight">이미지/목업 생성</h1>
       <p className="mb-6 text-sm text-muted-foreground">
-        선택 사항입니다. 이미지 없이 다음 단계로 넘어가도 됩니다 — OpenAI 이미지 API 호출은 비용이 발생합니다.
+        선택 사항입니다. 이미지 없이 다음 단계로 넘어가도 됩니다 — 외부 API(OpenAI, Gemini) 호출은 비용이 발생합니다.
       </p>
       <ImagesEditor
         projectId={projectId}
@@ -58,8 +64,11 @@ export default async function ImagesPage({ params }: { params: Promise<{ project
         initialPresenterGender={initialPresenterGender}
         initialHasBackgroundImage={initialHasBackgroundImage}
         initialHasPresenterImage={initialHasPresenterImage}
+        initialStylePrompt={initialStylePrompt}
+        initialHasStyleImage={initialHasStyleImage}
         initialEngine={initialEngine}
         initialModelSize={initialModelSize}
+        imageAspectRatio={imageAspectRatio}
       />
     </>
   );

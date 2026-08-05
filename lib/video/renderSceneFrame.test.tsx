@@ -1,7 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { buildSceneFrameLayout, FRAME_WIDTH, FRAME_HEIGHT } from "./renderSceneFrame";
+import { buildSceneFrameLayout } from "./renderSceneFrame";
 import type { Scene } from "@/lib/pipeline/splitScenes";
 import type { VisualDesign } from "@/lib/pipeline/designVisuals";
+
+const FRAME_WIDTH = 1920;
+const FRAME_HEIGHT = 1280;
 
 const scene: Scene = {
   id: "scene-001",
@@ -31,31 +34,37 @@ function findText(node: unknown, text: string): boolean {
 }
 
 describe("buildSceneFrameLayout", () => {
-  it("renders at the fixed 1920x1280 (3:2) frame size", () => {
-    const layout = buildSceneFrameLayout(scene, design);
+  it("renders at the given frame size", () => {
+    const layout = buildSceneFrameLayout(scene, design, undefined, FRAME_WIDTH, FRAME_HEIGHT);
     expect(layout.props.style.width).toBe(FRAME_WIDTH);
     expect(layout.props.style.height).toBe(FRAME_HEIGHT);
   });
 
+  it("renders at a non-3:2 frame size (e.g. 16:9 from a Gemini-generated project)", () => {
+    const layout = buildSceneFrameLayout(scene, design, undefined, 1920, 1080);
+    expect(layout.props.style.width).toBe(1920);
+    expect(layout.props.style.height).toBe(1080);
+  });
+
   it("shows the design caption when present", () => {
-    const layout = buildSceneFrameLayout(scene, design);
+    const layout = buildSceneFrameLayout(scene, design, undefined, FRAME_WIDTH, FRAME_HEIGHT);
     expect(findText(layout, "변수와 상자")).toBe(true);
   });
 
   it("falls back to a narration excerpt when there is no caption", () => {
-    const layout = buildSceneFrameLayout(scene, { ...design, caption: "" });
+    const layout = buildSceneFrameLayout(scene, { ...design, caption: "" }, undefined, FRAME_WIDTH, FRAME_HEIGHT);
     expect(findText(layout, "변수는 값을 저장하는 상자입니다")).toBe(true);
   });
 
   it("includes up to 3 keyword chips on a mockup frame", () => {
-    const layout = buildSceneFrameLayout(scene, { ...design, keywords: ["A", "B", "C", "D"] });
+    const layout = buildSceneFrameLayout(scene, { ...design, keywords: ["A", "B", "C", "D"] }, undefined, FRAME_WIDTH, FRAME_HEIGHT);
     expect(findText(layout, "A")).toBe(true);
     expect(findText(layout, "C")).toBe(true);
     expect(findText(layout, "D")).toBe(false);
   });
 
   it("uses a generated content image as the full video page", () => {
-    const layout = buildSceneFrameLayout(scene, design, "data:image/png;base64,AAAA");
+    const layout = buildSceneFrameLayout(scene, design, "data:image/png;base64,AAAA", FRAME_WIDTH, FRAME_HEIGHT);
     const imgNode = layout.props.children;
     expect(imgNode.props.src).toBe("data:image/png;base64,AAAA");
     expect(imgNode.props.width).toBe(FRAME_WIDTH);
@@ -64,7 +73,7 @@ describe("buildSceneFrameLayout", () => {
 
   it("keeps title scenes as mockup cards even when an image is present", () => {
     const titleScene: Scene = { ...scene, sceneType: "title", narrationText: "1장. 변수" };
-    const layout = buildSceneFrameLayout(titleScene, design, "data:image/png;base64,AAAA");
+    const layout = buildSceneFrameLayout(titleScene, design, "data:image/png;base64,AAAA", FRAME_WIDTH, FRAME_HEIGHT);
     expect(findText(layout, "변수와 상자")).toBe(true);
     expect(findText(layout, "AAAA")).toBe(false);
   });

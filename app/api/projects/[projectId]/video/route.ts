@@ -18,10 +18,12 @@ import {
 import { renderSceneFrameToPng } from "@/lib/video/renderSceneFrameToPng";
 import { buildVideoClip, SCENE_BREAK_HOLD_SEC } from "@/lib/video/buildVideoClip";
 import { concatClips } from "@/lib/video/concatClips";
+import { computeFrameDimensions } from "@/lib/video/frameDimensions";
 import { assertFfmpegAvailable } from "@/lib/media/ffmpeg";
 import { getWavDurationSec } from "@/lib/media/wavDuration";
 import { runWithConcurrencyLimit } from "@/lib/concurrency";
 import { VIDEO_RENDER_CONCURRENCY } from "@/lib/pipeline/videoRenderConfig";
+import { getProjectImageAspectRatio } from "@/lib/pipeline/imageAspectRatio";
 import type { Scene } from "@/lib/pipeline/splitScenes";
 import type { VisualDesign } from "@/lib/pipeline/designVisuals";
 import { createResilientStream } from "@/lib/http/resilientStream";
@@ -95,6 +97,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
 
   const existingClipIds = resume ? new Set(await listProjectVideoClipIds(projectId)) : new Set<string>();
   const pending = scenes.filter((scene) => !existingClipIds.has(scene.id));
+  const frameDimensions = computeFrameDimensions(await getProjectImageAspectRatio(projectId));
 
   const stream = createResilientStream(async (emit) => {
     let completedSoFar = existingClipIds.size;
@@ -104,13 +107,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
 
         const design = visualDesigns[scene.id];
         const imageBuffer = await readProjectImage(projectId, scene.id);
-        const framePng = await renderSceneFrameToPng(scene, design, imageBuffer ?? undefined);
+        const framePng = await renderSceneFrameToPng(scene, design, imageBuffer ?? undefined, frameDimensions);
         await writeProjectVideoFrame(projectId, scene.id, framePng);
 
         await buildVideoClip(
           projectVideoFramePath(projectId, scene.id),
           projectAudioPath(projectId, scene.id),
           projectVideoClipPath(projectId, scene.id),
+          frameDimensions,
           job.controller.signal
         );
 

@@ -1,9 +1,6 @@
 import type { Scene } from "@/lib/pipeline/splitScenes";
 import type { VisualDesign } from "@/lib/pipeline/designVisuals";
 
-export const FRAME_WIDTH = 1920;
-export const FRAME_HEIGHT = 1280;
-
 /**
  * JSX for one video frame, rendered via next/og's `ImageResponse` (Satori).
  * Satori supports only a CSS subset — no Tailwind classes, no CSS custom
@@ -12,19 +9,30 @@ export const FRAME_HEIGHT = 1280;
  * purpose-built layout using only inline styles. Title scenes are rendered as
  * a simple title-card mockup; content scenes use their generated image as the
  * actual full-screen video page rather than placing it inside another mockup.
+ * `frameWidth`/`frameHeight` come from computeFrameDimensions(), scaled to
+ * whatever aspect ratio this project's images actually generated at (see
+ * lib/pipeline/imageAspectRatio.ts) rather than a fixed 3:2.
  */
-export function buildSceneFrameLayout(scene: Scene, design: VisualDesign | undefined, imageDataUri?: string) {
+export function buildSceneFrameLayout(
+  scene: Scene,
+  design: VisualDesign | undefined,
+  imageDataUri: string | undefined,
+  frameWidth: number,
+  frameHeight: number
+) {
   const caption = design?.caption?.trim() || scene.narrationText.slice(0, 40);
   const keywords = design?.keywords ?? [];
 
   // Generated content images are the page itself. Keeping these free of the
   // caption/card chrome avoids turning the final video into a sequence of
-  // wireframes, while `objectFit: cover` adapts the 3:2 source images to 16:9.
+  // wireframes; `objectFit: cover` absorbs any minor mismatch between the
+  // source image and the render frame (e.g. a scene regenerated under a
+  // different IMAGE_PROVIDER than the rest of the project).
   if (scene.sceneType !== "title" && imageDataUri) {
     return (
-      <div style={{ width: FRAME_WIDTH, height: FRAME_HEIGHT, display: "flex", backgroundColor: "#18181B" }}>
+      <div style={{ width: frameWidth, height: frameHeight, display: "flex", backgroundColor: "#18181B" }}>
         {/* eslint-disable-next-line jsx-a11y/alt-text -- Satori rendering, not real DOM/a11y tree */}
-        <img src={imageDataUri} width={FRAME_WIDTH} height={FRAME_HEIGHT} style={{ objectFit: "cover" }} />
+        <img src={imageDataUri} width={frameWidth} height={frameHeight} style={{ objectFit: "cover" }} />
       </div>
     );
   }
@@ -32,8 +40,8 @@ export function buildSceneFrameLayout(scene: Scene, design: VisualDesign | undef
   return (
     <div
       style={{
-        width: FRAME_WIDTH,
-        height: FRAME_HEIGHT,
+        width: frameWidth,
+        height: frameHeight,
         display: "flex",
         flexDirection: "column",
         alignItems: "center",

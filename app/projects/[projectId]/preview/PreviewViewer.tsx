@@ -30,6 +30,7 @@ export function PreviewViewer({
   screenTypes,
   visualDesigns,
   imageIds,
+  imageAspectRatio,
 }: {
   projectId: string;
   projectTitle: string;
@@ -37,6 +38,8 @@ export function PreviewViewer({
   screenTypes: Record<string, ScreenTypeAssignment>;
   visualDesigns: Record<string, VisualDesign>;
   imageIds: string[];
+  /** Actual generated-image pixel ratio (see lib/pipeline/imageAspectRatio.ts) — OpenAI defaults to 3:2, Gemini to 16:9. */
+  imageAspectRatio: { width: number; height: number };
 }) {
   const imageIdSet = new Set(imageIds);
   const mockupVariants = useMemo(() => computeMockupVariantIndexes(scenes, screenTypes), [scenes, screenTypes]);
@@ -293,10 +296,14 @@ ${clone.outerHTML}
                       <img
                         src={`/api/projects/${projectId}/images/${scene.id}`}
                         alt={design?.caption ?? scene.narrationText}
-                        className="aspect-[3/2] w-full rounded-lg border object-cover"
+                        className="w-full rounded-lg border object-cover"
+                        style={{ aspectRatio: `${imageAspectRatio.width} / ${imageAspectRatio.height}` }}
                       />
                     ) : (
-                      <div className="flex aspect-[3/2] items-center justify-center rounded-lg border border-dashed text-sm text-muted-foreground">
+                      <div
+                        className="flex items-center justify-center rounded-lg border border-dashed text-sm text-muted-foreground"
+                        style={{ aspectRatio: `${imageAspectRatio.width} / ${imageAspectRatio.height}` }}
+                      >
                         생성된 이미지가 없습니다
                       </div>
                     )}
@@ -316,6 +323,7 @@ ${clone.outerHTML}
                       showTypeBadge={false}
                       variantIndex={mockupVariants[scene.id] ?? 0}
                       style={mockupStyle}
+                      aspectRatio={imageAspectRatio}
                     />
                   </div>
                 </div>

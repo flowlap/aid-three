@@ -150,7 +150,7 @@ export async function deleteProjectPptxTemplate(id: string): Promise<void> {
   await fs.rm(projectPptxTemplatePath(id), { force: true });
 }
 
-export type ReferenceImageKind = "background" | "presenter";
+export type ReferenceImageKind = "background" | "presenter" | "style";
 
 export function projectReferenceImagePath(id: string, kind: ReferenceImageKind): string {
   return path.join(projectDir(id), `reference-${kind}.png`);

@@ -67,6 +67,13 @@ export interface BuildImagePromptOptions {
   /** Whether a presenter reference image is being attached to this call (see SceneReferenceImages) — switches the instruction from "pick a look" to "match this exact person". */
   hasPresenterReferenceImage?: boolean;
   /**
+   * Whether a "톤앤매너 기준" style reference image (see SceneReferenceImages.style)
+   * is being attached to this call — a project-wide sample image (no specific
+   * scene content) generated once so every scene's independent AI call has a
+   * visual, not just textual, anchor for color/illustration style/mood.
+   */
+  hasStyleReferenceImage?: boolean;
+  /**
    * Whether the model may render the screen caption as in-image typography
    * for text-forward screen types. Defaults to true (existing OpenAI
    * behavior). The local FLUX.2 Klein engine passes false — captions are
@@ -80,6 +87,7 @@ export interface BuildImagePromptOptions {
 export interface SceneReferenceImages {
   background?: Buffer;
   presenter?: Buffer;
+  style?: Buffer;
 }
 
 const PRESENTER_POSITION_LABEL: Record<PresenterPosition, string> = {
@@ -136,6 +144,15 @@ const BACKGROUND_FIXED_INSTRUCTION =
   "이 화면은 제공된 배경 참고 이미지를 그대로 배경으로 사용해야 합니다. 배경 자체를 새로 그리거나 다른 배경으로 바꾸지 말고, 그 위에 이 화면의 구성 요소(자막, 아이콘, 강사 등)만 배치하세요.";
 
 /**
+ * Appended when a project-wide "톤앤매너 기준" style reference image is
+ * attached — an anchor for color/illustration style/mood, not content. Told
+ * explicitly not to copy the reference's specific composition/content since
+ * this one sample image gets reused across every scene's independent call.
+ */
+const STYLE_REFERENCE_INSTRUCTION =
+  "제공된 톤앤매너 기준 이미지와 동일한 색감, 일러스트 스타일, 자막바(로어써드)·아이콘·인포그래픽 등 구성 요소의 디자인 방식과 전체적인 분위기를 유지해서 그려주세요. 기준 이미지 속 자막·숫자·라벨 등 구체적인 텍스트 내용은 이 화면과 무관한 샘플 문구이니 그대로 옮기지 말고, 실제 텍스트 내용과 화면 구성은 이 화면 자체의 구성 명세를 따르세요.";
+
+/**
  * Applies to every scene regardless of screen type — the overall "shot"
  * should read as a frame from a real YouTube/TV-style educational video
  * (broadcast graphics, lower-thirds, on-screen overlays), not a flat
@@ -167,6 +184,7 @@ export function buildImagePrompt(scene: Scene, design: VisualDesign, promptOptio
       ? `\n\n${buildPresenterInstruction(promptOptions.presenterPosition, promptOptions.presenterGender, promptOptions.hasPresenterReferenceImage)}`
       : "";
   const backgroundInstruction = promptOptions?.backgroundFixed ? `\n\n${BACKGROUND_FIXED_INSTRUCTION}` : "";
+  const styleReferenceInstruction = promptOptions?.hasStyleReferenceImage ? `\n\n${STYLE_REFERENCE_INSTRUCTION}` : "";
   const relatedScenes = promptOptions?.relatedScenes ?? [];
   const relatedContext =
     relatedScenes.length > 0
@@ -181,7 +199,7 @@ export function buildImagePrompt(scene: Scene, design: VisualDesign, promptOptio
 - 무엇을 그릴지: ${design.imageOrDiagramDescription}
 - 요소 배치: ${design.objectPlacement}
 
-${PRODUCTION_STYLE_INSTRUCTION} ${textInstruction}${styleGuide}${backgroundInstruction}${presenterInstruction}${relatedContext}
+${PRODUCTION_STYLE_INSTRUCTION} ${textInstruction}${styleGuide}${styleReferenceInstruction}${backgroundInstruction}${presenterInstruction}${relatedContext}
 
 관련 나레이션(맥락 참고용 — 화면 구성 명세와 배치를 우선하고, 나레이션 문장을 그대로 옮기지 마세요): ${scene.narrationText}`;
 }
@@ -211,9 +229,10 @@ export async function generateSceneImage(
   const effectivePromptOptions: BuildImagePromptOptions = {
     ...promptOptions,
     hasPresenterReferenceImage: Boolean(referenceImages?.presenter),
+    hasStyleReferenceImage: Boolean(referenceImages?.style),
   };
   const prompt = buildImagePrompt(scene, design, effectivePromptOptions);
-  const referenceBuffers = [referenceImages?.background, referenceImages?.presenter].filter(
+  const referenceBuffers = [referenceImages?.style, referenceImages?.background, referenceImages?.presenter].filter(
     (buf): buf is Buffer => buf !== undefined
   );
   return client.generateImage(prompt, { ...clientOptions, referenceImages: referenceBuffers });

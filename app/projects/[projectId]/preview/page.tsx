@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { readProject, readProjectFile, listProjectImageIds } from "@/lib/projects/store";
+import { getProjectImageAspectRatio } from "@/lib/pipeline/imageAspectRatio";
 import { PreviewViewer } from "./PreviewViewer";
 import type { Scene } from "@/lib/pipeline/splitScenes";
 import type { ScreenTypeAssignment } from "@/lib/pipeline/selectScreenTypes";
@@ -19,6 +20,7 @@ export default async function PreviewPage({ params }: { params: Promise<{ projec
   const visualDesigns: Record<string, VisualDesign> = screenDesign.visualDesigns ?? {};
 
   const imageIds = await listProjectImageIds(projectId);
+  const imageAspectRatio = await getProjectImageAspectRatio(projectId);
 
   return (
     <PreviewViewer
@@ -28,6 +30,7 @@ export default async function PreviewPage({ params }: { params: Promise<{ projec
       screenTypes={screenTypes}
       visualDesigns={visualDesigns}
       imageIds={imageIds}
+      imageAspectRatio={imageAspectRatio}
     />
   );
 }

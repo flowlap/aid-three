@@ -63,12 +63,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
   const referenceImages = {
     background: backgroundFixed ? (await readProjectReferenceImage(projectId, "background")) ?? undefined : undefined,
     presenter: presenterEnabled ? (await readProjectReferenceImage(projectId, "presenter")) ?? undefined : undefined,
+    style: (await readProjectReferenceImage(projectId, "style")) ?? undefined,
   };
   // Same reference set for every scene — used as the multi-image /images/edits input for OpenAI, or as
   // Flux2KleinEdit's image_paths for the local engine (paths, not buffers — mflux reads files directly).
   const referenceImagePaths = [
     referenceImages.background ? projectReferenceImagePath(projectId, "background") : null,
     referenceImages.presenter ? projectReferenceImagePath(projectId, "presenter") : null,
+    referenceImages.style ? projectReferenceImagePath(projectId, "style") : null,
   ].filter((p): p is string => p !== null);
 
   let scenes: Scene[];

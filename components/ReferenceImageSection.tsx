@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
-export type ReferenceImageKind = "background" | "presenter";
+export type ReferenceImageKind = "background" | "presenter" | "style";
 export type PresenterGender = "male" | "female";
 
 /**
@@ -147,12 +147,14 @@ export function ReferenceImageSection({
     <div className="flex gap-4">
       <div className="w-32 shrink-0">
         {hasImage ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={`${baseUrl}?v=${version}`}
-            alt=""
-            className="aspect-[3/2] w-full rounded-lg border object-cover"
-          />
+          <a href={`${baseUrl}?v=${version}`} target="_blank" rel="noopener noreferrer" title="새 창에서 크게 보기">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={`${baseUrl}?v=${version}`}
+              alt=""
+              className="aspect-[3/2] w-full cursor-pointer rounded-lg border object-cover transition-opacity hover:opacity-80"
+            />
+          </a>
         ) : (
           <div className="flex aspect-[3/2] w-full items-center justify-center rounded-lg border border-dashed text-center text-[11px] text-muted-foreground">
             아직 없음

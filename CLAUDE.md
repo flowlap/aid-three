@@ -10,7 +10,7 @@
 
 - 2026-07-29: v1 파이프라인(업로드 ~ 최종 스토리보드 뷰) 구현 완료, 13개 태스크 + 최종 전체 브랜치 리뷰 통과, 실제 DeepSeek API로 라이브 E2E 검증 완료, `master`에 병합 및 GitHub push 완료.
 - 2026-08-03: AI provider 추상화 도입 — DeepSeek(텍스트)/OpenAI(이미지) 전용 클라이언트를 `LlmClient`/`ImageClient` 인터페이스로 일반화하고, 사내 게이트웨이 H-CHAT(Claude/ChatGPT/Gemini/Gemini 이미지)을 `LLM_PROVIDER`/`IMAGE_PROVIDER` env var로 선택 가능하게 함. 기본값은 기존과 동일(`deepseek`/`openai`)해 하위호환 유지. 상세는 [`docs/superpowers/specs/2026-08-03-hchat-provider-abstraction-design.md`](docs/superpowers/specs/2026-08-03-hchat-provider-abstraction-design.md) 참고.
-- 다음 작업은 [`docs/ROADMAP.md`](docs/ROADMAP.md) 참고 (작은 개선 항목부터 pptx 내보내기 같은 큰 후속 기능까지 우선순위별로 정리됨). 착수 전 `superpowers:brainstorming`부터 시작할 것.
+- 다음 작업은 [`docs/ROADMAP.md`](docs/ROADMAP.md) 참고 (작은 개선 항목부터 pptx 내보내기 같은 큰 후속 기능까지 우선순위별로 정리됨).
 
 ## 기술 스택
 

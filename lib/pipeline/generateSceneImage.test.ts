@@ -90,6 +90,17 @@ describe("generateSceneImage", () => {
     expect(client.calls[0].options?.referenceImages).toEqual([]);
   });
 
+  it("forwards the style (톤앤매너 기준) reference image to the client and reflects that in the prompt", async () => {
+    const client = new MockImageClient();
+    const style = Buffer.from("style-guide");
+
+    await generateSceneImage(client, scene, design, undefined, undefined, { style });
+
+    expect(client.calls).toHaveLength(1);
+    expect(client.calls[0].options?.referenceImages).toEqual([style]);
+    expect(client.calls[0].prompt).toContain("톤앤매너 기준 이미지와 동일한 색감");
+  });
+
   it("tells the model not to render text for an illustration-style screen type", () => {
     const prompt = buildImagePrompt(scene, design, { screenType: "이미지 설명형" });
     expect(prompt).toContain("텍스트 렌더링 없이");
@@ -174,6 +185,11 @@ describe("generateSceneImage", () => {
   it("includes the background-fixed instruction only when backgroundFixed is true", () => {
     expect(buildImagePrompt(scene, design, { backgroundFixed: true })).toContain("배경 참고 이미지를 그대로 배경으로 사용");
     expect(buildImagePrompt(scene, design)).not.toContain("배경 참고 이미지");
+  });
+
+  it("includes the style-reference instruction only when hasStyleReferenceImage is true", () => {
+    expect(buildImagePrompt(scene, design, { hasStyleReferenceImage: true })).toContain("톤앤매너 기준 이미지와 동일한 색감");
+    expect(buildImagePrompt(scene, design)).not.toContain("톤앤매너 기준 이미지");
   });
 
   it("includes related scenes as reference material when provided", () => {

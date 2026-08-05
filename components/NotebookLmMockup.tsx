@@ -13,10 +13,13 @@ export function NotebookLmMockup({
   screenType,
   design,
   className,
+  aspectRatio,
 }: {
   screenType?: string;
   design?: VisualDesign;
   className?: string;
+  /** See ScreenMockup's aspectRatio prop — same purpose, passed through when delegated to from there. */
+  aspectRatio?: { width: number; height: number };
 }) {
   const caption = design?.caption ?? "";
   const keywords = design?.keywords ?? [];
@@ -25,9 +28,10 @@ export function NotebookLmMockup({
   return (
     <div
       className={cn(
-        "relative flex aspect-[3/2] w-full flex-col items-center justify-center gap-4 overflow-hidden rounded-2xl bg-gradient-to-br from-amber-50 to-orange-100 px-8 text-center dark:from-amber-950/40 dark:to-orange-950/30",
+        "relative flex w-full flex-col items-center justify-center gap-4 overflow-hidden rounded-2xl bg-gradient-to-br from-amber-50 to-orange-100 px-8 text-center dark:from-amber-950/40 dark:to-orange-950/30",
         className
       )}
+      style={{ aspectRatio: aspectRatio ? `${aspectRatio.width} / ${aspectRatio.height}` : "3 / 2" }}
     >
       <span className="flex size-12 shrink-0 items-center justify-center rounded-full bg-white/80 text-orange-600 shadow-sm dark:bg-white/10 dark:text-orange-300">
         <Icon className="size-5" />
