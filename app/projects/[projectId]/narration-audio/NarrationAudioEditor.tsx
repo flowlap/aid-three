@@ -44,6 +44,7 @@ export function NarrationAudioEditor({
   scenes,
   initialAudioIds,
   initialDurations,
+  initialVideoClipIds,
   initialVideoReady,
 }: {
   projectId: string;
@@ -51,6 +52,7 @@ export function NarrationAudioEditor({
   scenes: Scene[];
   initialAudioIds: string[];
   initialDurations: Record<string, AudioManifestEntry>;
+  initialVideoClipIds: string[];
   initialVideoReady: boolean;
 }) {
   const [audioIds, setAudioIds] = useState<Set<string>>(new Set(initialAudioIds));
@@ -87,6 +89,7 @@ export function NarrationAudioEditor({
   const [videoReady, setVideoReady] = useState(initialVideoReady);
   const [videoVersion, setVideoVersion] = useState(0);
   const [videoActivityLines, setVideoActivityLines] = useState<string[]>([]);
+  const [videoClipIds, setVideoClipIds] = useState<Set<string>>(new Set(initialVideoClipIds));
 
   const {
     loading: videoLoading,
@@ -101,6 +104,7 @@ export function NarrationAudioEditor({
     step: "video",
     onEvent: (event) => {
       if (event.type === "scene") {
+        setVideoClipIds((prev) => new Set(prev).add(event.sceneId));
         setVideoActivityLines((prev) => [...prev, `[${event.index + 1}/${event.total}] ${event.sceneId} 클립 생성 완료`]);
       } else if (event.type === "concatenating") {
         setVideoActivityLines((prev) => [...prev, "클립을 하나로 연결하는 중..."]);
@@ -116,15 +120,19 @@ export function NarrationAudioEditor({
     await startTts({ body: { mode } });
   }
 
-  async function handleGenerateVideo() {
+  async function handleGenerateVideo(mode: "full" | "resume") {
     setVideoActivityLines([]);
-    await startVideo({ body: { mode: "full" } });
+    await startVideo({ body: { mode } });
   }
 
   const completedCount = scenes.filter((s) => audioIds.has(s.id)).length;
   const remainingCount = scenes.length - completedCount;
   const isPartial = completedCount > 0 && remainingCount > 0;
   const allAudioReady = scenes.length > 0 && completedCount === scenes.length;
+
+  const completedClipCount = scenes.filter((s) => videoClipIds.has(s.id)).length;
+  const remainingClipCount = scenes.length - completedClipCount;
+  const isClipPartial = completedClipCount > 0 && remainingClipCount > 0;
 
   return (
     <div className="mx-auto max-w-[1000px] px-6 py-8 md:px-8">
@@ -192,17 +200,28 @@ export function NarrationAudioEditor({
               제목 목업과 생성 이미지를 생성된 이미지 비율에 맞는 mp4로 만들며, 각 내레이션 뒤에는 짧은 텀과 페이지 전환 효과가 적용됩니다. ffmpeg 필요.
             </p>
           </div>
-          <Button className="ml-auto" onClick={handleGenerateVideo} disabled={videoLoading || !allAudioReady}>
+          <Button
+            className="ml-auto"
+            onClick={() => handleGenerateVideo(completedClipCount > 0 ? "resume" : "full")}
+            disabled={videoLoading || !allAudioReady}
+          >
             {videoLoading
               ? videoDiscoveredRunning
                 ? `이미 실행 중...${videoProgress ? ` (${videoProgress.index}/${videoProgress.total})` : ""}`
                 : videoProgress
                   ? `생성 중... (${videoProgress.index}/${videoProgress.total})`
                   : "생성 중..."
-              : videoReady
-                ? "다시 생성"
-                : "동영상 생성"}
+              : isClipPartial
+                ? `이어서 생성 (${remainingClipCount}개 남음)`
+                : completedClipCount > 0
+                  ? "합치기 재시도"
+                  : "동영상 생성"}
           </Button>
+          {!videoLoading && completedClipCount > 0 && (
+            <Button variant="outline" onClick={() => handleGenerateVideo("full")}>
+              전체 다시 생성
+            </Button>
+          )}
           {videoLoading && (
             <Button variant="outline" onClick={cancelVideo}>
               취소
@@ -210,6 +229,9 @@ export function NarrationAudioEditor({
           )}
         </div>
         {!allAudioReady && <p className="text-xs text-muted-foreground">모든 씬의 음성이 먼저 준비되어야 합니다.</p>}
+        {completedClipCount > 0 && (
+          <p className="text-xs text-muted-foreground">클립 {completedClipCount} / {scenes.length}개 생성됨</p>
+        )}
         <AiJobStatus
           loading={videoLoading}
           label={videoDiscoveredRunning ? "다른 곳에서 시작된 동영상 생성이 진행 중입니다" : "씬별 프레임/클립을 만들고 연결하는 중입니다"}

@@ -1,5 +1,11 @@
 import { notFound } from "next/navigation";
-import { readProject, readProjectFile, listProjectAudioIds, statProjectVideo } from "@/lib/projects/store";
+import {
+  readProject,
+  readProjectFile,
+  listProjectAudioIds,
+  listProjectVideoClipIds,
+  statProjectVideo,
+} from "@/lib/projects/store";
 import { NarrationAudioEditor } from "./NarrationAudioEditor";
 import type { Scene } from "@/lib/pipeline/splitScenes";
 
@@ -21,6 +27,7 @@ export default async function NarrationAudioPage({ params }: { params: Promise<{
   const durations: Record<string, AudioManifestEntry> = manifestRaw ? (JSON.parse(manifestRaw).durations ?? {}) : {};
 
   const audioIds = await listProjectAudioIds(projectId);
+  const videoClipIds = await listProjectVideoClipIds(projectId);
   const videoInfo = await statProjectVideo(projectId);
 
   return (
@@ -30,6 +37,7 @@ export default async function NarrationAudioPage({ params }: { params: Promise<{
       scenes={scenes}
       initialAudioIds={audioIds}
       initialDurations={durations}
+      initialVideoClipIds={videoClipIds}
       initialVideoReady={videoInfo !== null}
     />
   );
