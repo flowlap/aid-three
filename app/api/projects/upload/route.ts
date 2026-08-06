@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
   }
 
   if (!VALID_PRODUCTION_MODES.includes(productionMode)) {
-    return NextResponse.json({ error: "잘못된 요청입니다" }, { status: 400 });
+    return NextResponse.json({ error: "productionMode는 scene, sequence 중 하나여야 합니다" }, { status: 400 });
   }
 
   if (!file) {
