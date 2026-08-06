@@ -66,6 +66,23 @@ describe("validateSequenceIntegrity", () => {
     expect(validateSequenceIntegrity(scenes, p)).toEqual([]);
   });
 
+  it("returns no issues for an empty scenes.json and an empty plan", () => {
+    expect(validateSequenceIntegrity([], plan([]))).toEqual([]);
+  });
+
+  it("returns no issues for an empty plan when scenes.json only has title scenes", () => {
+    const scenes = [titleScene({ id: "scene-000", order: 0 })];
+    expect(validateSequenceIntegrity(scenes, plan([]))).toEqual([]);
+  });
+
+  it("flags every content scene as missing when the plan has no sequences at all", () => {
+    const scenes = fourContentScenes();
+    const issues = validateSequenceIntegrity(scenes, plan([]));
+
+    expect(issues.every((i) => i.type === "missing-scene-reference")).toBe(true);
+    expect(issues.map((i) => i.sceneIds[0]).sort()).toEqual(["scene-001", "scene-002", "scene-003", "scene-004"]);
+  });
+
   it("flags an unknown scene id reference", () => {
     const scenes = fourContentScenes();
     const p = plan([

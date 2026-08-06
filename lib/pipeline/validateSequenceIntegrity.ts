@@ -1,5 +1,5 @@
 import type { Scene } from "./splitScenes";
-import type { SequenceIntegrityIssue, SequencePlan } from "./sequenceTypes";
+import type { Sequence, SequenceIntegrityIssue, SequencePlan } from "./sequenceTypes";
 
 /**
  * Tolerance for comparing a sequence's stored `estimatedDurationSec` (an
@@ -21,24 +21,15 @@ function isContentScene(scene: Scene): boolean {
 }
 
 /**
- * Pure structural/referential integrity check for a SequencePlan against the
- * current scenes.json contents. Returns a list of structured issues instead
- * of throwing, so callers (API routes, editor UI) can surface all problems
- * at once for normal invalid user/AI input. A plan referencing scene IDs
- * that no longer exist (e.g. after a split/merge changed scene.json's IDs)
- * is reported as `unknown-scene-reference` / `missing-scene-reference`
- * issues here, not a crash.
+ * Sequence-level structural checks: sequence id presence/uniqueness, a
+ * non-empty scene list, and a well-formed duration value. These don't need
+ * to know anything about scenes.json.
  */
-export function validateSequenceIntegrity(scenes: Scene[], plan: SequencePlan): SequenceIntegrityIssue[] {
+function checkSequenceStructure(sequences: Sequence[]): DraftIssue[] {
   const issues: DraftIssue[] = [];
-
-  const sceneById = new Map(scenes.map((scene) => [scene.id, scene]));
-  const contentSceneIds = scenes.filter(isContentScene).map((scene) => scene.id);
-  const contentSceneIndex = new Map(contentSceneIds.map((id, index) => [id, index]));
-
-  // --- Sequence-level structural checks: id presence/uniqueness, non-empty, duration shape ---
   const seenSequenceIds = new Set<string>();
-  plan.sequences.forEach((seq, seqPos) => {
+
+  sequences.forEach((seq, seqPos) => {
     const label = seq.id || `#${seqPos + 1}`;
 
     if (!seq.id || seq.id.trim() === "") {
@@ -82,12 +73,26 @@ export function validateSequenceIntegrity(scenes: Scene[], plan: SequencePlan): 
     }
   });
 
-  // --- Scene reference checks: existence, title policy, exactly-once inclusion ---
-  // sceneId -> ids of sequences that reference it (known, non-title scenes only;
-  // unknown/title references are reported individually above/below instead).
+  return issues;
+}
+
+/**
+ * Checks every referenced scene id against scenes.json: flags references to
+ * scenes that no longer exist (e.g. after a split/merge) and title-scene
+ * inclusions (policy violation — see Sequence.sceneIds doc comment). Returns
+ * a map of every known, non-title scene id to the sequence ids that
+ * reference it, which checkExactlyOnceInclusion uses next — passed as a
+ * return value/parameter rather than a shared closure so each check stays
+ * independently readable and testable.
+ */
+function checkSceneExistenceAndTitlePolicy(
+  sequences: Sequence[],
+  sceneById: Map<string, Scene>
+): { issues: DraftIssue[]; occurrences: Map<string, string[]> } {
+  const issues: DraftIssue[] = [];
   const occurrences = new Map<string, string[]>();
 
-  for (const seq of plan.sequences) {
+  for (const seq of sequences) {
     for (const sceneId of seq.sceneIds) {
       const scene = sceneById.get(sceneId);
       if (!scene) {
@@ -116,6 +121,19 @@ export function validateSequenceIntegrity(scenes: Scene[], plan: SequencePlan): 
     }
   }
 
+  return { issues, occurrences };
+}
+
+/**
+ * Every content scene must appear in exactly one sequence: flags a scene
+ * referenced by more than one sequence (or twice within one) and content
+ * scenes referenced by none. Takes the occurrences map produced by
+ * checkSceneExistenceAndTitlePolicy as a parameter rather than recomputing
+ * or closing over it.
+ */
+function checkExactlyOnceInclusion(occurrences: Map<string, string[]>, contentSceneIds: string[]): DraftIssue[] {
+  const issues: DraftIssue[] = [];
+
   for (const [sceneId, seqIds] of occurrences) {
     if (seqIds.length > 1) {
       issues.push({
@@ -138,12 +156,21 @@ export function validateSequenceIntegrity(scenes: Scene[], plan: SequencePlan): 
     }
   }
 
-  // --- Order check: the flattened scene order across the whole plan (sequences
-  // sorted by `order`, scenes within each in sceneIds array order) must match
-  // scenes.json's content-scene order. Catches both sequences placed out of
-  // order relative to each other and scenes out of order within one sequence.
-  // Unknown/title references are skipped here since they're already reported above.
-  const orderedSequences = [...plan.sequences]
+  return issues;
+}
+
+/**
+ * The flattened scene order across the whole plan (sequences sorted by
+ * `order`, scenes within each in sceneIds array order) must match
+ * scenes.json's content-scene order. Catches both sequences placed out of
+ * order relative to each other and scenes out of order within one sequence.
+ * Unknown/title references are skipped here since they're already reported
+ * by checkSceneExistenceAndTitlePolicy.
+ */
+function checkSceneOrder(sequences: Sequence[], contentSceneIndex: Map<string, number>): DraftIssue[] {
+  const issues: DraftIssue[] = [];
+
+  const orderedSequences = [...sequences]
     .map((seq, position) => ({ seq, position }))
     .sort((a, b) => (a.seq.order !== b.seq.order ? a.seq.order - b.seq.order : a.position - b.position));
 
@@ -169,9 +196,18 @@ export function validateSequenceIntegrity(scenes: Scene[], plan: SequencePlan): 
     }
   }
 
-  // --- Duration derivation: compare each sequence's stored estimate against the
-  // sum of its referenced (known) scenes' own estimatedDurationSec. ---
-  for (const seq of plan.sequences) {
+  return issues;
+}
+
+/**
+ * Compares each sequence's stored estimatedDurationSec against the sum of
+ * its referenced (known) scenes' own estimatedDurationSec, rather than
+ * trusting the stored estimate at face value. See DURATION_TOLERANCE_* above.
+ */
+function checkDurations(sequences: Sequence[], sceneById: Map<string, Scene>): DraftIssue[] {
+  const issues: DraftIssue[] = [];
+
+  for (const seq of sequences) {
     if (!Number.isFinite(seq.estimatedDurationSec)) continue; // already flagged as invalid-duration
     const derived = seq.sceneIds.reduce((total, sceneId) => {
       const scene = sceneById.get(sceneId);
@@ -189,8 +225,14 @@ export function validateSequenceIntegrity(scenes: Scene[], plan: SequencePlan): 
     }
   }
 
-  // --- Camera plan / overlay entries must reference a scene within their own sequence ---
-  for (const seq of plan.sequences) {
+  return issues;
+}
+
+/** Camera plan / overlay entries must reference a scene within their own sequence. */
+function checkCameraAndOverlayReferences(sequences: Sequence[]): DraftIssue[] {
+  const issues: DraftIssue[] = [];
+
+  for (const seq of sequences) {
     const sceneIdSet = new Set(seq.sceneIds);
     for (const cam of seq.cameraPlan) {
       if (!sceneIdSet.has(cam.sceneId)) {
@@ -216,5 +258,50 @@ export function validateSequenceIntegrity(scenes: Scene[], plan: SequencePlan): 
     }
   }
 
-  return issues.map((issue, index) => ({ id: `${issue.type}-${index + 1}`, ...issue }));
+  return issues;
+}
+
+/** Assigns a stable id to each issue, numbered per-type so `${type}-1`, `${type}-2`, … reads as advertised. */
+function assignIssueIds(issues: DraftIssue[]): SequenceIntegrityIssue[] {
+  const counters = new Map<string, number>();
+  return issues.map((issue) => {
+    const next = (counters.get(issue.type) ?? 0) + 1;
+    counters.set(issue.type, next);
+    return { id: `${issue.type}-${next}`, ...issue };
+  });
+}
+
+/**
+ * Pure structural/referential integrity check for a SequencePlan against the
+ * current scenes.json contents. Returns a list of structured issues instead
+ * of throwing, so callers (API routes, editor UI) can surface all problems
+ * at once for normal invalid user/AI input. A plan referencing scene IDs
+ * that no longer exist (e.g. after a split/merge changed scene.json's IDs)
+ * is reported as `unknown-scene-reference` / `missing-scene-reference`
+ * issues here, not a crash. Empty inputs (`scenes: []` and/or
+ * `plan.sequences: []`) are valid and simply produce no issues to report
+ * (with an empty plan, there are no content scenes left unreferenced).
+ *
+ * This is the orchestrator: it builds the shared scene lookup maps once and
+ * runs each independent check against them, concatenating their results
+ * (mirrors lib/pipeline/reviewConsistency.ts's checkDuplicateLayouts /
+ * checkOverlongNarration / checkSceneNumbering split).
+ */
+export function validateSequenceIntegrity(scenes: Scene[], plan: SequencePlan): SequenceIntegrityIssue[] {
+  const sceneById = new Map(scenes.map((scene) => [scene.id, scene]));
+  const contentSceneIds = scenes.filter(isContentScene).map((scene) => scene.id);
+  const contentSceneIndex = new Map(contentSceneIds.map((id, index) => [id, index]));
+
+  const { issues: referenceIssues, occurrences } = checkSceneExistenceAndTitlePolicy(plan.sequences, sceneById);
+
+  const issues: DraftIssue[] = [
+    ...checkSequenceStructure(plan.sequences),
+    ...referenceIssues,
+    ...checkExactlyOnceInclusion(occurrences, contentSceneIds),
+    ...checkSceneOrder(plan.sequences, contentSceneIndex),
+    ...checkDurations(plan.sequences, sceneById),
+    ...checkCameraAndOverlayReferences(plan.sequences),
+  ];
+
+  return assignIssueIds(issues);
 }

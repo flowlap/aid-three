@@ -26,32 +26,30 @@ function assertSafeFilename(filename: string): void {
   }
 }
 
-const SCENE_ID_PATTERN = /^[a-zA-Z0-9_-]+$/;
+// Shared defensive shape for all filename-component identifiers below
+// (alphanumeric/underscore/dash only, no path separators or ".."). Sequence
+// and asset ids intentionally reuse the same permissive shape as scene ids
+// rather than a strict e.g. "sequence-NNN" regex, so a hand-edited or future
+// non-zero-padded id doesn't hit a path-safety wall unrelated to its actual
+// purpose.
+const SAFE_IDENTIFIER_PATTERN = /^[a-zA-Z0-9_-]+$/;
+
+function assertSafeIdentifier(label: string, value: string): void {
+  if (!SAFE_IDENTIFIER_PATTERN.test(value)) {
+    throw new Error(`Invalid ${label}: ${value}`);
+  }
+}
 
 function assertSafeSceneId(sceneId: string): void {
-  if (!SCENE_ID_PATTERN.test(sceneId)) {
-    throw new Error(`Invalid scene id: ${sceneId}`);
-  }
+  assertSafeIdentifier("scene id", sceneId);
 }
-
-// Same defensive shape as SCENE_ID_PATTERN (alphanumeric/underscore/dash only,
-// no path separators or "..") rather than a strict "sequence-NNN" regex, so a
-// hand-edited or future non-zero-padded id doesn't hit a path-safety wall
-// unrelated to its actual purpose (mirrors the scene id precedent).
-const SEQUENCE_ID_PATTERN = /^[a-zA-Z0-9_-]+$/;
 
 function assertSafeSequenceId(sequenceId: string): void {
-  if (!SEQUENCE_ID_PATTERN.test(sequenceId)) {
-    throw new Error(`Invalid sequence id: ${sequenceId}`);
-  }
+  assertSafeIdentifier("sequence id", sequenceId);
 }
 
-const ASSET_ID_PATTERN = /^[a-zA-Z0-9_-]+$/;
-
 function assertSafeAssetId(assetId: string): void {
-  if (!ASSET_ID_PATTERN.test(assetId)) {
-    throw new Error(`Invalid asset id: ${assetId}`);
-  }
+  assertSafeIdentifier("asset id", assetId);
 }
 
 function getProjectsRoot(): string {
