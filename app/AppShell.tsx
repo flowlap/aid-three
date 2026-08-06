@@ -7,50 +7,48 @@ import { Check, Home } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EditableProjectTitle } from "@/components/EditableProjectTitle";
 import { StepNavProvider, type NextStepAction } from "@/lib/client/StepNavContext";
+import { getPipelineSteps } from "@/lib/projects/pipelineSteps";
+import type { PipelineStep, ProductionMode } from "@/lib/projects/types";
 import { cn } from "@/lib/utils";
 
-const STEPS = [
-  { key: "markdown", label: "원고 변환" },
-  { key: "scenes", label: "씬 분할" },
-  { key: "screen-design", label: "화면 설계" },
-  { key: "review", label: "일관성 검수" },
-  { key: "images", label: "이미지/목업 생성" },
-  { key: "storyboard", label: "최종 뷰" },
-] as const;
-
-export type StepKey = (typeof STEPS)[number]["key"];
 /**
  * Whether each step's OWN output data is actually complete (see layout.tsx's
- * isMarkdownComplete/isScenesComplete/isScreenDesignComplete/
- * isReviewComplete/isImagesComplete) — not whether project.currentStep has
- * merely reached a later step. currentStep only records "the last step that
- * finished," so revisiting and regenerating an earlier step regresses it
- * backward and would otherwise make every later step's checkmark
- * disappear even though its data is still on disk untouched. storyboard has
- * no separate output of its own (it's a read-only composite view), so it's
- * never marked complete here.
+ * isMarkdownComplete/isScenesComplete/isSequencesComplete/
+ * isScreenDesignComplete/isReviewComplete/isImagesComplete) — not whether
+ * project.currentStep has merely reached a later step. currentStep only
+ * records "the last step that finished," so revisiting and regenerating an
+ * earlier step regresses it backward and would otherwise make every later
+ * step's checkmark disappear even though its data is still on disk
+ * untouched. storyboard has no separate output of its own (it's a read-only
+ * composite view), so it's never marked complete here.
+ *
+ * Partial because the set of meaningful keys depends on productionMode —
+ * scene-mode projects never populate (or need) a "sequences" entry.
  */
-export type StepCompletion = Record<StepKey, boolean>;
+export type StepCompletion = Partial<Record<PipelineStep, boolean>>;
 
 export function AppShell({
   projectId,
   projectTitle,
+  productionMode,
   stepCompletion,
   children,
 }: {
   projectId: string;
   projectTitle: string;
+  productionMode: ProductionMode;
   stepCompletion: StepCompletion;
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
   const [nextAction, setNextAction] = useState<NextStepAction | null>(null);
 
-  const currentIndex = STEPS.findIndex((step) => pathname.endsWith(`/${step.key}`));
-  const prevStep = currentIndex > 0 ? STEPS[currentIndex - 1] : null;
+  const steps = getPipelineSteps(productionMode);
+  const currentIndex = steps.findIndex((step) => pathname.endsWith(`/${step.key}`));
+  const prevStep = currentIndex > 0 ? steps[currentIndex - 1] : null;
   const prevHref = prevStep ? `/projects/${projectId}/${prevStep.key}` : "/";
   const prevLabel = prevStep ? "이전 단계" : "홈";
-  const viewedStep = STEPS[currentIndex];
+  const viewedStep = steps[currentIndex];
 
   return (
     <div className="flex min-h-[calc(100dvh-2.75rem)] flex-col bg-muted">
@@ -74,7 +72,7 @@ export function AppShell({
           </div>
 
           <div className="flex items-center py-4">
-            {STEPS.map((step, index) => {
+            {steps.map((step, index) => {
               const isComplete = stepCompletion[step.key];
               const isCurrent = index === currentIndex;
               return (
@@ -103,7 +101,7 @@ export function AppShell({
                       {step.label}
                     </span>
                   </Link>
-                  {index < STEPS.length - 1 && (
+                  {index < steps.length - 1 && (
                     <span
                       className={cn("mx-1.5 mt-3.5 h-px flex-1 md:mx-2", isComplete ? "bg-primary" : "bg-border")}
                     />

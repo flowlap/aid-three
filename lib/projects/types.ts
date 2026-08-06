@@ -6,6 +6,7 @@ export type PipelineStep =
   | "upload"
   | "markdown"
   | "scenes"
+  | "sequences"
   | "screen-design"
   | "review"
   | "images"

@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { readProject, readProjectFile, listProjectImageIds } from "@/lib/projects/store";
 import { AppShell, type StepCompletion } from "@/app/AppShell";
 import type { Scene } from "@/lib/pipeline/splitScenes";
-import type { PipelineStep } from "@/lib/projects/types";
+import { getProductionMode, type PipelineStep, type ProductionMode } from "@/lib/projects/types";
 
 async function isMarkdownComplete(projectId: string): Promise<boolean> {
   const raw = await readProjectFile(projectId, "narration.md");
@@ -15,6 +15,27 @@ async function isScenesComplete(projectId: string): Promise<boolean> {
   try {
     const scenes = JSON.parse(raw).scenes;
     return Array.isArray(scenes) && scenes.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Lightweight structural check only: file exists, parses as JSON, and has a
+ * non-empty `sequences` array. This does NOT run the full sequence-plan
+ * integrity validator (lib/pipeline/validateSequenceIntegrity.ts, added in a
+ * later task) — a future task may want to upgrade this to reuse that
+ * validator once it exists, for parity with how isScenesComplete could in
+ * principle also be stricter. Only ever called in sequence mode: sequences.json
+ * is only written after an explicit sequence-plan generation, and opening a
+ * legacy (scene-mode) project must never require or read it.
+ */
+async function isSequencesComplete(projectId: string): Promise<boolean> {
+  const raw = await readProjectFile(projectId, "sequences.json");
+  if (!raw) return false;
+  try {
+    const sequences = JSON.parse(raw).sequences;
+    return Array.isArray(sequences) && sequences.length > 0;
   } catch {
     return false;
   }
@@ -71,18 +92,33 @@ async function isImagesComplete(projectId: string): Promise<boolean> {
   }
 }
 
-async function computeStepCompletion(projectId: string, currentStep: PipelineStep): Promise<StepCompletion> {
-  const [markdown, scenes, screenDesign, review, images] = await Promise.all([
+async function computeStepCompletion(
+  projectId: string,
+  currentStep: PipelineStep,
+  productionMode: ProductionMode
+): Promise<StepCompletion> {
+  const isSequenceMode = productionMode === "sequence";
+
+  // sequences.json is only ever written after an explicit sequence-plan
+  // generation, and legacy/scene-mode projects must never be required (or
+  // even expected) to have it — so this check only runs in sequence mode.
+  const [markdown, scenes, sequences, screenDesign, review, images] = await Promise.all([
     isMarkdownComplete(projectId),
     isScenesComplete(projectId),
+    isSequenceMode ? isSequencesComplete(projectId) : Promise.resolve(false),
     isScreenDesignComplete(projectId),
     isReviewComplete(projectId),
     isImagesComplete(projectId),
   ]);
 
+  const storyboardPrereqsComplete = isSequenceMode
+    ? markdown && scenes && sequences && screenDesign && review && images
+    : markdown && scenes && screenDesign && review && images;
+
   return {
     markdown,
     scenes,
+    ...(isSequenceMode ? { sequences } : {}),
     "screen-design": screenDesign,
     review,
     images,
@@ -90,7 +126,7 @@ async function computeStepCompletion(projectId: string, currentStep: PipelineSte
     // read-only composite of everything above) — it's complete once every
     // earlier step is done AND the user has actually reached it (currentStep
     // only advances to "storyboard" via the images step's "다음 단계" action).
-    storyboard: currentStep === "storyboard" && markdown && scenes && screenDesign && review && images,
+    storyboard: currentStep === "storyboard" && storyboardPrereqsComplete,
   };
 }
 
@@ -105,10 +141,16 @@ export default async function ProjectLayout({
   const project = await readProject(projectId);
   if (!project) notFound();
 
-  const stepCompletion = await computeStepCompletion(projectId, project.currentStep);
+  const productionMode = getProductionMode(project);
+  const stepCompletion = await computeStepCompletion(projectId, project.currentStep, productionMode);
 
   return (
-    <AppShell projectId={projectId} projectTitle={project.title} stepCompletion={stepCompletion}>
+    <AppShell
+      projectId={projectId}
+      projectTitle={project.title}
+      productionMode={productionMode}
+      stepCompletion={stepCompletion}
+    >
       {children}
     </AppShell>
   );

@@ -6,6 +6,7 @@ const STATUS_BY_STEP: Record<PipelineStep, ProjectStatus> = {
   upload: "not-started",
   markdown: "in-progress",
   scenes: "in-progress",
+  sequences: "in-progress",
   "screen-design": "in-progress",
   review: "in-progress",
   images: "in-progress",
