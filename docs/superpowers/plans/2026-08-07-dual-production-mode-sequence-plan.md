@@ -116,6 +116,7 @@ Store master images beneath `sequence-assets/{sequenceId}/{assetId}.png`. Keep p
   - scene mode: `markdown → scenes → screen-design → review → images → storyboard`
   - sequence mode: `markdown → scenes → sequences → screen-design → review → images → storyboard`
 - [ ] Add `"sequences"` to the `PipelineStep` union. Do not remove or rename current keys.
+- [ ] Note on scope: `AppShell.tsx`'s step list is currently a top-level `as const` array, and `layout.tsx`'s `computeStepCompletion` hardcodes a `Promise.all` over a fixed set of steps. Making both mode-aware means updating each call site that assumes the old fixed step list, not just adding the new helper — budget this task accordingly rather than treating it as a drop-in helper swap.
 - [ ] Make AppShell derive labels, current index, previous navigation, and completion display from the project mode.
 - [ ] Update completion computation: scene mode must not require `sequences.json`; sequence mode considers the step complete only when a valid sequence plan exists.
 - [ ] Test both ordered step lists and legacy project fallback.
@@ -227,13 +228,22 @@ Store master images beneath `sequence-assets/{sequenceId}/{assetId}.png`. Keep p
 - Modify: `lib/video/buildVideoClip.ts`
 - Add or modify: `lib/video/renderSequenceFrame.tsx`
 
-- [ ] Keep current scene-mode rendering byte-for-byte behavior where practical: per-scene static frame, narration, 0.65s hold, then fade.
+- [ ] Keep current scene-mode rendering byte-for-byte behavior where practical: per-scene static frame, narration, 0.65s hold, then fade. `buildVideoClip.ts`'s existing single-ffmpeg-process invocation (`-loop 1 -i frame -i audio ...`) must stay untouched on this path.
 - [ ] For sequence mode, compile validated scenes + sequence plan + real WAV durations into a `SequenceTimeline` before calling ffmpeg. Persist it only if useful for debugging; it is a derived render plan, not the editing source of truth.
-- [ ] Implement the first motion set conservatively: static, slow push-in/out, pan left/right, and follow-flow. Use master image or scene image according to the timeline; clamp crop bounds and fall back to static if assets are missing.
+- [ ] **Motion implementation strategy (resolves the conflict between this task and `buildVideoClip.ts`'s existing "avoid ffmpeg's fragile `zoompan` filter" decision):**
+  - Do **not** use `zoompan`. It carries a persistent frame-counter (`z`) that accumulates state across frames and is known to jitter, freeze, or reset on `-loop 1` static-image inputs — this is exactly the fragility the current code comment warns about, and this plan must not reintroduce it.
+  - Implement pan/zoom instead with ffmpeg's `crop` filter whose `x`/`y`/`w`/`h` are expressions of the built-in `t` variable (seconds since clip start, known in advance from the timeline), immediately followed by `scale=width:height` to the project's fixed frame dimensions. Every frame's crop window is a pure function of `t`, so there is no accumulated state to drift or glitch.
+    - `slow-push-in` / `slow-pull-out`: crop window size interpolates linearly between 100% and ~82% of the source frame (centered), then is scaled up to fill the output — push-in starts large and shrinks, pull-out runs the same math in reverse.
+    - `pan-left` / `pan-right`: a fixed-size crop window (matching the output aspect ratio) whose `x` offset slides linearly across the available source width; `y` stays centered.
+    - `follow-flow`: the same crop+scale mechanics; the camera plan may supply explicit start/end crop-origin hints, defaulting to a diagonal pan when absent. Not a separate rendering code path.
+  - This still runs as one `-vf` filter chain inside a single ffmpeg process per clip, in the same shape `buildVideoClip.ts` already uses — no second rendering pass, no new binary dependency.
+  - Requires the source image to have margin beyond the output frame in the pan/zoom direction. Task 7's master-image prompt already asks for a "wide composition with safe room for camera crops," so no separate change is needed there; scene images generated without a master (Task 8's fallback) may not have this margin.
+  - Clamp every crop window to the source image's actual bounds; if the requested motion would exceed them (image too small, or no master image and scene image lacks margin), fall back to `static` for that clip and do not fail the render.
+  - Update `buildVideoClip.ts`'s doc comment so it's clear crop+scale is the sequence-mode motion mechanism and the original zoompan-avoidance decision still stands (scene mode's code path and output remain byte-for-byte unchanged).
 - [ ] Render `label`, `highlight`, `arrow-flow`, `diagram`, and `chart` overlays as deterministic SVG/HTML/Satori layers. Do not generate them with an image model.
 - [ ] Apply transition effects at sequence boundaries; retain the existing fade as fallback.
 - [ ] Version or invalidate clip/frame outputs when a scene image, audio, camera plan, master asset, or overlay changes. Never reuse a clip merely because the scene ID still exists.
-- [ ] Test timeline order, duration alignment, missing-master fallback, frame crop bounds, title behavior, and stale cache detection.
+- [ ] Test timeline order, duration alignment, missing-master fallback, frame crop bounds (including the too-small-source-image fallback to `static`), title behavior, and stale cache detection.
 
 ## Task 10: Final integration, documentation, and regression verification
 
