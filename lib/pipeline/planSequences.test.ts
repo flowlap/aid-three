@@ -190,6 +190,26 @@ describe("parseSequencePlanResponse", () => {
     expect(plan.sequences[0].needsReview).toBe(true);
   });
 
+  it("sets needsReview and drops the value when continuity.fixedElements or doNotChange is malformed", () => {
+    const raw = JSON.stringify({
+      sequences: [
+        rawSequence({
+          continuity: {
+            location: "교실",
+            visualStyle: "플랫 일러스트",
+            fixedElements: "칠판", // should be an array, not a string
+            doNotChange: ["선생님 복장", 123], // non-string item
+          },
+        }),
+      ],
+    });
+    const plan = parseSequencePlanResponse(raw);
+
+    expect(plan.sequences[0].needsReview).toBe(true);
+    expect(plan.sequences[0].continuity.fixedElements).toEqual([]);
+    expect(plan.sequences[0].continuity.doNotChange).toEqual([]);
+  });
+
   it("drops individual camera-plan entries with an unrecognized shot/motion instead of failing the whole sequence", () => {
     const raw = JSON.stringify({
       sequences: [

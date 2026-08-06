@@ -22,6 +22,32 @@ const STEP = "sequences" as const;
  * for a scene-mode project.
  */
 const NOT_SEQUENCE_MODE_ERROR = "시퀀스 제작 모드 프로젝트가 아닙니다";
+const INVALID_SCENES_ERROR = "씬 데이터 형식이 올바르지 않습니다";
+
+/**
+ * Shared by POST and PUT: reads and parses scenes.json, returning either the
+ * parsed scenes or a ready-to-return error response. Callers differ slightly
+ * on top of this (POST additionally rejects an empty array), so the
+ * length check is left to each call site.
+ */
+async function readScenesOrError(projectId: string): Promise<{ scenes: Scene[] } | { errorResponse: NextResponse }> {
+  const rawScenes = await readProjectFile(projectId, "scenes.json");
+  if (!rawScenes) {
+    return { errorResponse: NextResponse.json({ error: "씬 데이터가 없습니다" }, { status: 400 }) };
+  }
+
+  let scenes: Scene[];
+  try {
+    scenes = JSON.parse(rawScenes).scenes;
+  } catch (err) {
+    console.error("씬 데이터 파싱 실패:", err);
+    return { errorResponse: NextResponse.json({ error: INVALID_SCENES_ERROR }, { status: 400 }) };
+  }
+  if (!Array.isArray(scenes)) {
+    return { errorResponse: NextResponse.json({ error: INVALID_SCENES_ERROR }, { status: 400 }) };
+  }
+  return { scenes };
+}
 
 export async function POST(_req: NextRequest, { params }: { params: Promise<{ projectId: string }> }) {
   const { projectId } = await params;
@@ -32,18 +58,11 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ pr
     return NextResponse.json({ error: NOT_SEQUENCE_MODE_ERROR }, { status: 400 });
   }
 
-  const rawScenes = await readProjectFile(projectId, "scenes.json");
-  if (!rawScenes) return NextResponse.json({ error: "씬 데이터가 없습니다" }, { status: 400 });
-
-  let scenes: Scene[];
-  try {
-    scenes = JSON.parse(rawScenes).scenes;
-  } catch (err) {
-    console.error("씬 데이터 파싱 실패:", err);
-    return NextResponse.json({ error: "씬 데이터 형식이 올바르지 않습니다" }, { status: 400 });
-  }
-  if (!Array.isArray(scenes) || scenes.length === 0) {
-    return NextResponse.json({ error: "씬 데이터 형식이 올바르지 않습니다" }, { status: 400 });
+  const scenesResult = await readScenesOrError(projectId);
+  if ("errorResponse" in scenesResult) return scenesResult.errorResponse;
+  const { scenes } = scenesResult;
+  if (scenes.length === 0) {
+    return NextResponse.json({ error: INVALID_SCENES_ERROR }, { status: 400 });
   }
 
   let job;
@@ -187,19 +206,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ proj
     return NextResponse.json({ error: "시퀀스 계획 형식이 올바르지 않습니다" }, { status: 400 });
   }
 
-  const rawScenes = await readProjectFile(projectId, "scenes.json");
-  if (!rawScenes) return NextResponse.json({ error: "씬 데이터가 없습니다" }, { status: 400 });
-
-  let scenes: Scene[];
-  try {
-    scenes = JSON.parse(rawScenes).scenes;
-  } catch (err) {
-    console.error("씬 데이터 파싱 실패:", err);
-    return NextResponse.json({ error: "씬 데이터 형식이 올바르지 않습니다" }, { status: 400 });
-  }
-  if (!Array.isArray(scenes)) {
-    return NextResponse.json({ error: "씬 데이터 형식이 올바르지 않습니다" }, { status: 400 });
-  }
+  const scenesResult = await readScenesOrError(projectId);
+  if ("errorResponse" in scenesResult) return scenesResult.errorResponse;
+  const { scenes } = scenesResult;
 
   const issues = validateSequenceIntegrity(scenes, body);
   if (issues.some((issue) => issue.severity === "error")) {

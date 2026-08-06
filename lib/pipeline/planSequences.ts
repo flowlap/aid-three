@@ -28,6 +28,16 @@ import type {
  * logic that already lives in lib/pipeline/validateSequenceIntegrity.ts. A
  * plan that references an unknown/omitted scene or a title scene therefore
  * parses successfully here and is caught one layer up.
+ *
+ * Sanitize-rather-than-fail: below the outer-envelope parse and the
+ * required-field shape guard, per-entry problems (an unrecognized
+ * camera/overlay type, a malformed continuity array, a whole entry missing a
+ * required field) are dropped or coerced individually instead of failing the
+ * entire AI response — mirrors selectScreenTypes.ts's sanitizeLayoutElements.
+ * Anything coerced away that validateSequenceIntegrity can't independently
+ * re-detect (currently: continuity.fixedElements/doNotChange, which
+ * validateSequenceIntegrity never inspects) also sets `needsReview` on that
+ * sequence so the loss isn't silent.
  */
 
 const SHOT_TYPES: ReadonlySet<string> = new Set<ShotType>(["wide", "medium", "detail", "close-up"]);
@@ -129,12 +139,10 @@ export interface RawSequence {
 }
 
 /**
- * Parses the outer `{ sequences: [...] }` envelope only. Throws a plain
- * Error on non-JSON or a missing/malformed `sequences` array — this is the
- * "AI response isn't usable at all" failure mode (mirrors
- * splitScenes.parseRawScenes exactly), distinct from per-sequence shape
- * problems which sanitizeRawSequences below drops individually instead of
- * failing the whole response.
+ * Parses the outer `{ sequences: [...] }` envelope only — the "AI response
+ * isn't usable at all" failure mode (mirrors splitScenes.parseRawScenes
+ * exactly). See the module docstring for how this differs from per-entry
+ * problems, which are sanitized/dropped individually further down.
  */
 export function parseRawSequences(raw: string): RawSequence[] {
   const parsed = JSON.parse(stripCodeFence(raw)) as { sequences?: RawSequence[] };
@@ -149,12 +157,9 @@ function isStringArray(value: unknown): value is string[] {
 }
 
 /**
- * Required-field shape guard for a single raw sequence entry. A sequence
- * missing any of these can't be turned into a usable Sequence at all, so
- * entries failing this are dropped by parseSequencePlanResponse rather than
- * failing the whole response — any scenes they would have covered simply end
- * up reported as `missing-scene-reference` by validateSequenceIntegrity one
- * layer up, which is the correct, already-established way to surface that.
+ * Required-field shape guard for a single raw sequence entry — anything
+ * missing here can't be turned into a usable Sequence at all (see the module
+ * docstring for what happens to entries that fail this).
  */
 export function isValidRawSequenceShape(value: RawSequence): boolean {
   const continuity = value.continuity;
@@ -176,11 +181,21 @@ export function isValidRawSequenceShape(value: RawSequence): boolean {
   );
 }
 
-function sanitizeStringArray(value: unknown): string[] {
-  return isStringArray(value) ? value : [];
+/**
+ * Coerces a continuity string-array field (fixedElements/doNotChange), which
+ * is the one place in this module where a malformed value would otherwise be
+ * silently dropped with no trace: `validateSequenceIntegrity` doesn't
+ * inspect continuity fields at all, unlike scene-reference or camera/overlay
+ * problems which surface there. `wasCoerced` lets toSequence flag
+ * `needsReview` instead of losing that signal.
+ */
+function sanitizeContinuityArray(value: unknown): { value: string[]; wasCoerced: boolean } {
+  if (value === undefined) return { value: [], wasCoerced: false };
+  if (isStringArray(value)) return { value, wasCoerced: false };
+  return { value: [], wasCoerced: true };
 }
 
-/** Drops individual camera-plan entries with an unrecognized shot/motion or missing sceneId, rather than failing the whole sequence. */
+/** Drops individual camera-plan entries with an unrecognized shot/motion or missing sceneId (see the module docstring). */
 function sanitizeCameraPlan(value: unknown): SequenceCameraPlanEntry[] {
   if (!Array.isArray(value)) return [];
   return value.filter((item): item is SequenceCameraPlanEntry => {
@@ -197,7 +212,7 @@ function sanitizeCameraPlan(value: unknown): SequenceCameraPlanEntry[] {
   });
 }
 
-/** Drops individual overlay entries with an unrecognized type or missing fields, rather than failing the whole sequence. */
+/** Drops individual overlay entries with an unrecognized type or missing fields (see the module docstring). */
 function sanitizeOverlays(value: unknown): SequenceOverlayEntry[] {
   if (!Array.isArray(value)) return [];
   return value.filter((item): item is SequenceOverlayEntry => {
@@ -224,12 +239,18 @@ function sanitizeOverlays(value: unknown): SequenceOverlayEntry[] {
 function toSequence(raw: RawSequence, index: number): Sequence {
   const continuity = raw.continuity as RawSequenceContinuity;
   const masterVisual = raw.masterVisual as RawSequenceMasterVisual;
-  const sceneIds = (raw.sceneIds as unknown[]).filter((id): id is string => typeof id === "string");
+  // isValidRawSequenceShape already guarantees sceneIds is a non-empty
+  // string[] (via isStringArray), so this is a plain cast — same as every
+  // other required field below — not a re-filter.
+  const sceneIds = raw.sceneIds as string[];
   const cameraPlan = sanitizeCameraPlan(raw.cameraPlan);
   const overlays = sanitizeOverlays(raw.overlays);
+  const fixedElements = sanitizeContinuityArray(continuity.fixedElements);
+  const doNotChange = sanitizeContinuityArray(continuity.doNotChange);
 
   const coveredByCamera = new Set(cameraPlan.map((entry) => entry.sceneId));
-  const needsReview = sceneIds.some((id) => !coveredByCamera.has(id));
+  const needsReview =
+    sceneIds.some((id) => !coveredByCamera.has(id)) || fixedElements.wasCoerced || doNotChange.wasCoerced;
 
   const timeOfDay = typeof continuity.timeOfDay === "string" && continuity.timeOfDay.trim() ? continuity.timeOfDay : undefined;
 
@@ -244,8 +265,8 @@ function toSequence(raw: RawSequence, index: number): Sequence {
       location: continuity.location as string,
       ...(timeOfDay ? { timeOfDay } : {}),
       visualStyle: continuity.visualStyle as string,
-      fixedElements: sanitizeStringArray(continuity.fixedElements),
-      doNotChange: sanitizeStringArray(continuity.doNotChange),
+      fixedElements: fixedElements.value,
+      doNotChange: doNotChange.value,
     },
     masterVisual: {
       description: masterVisual.description as string,
