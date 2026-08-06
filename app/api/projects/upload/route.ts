@@ -4,9 +4,10 @@ import path from "path";
 import { createProject, projectSourceDir, writeProjectFile, updateProjectStep } from "@/lib/projects/store";
 import { extractText } from "@/lib/pipeline/extractText";
 import { splitScenesByBlankLines, trimLines } from "@/lib/pipeline/splitScenesByBlankLines";
-import type { ScriptType } from "@/lib/projects/types";
+import type { ScriptType, ProductionMode } from "@/lib/projects/types";
 
 const VALID_SCRIPT_TYPES: ScriptType[] = ["script", "narration", "narration_pre_edited"];
+const VALID_PRODUCTION_MODES: ProductionMode[] = ["scene", "sequence"];
 
 /**
  * "나레이션(가편집)" skips both AI steps that a normal upload still needs:
@@ -30,6 +31,8 @@ export async function POST(req: NextRequest) {
   const rawTitle = formData.get("title") as string | null;
   const title = rawTitle?.trim() ?? "";
   const scriptType = formData.get("scriptType") as ScriptType | null;
+  const rawProductionMode = formData.get("productionMode") as string | null;
+  const productionMode = (rawProductionMode ?? "scene") as ProductionMode;
 
   if ((!file && !text) || !title || !scriptType) {
     return NextResponse.json({ error: "file 또는 text, title, scriptType는 필수입니다" }, { status: 400 });
@@ -42,8 +45,12 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  if (!VALID_PRODUCTION_MODES.includes(productionMode)) {
+    return NextResponse.json({ error: "잘못된 요청입니다" }, { status: 400 });
+  }
+
   if (!file) {
-    const project = await createProject(title, scriptType);
+    const project = await createProject(title, scriptType, productionMode);
     await writeProjectFile(project.id, "extracted.txt", text);
     if (scriptType === "narration_pre_edited") await finalizePreEditedNarration(project.id, text);
     return NextResponse.json({ project });
@@ -59,7 +66,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "pdf 또는 txt 파일만 업로드 가능합니다" }, { status: 400 });
   }
 
-  const project = await createProject(title, scriptType);
+  const project = await createProject(title, scriptType, productionMode);
   const sourcePath = path.join(projectSourceDir(project.id), safeName);
   const buffer = Buffer.from(await file.arrayBuffer());
   await fs.writeFile(sourcePath, buffer);

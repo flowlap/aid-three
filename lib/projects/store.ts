@@ -1,9 +1,17 @@
 import { promises as fs } from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
-import type { ProjectMeta, PipelineStep, ScriptType } from "./types";
+import type { ProjectMeta, PipelineStep, ScriptType, ProductionMode } from "./types";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const VALID_PRODUCTION_MODES: ProductionMode[] = ["scene", "sequence"];
+
+function assertValidProductionMode(mode: ProductionMode): void {
+  if (!VALID_PRODUCTION_MODES.includes(mode)) {
+    throw new Error(`Invalid production mode: ${mode}`);
+  }
+}
 
 function assertValidProjectId(id: string): void {
   if (!UUID_PATTERN.test(id)) {
@@ -73,7 +81,12 @@ export function projectAudioPath(id: string, sceneId: string): string {
   return path.join(projectAudioDir(id), `${sceneId}.wav`);
 }
 
-export async function createProject(title: string, scriptType: ScriptType): Promise<ProjectMeta> {
+export async function createProject(
+  title: string,
+  scriptType: ScriptType,
+  productionMode: ProductionMode = "scene"
+): Promise<ProjectMeta> {
+  assertValidProductionMode(productionMode);
   const id = randomUUID();
   await fs.mkdir(projectSourceDir(id), { recursive: true });
 
@@ -82,6 +95,7 @@ export async function createProject(title: string, scriptType: ScriptType): Prom
     title,
     createdAt: new Date().toISOString(),
     scriptType,
+    productionMode,
     currentStep: "upload",
   };
   await fs.writeFile(path.join(projectDir(id), "project.json"), JSON.stringify(meta, null, 2), "utf-8");

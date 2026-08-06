@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 
 type SourceMode = "file" | "text";
 type ScriptType = "script" | "narration" | "narration_pre_edited";
+type ProductionMode = "scene" | "sequence";
 
 const SCRIPT_TYPE_LABELS: Record<ScriptType, string> = {
   script: "원고",
@@ -20,10 +21,24 @@ const SCRIPT_TYPE_LABELS: Record<ScriptType, string> = {
   narration_pre_edited: "나레이션(가편집)",
 };
 
+const PRODUCTION_MODE_OPTIONS: { value: ProductionMode; label: string; description: string }[] = [
+  {
+    value: "scene",
+    label: "씬 기반 과정 제작",
+    description: "씬 단위로 화면을 설계하고 이미지를 개별 생성합니다. 대부분의 이러닝 과정에 적합한 기본 방식입니다.",
+  },
+  {
+    value: "sequence",
+    label: "시퀀스 기반 과정 제작",
+    description: "연속된 비주얼 영상 제작에 최적화된 방식입니다. 씬들을 하나의 흐름으로 묶어 시퀀스 단위로 기획합니다.",
+  },
+];
+
 export default function NewProjectPage() {
   const router = useRouter();
   const [title, setTitle] = useState("");
   const [scriptType, setScriptType] = useState<ScriptType>("script");
+  const [productionMode, setProductionMode] = useState<ProductionMode>("scene");
   const [sourceMode, setSourceMode] = useState<SourceMode>("file");
   const [file, setFile] = useState<File | null>(null);
   const [text, setText] = useState("");
@@ -51,6 +66,7 @@ export default function NewProjectPage() {
     }
     formData.append("title", title);
     formData.append("scriptType", scriptType);
+    formData.append("productionMode", productionMode);
 
     const res = await fetch("/api/projects/upload", { method: "POST", body: formData });
     const data = await res.json();
@@ -108,6 +124,43 @@ export default function NewProjectPage() {
                 씬 분할 화면에서 결과를 바로 검토·수정할 수 있습니다.
               </p>
             )}
+          </Card>
+
+          <Card className="gap-4 p-6">
+            <fieldset>
+              <legend className="mb-1.5 text-sm font-medium">제작 방식</legend>
+              <p className="mb-3 text-xs text-muted-foreground">
+                프로젝트 생성 후에는 변경할 수 없으니 신중히 선택해주세요.
+              </p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {PRODUCTION_MODE_OPTIONS.map((option) => (
+                  <label
+                    key={option.value}
+                    htmlFor={`production-mode-${option.value}`}
+                    className={cn(
+                      "flex cursor-pointer flex-col gap-1 rounded-lg border-2 p-4 text-left transition-colors",
+                      productionMode === option.value
+                        ? "border-primary bg-primary/5"
+                        : "border-border hover:border-primary/40"
+                    )}
+                  >
+                    <span className="flex items-center gap-2 text-sm font-medium">
+                      <input
+                        type="radio"
+                        id={`production-mode-${option.value}`}
+                        name="productionMode"
+                        value={option.value}
+                        checked={productionMode === option.value}
+                        onChange={() => setProductionMode(option.value)}
+                        className="size-4"
+                      />
+                      {option.label}
+                    </span>
+                    <span className="text-xs text-muted-foreground">{option.description}</span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
           </Card>
 
           <Card className="gap-4 p-6">

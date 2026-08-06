@@ -15,6 +15,7 @@ import {
   readProjectImage,
   listProjectImageIds,
 } from "./store";
+import { getProductionMode, type ProductionMode } from "./types";
 
 let tempRoot: string;
 
@@ -102,6 +103,43 @@ describe("project store", () => {
   it("rejects path-traversal attempts in filename", async () => {
     const project = await createProject("경로 검증", "script");
     await expect(writeProjectFile(project.id, "../../evil.txt", "bad")).rejects.toThrow();
+  });
+});
+
+describe("project production mode", () => {
+  it("defaults new projects to scene mode", async () => {
+    const project = await createProject("기본 모드", "script");
+
+    expect(project.productionMode).toBe("scene");
+    expect(getProductionMode(project)).toBe("scene");
+  });
+
+  it("creates a project explicitly in sequence mode", async () => {
+    const project = await createProject("시퀀스 모드", "script", "sequence");
+
+    expect(project.productionMode).toBe("sequence");
+    expect(getProductionMode(project)).toBe("sequence");
+
+    const found = await readProject(project.id);
+    expect(found?.productionMode).toBe("sequence");
+  });
+
+  it("treats legacy project.json without productionMode as scene mode", async () => {
+    const project = await createProject("레거시 프로젝트", "script");
+    const legacyMeta = { ...project };
+    delete (legacyMeta as { productionMode?: string }).productionMode;
+    await writeProjectFile(project.id, "project.json", JSON.stringify(legacyMeta, null, 2));
+
+    const found = await readProject(project.id);
+
+    expect(found?.productionMode).toBeUndefined();
+    expect(getProductionMode(found!)).toBe("scene");
+  });
+
+  it("rejects an invalid production mode", async () => {
+    await expect(
+      createProject("잘못된 모드", "script", "invalid" as unknown as ProductionMode)
+    ).rejects.toThrow();
   });
 });
 
