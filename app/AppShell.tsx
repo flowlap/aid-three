@@ -7,8 +7,8 @@ import { Check, Home } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EditableProjectTitle } from "@/components/EditableProjectTitle";
 import { StepNavProvider, type NextStepAction } from "@/lib/client/StepNavContext";
-import { getPipelineSteps } from "@/lib/projects/pipelineSteps";
-import type { PipelineStep, ProductionMode } from "@/lib/projects/types";
+import { getPipelineSteps, type PipelineBarStep } from "@/lib/projects/pipelineSteps";
+import type { ProductionMode } from "@/lib/projects/types";
 import { cn } from "@/lib/utils";
 
 /**
@@ -22,10 +22,14 @@ import { cn } from "@/lib/utils";
  * untouched. storyboard has no separate output of its own (it's a read-only
  * composite view), so it's never marked complete here.
  *
- * Partial because the set of meaningful keys depends on productionMode —
- * scene-mode projects never populate (or need) a "sequences" entry.
+ * The six mode-independent steps stay required (so layout.tsx's
+ * computeStepCompletion can't silently drop one and have it read as
+ * undefined/falsy) — only "sequences" is optional, since scene-mode projects
+ * never populate (or need) that entry.
  */
-export type StepCompletion = Partial<Record<PipelineStep, boolean>>;
+export type StepCompletion = Record<Exclude<PipelineBarStep, "sequences">, boolean> & {
+  sequences?: boolean;
+};
 
 export function AppShell({
   projectId,

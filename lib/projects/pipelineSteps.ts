@@ -1,7 +1,16 @@
 import type { PipelineStep, ProductionMode } from "./types";
 
+/**
+ * "upload" is pre-pipeline (happens before a project exists in the AppShell
+ * step bar — see app/projects/new/page.tsx) and is never one of the steps
+ * returned here, so it's excluded from the key type too. This lets
+ * AppShell.tsx's StepCompletion stay a plain (non-partial) record over the
+ * step-bar keys without needing an unused "upload" entry.
+ */
+export type PipelineBarStep = Exclude<PipelineStep, "upload">;
+
 export interface PipelineStepDef {
-  key: PipelineStep;
+  key: PipelineBarStep;
   label: string;
 }
 
