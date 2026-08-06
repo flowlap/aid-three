@@ -271,6 +271,7 @@ export async function statProjectVideo(id: string): Promise<{ path: string; size
   try {
     const filePath = projectVideoPath(id);
     const stat = await fs.stat(filePath);
+    if (stat.size === 0) return null;
     return { path: filePath, size: stat.size };
   } catch {
     return null;

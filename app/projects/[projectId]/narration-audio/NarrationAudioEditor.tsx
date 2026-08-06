@@ -200,26 +200,42 @@ export function NarrationAudioEditor({
               제목 목업과 생성 이미지를 생성된 이미지 비율에 맞는 mp4로 만들며, 각 내레이션 뒤에는 짧은 텀과 페이지 전환 효과가 적용됩니다. ffmpeg 필요.
             </p>
           </div>
-          <Button
-            className="ml-auto"
-            onClick={() => handleGenerateVideo(completedClipCount > 0 ? "resume" : "full")}
-            disabled={videoLoading || !allAudioReady}
-          >
-            {videoLoading
-              ? videoDiscoveredRunning
-                ? `이미 실행 중...${videoProgress ? ` (${videoProgress.index}/${videoProgress.total})` : ""}`
-                : videoProgress
-                  ? `생성 중... (${videoProgress.index}/${videoProgress.total})`
-                  : "생성 중..."
-              : isClipPartial
-                ? `이어서 생성 (${remainingClipCount}개 남음)`
-                : completedClipCount > 0
-                  ? "합치기 재시도"
-                  : "동영상 생성"}
-          </Button>
+          {completedClipCount === 0 && (
+            <Button className="ml-auto" onClick={() => handleGenerateVideo("full")} disabled={videoLoading || !allAudioReady}>
+              {videoLoading
+                ? videoDiscoveredRunning
+                  ? `이미 실행 중...${videoProgress ? ` (${videoProgress.index}/${videoProgress.total})` : ""}`
+                  : videoProgress
+                    ? `생성 중... (${videoProgress.index}/${videoProgress.total})`
+                    : "생성 중..."
+                : "동영상 생성"}
+            </Button>
+          )}
+          {isClipPartial && (
+            <Button className="ml-auto" onClick={() => handleGenerateVideo("resume")} disabled={videoLoading || !allAudioReady}>
+              {videoLoading
+                ? videoDiscoveredRunning
+                  ? `이미 실행 중...${videoProgress ? ` (${videoProgress.index}/${videoProgress.total})` : ""}`
+                  : videoProgress
+                    ? `생성 중... (${videoProgress.index}/${videoProgress.total})`
+                    : "생성 중..."
+                : `이어서 생성 (${remainingClipCount}개 남음)`}
+            </Button>
+          )}
+          {completedClipCount > 0 && completedClipCount === scenes.length && (
+            <Button className="ml-auto" onClick={() => handleGenerateVideo("resume")} disabled={videoLoading || !allAudioReady}>
+              {videoLoading
+                ? videoDiscoveredRunning
+                  ? `이미 실행 중...${videoProgress ? ` (${videoProgress.index}/${videoProgress.total})` : ""}`
+                  : videoProgress
+                    ? `생성 중... (${videoProgress.index}/${videoProgress.total})`
+                    : "생성 중..."
+                : "통합 동영상 만들기"}
+            </Button>
+          )}
           {!videoLoading && completedClipCount > 0 && (
             <Button variant="outline" onClick={() => handleGenerateVideo("full")}>
-              전체 다시 생성
+              클립 전체 다시 생성
             </Button>
           )}
           {videoLoading && (
