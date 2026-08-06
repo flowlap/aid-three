@@ -37,14 +37,22 @@ export async function GET(
   });
 }
 
-/** Regenerates a single scene's image without touching the rest. Uses the local engine's higher (final-quality) resolution when local generation is selected — a deliberate one-off action, unlike the fast draft pass the full-batch route uses. */
+interface RegenerateSceneOverrides {
+  extraPrompt?: string;
+  backgroundFixed?: boolean;
+  presenterEnabled?: boolean;
+  styleReferenceEnabled?: boolean;
+}
+
+/** Regenerates a single scene's image without touching the rest. Uses the local engine's higher (final-quality) resolution when local generation is selected — a deliberate one-off action, unlike the fast draft pass the full-batch route uses. Accepts an optional JSON body of one-off overrides (see RegenerateSceneOverrides) that apply only to this regeneration and are never persisted. */
 export async function POST(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ projectId: string; sceneId: string }> }
 ) {
   const { projectId, sceneId } = await params;
+  const overrides: RegenerateSceneOverrides = await req.json().catch(() => ({}));
   try {
-    return await withInFlightLock(`images:${projectId}:${sceneId}`, () => regenerateScene(projectId, sceneId));
+    return await withInFlightLock(`images:${projectId}:${sceneId}`, () => regenerateScene(projectId, sceneId, overrides));
   } catch (err) {
     if (err instanceof AlreadyInFlightError) {
       return NextResponse.json({ error: "이 씬은 이미 재생성 중입니다. 완료될 때까지 기다려주세요." }, { status: 409 });
@@ -53,7 +61,7 @@ export async function POST(
   }
 }
 
-async function regenerateScene(projectId: string, sceneId: string): Promise<NextResponse> {
+async function regenerateScene(projectId: string, sceneId: string, overrides: RegenerateSceneOverrides): Promise<NextResponse> {
   const project = await readProject(projectId);
   if (!project) return NextResponse.json({ error: "프로젝트를 찾을 수 없습니다" }, { status: 404 });
 
@@ -63,18 +71,25 @@ async function regenerateScene(projectId: string, sceneId: string): Promise<Next
     return NextResponse.json({ error: "씬 또는 화면 설계 데이터가 없습니다" }, { status: 400 });
   }
   const commonPrompt = (await readProjectFile(projectId, "image-common-prompt.txt"))?.trim() || DEFAULT_IMAGE_COMMON_PROMPT;
-  const presenterEnabled = (await readProjectFile(projectId, "image-presenter-enabled.txt"))?.trim() === "true";
-  const backgroundFixed = (await readProjectFile(projectId, "background-fixed-enabled.txt"))?.trim() === "true";
+  const projectPresenterEnabled = (await readProjectFile(projectId, "image-presenter-enabled.txt"))?.trim() === "true";
+  const projectBackgroundFixed = (await readProjectFile(projectId, "background-fixed-enabled.txt"))?.trim() === "true";
   const genderRaw = (await readProjectFile(projectId, "presenter-gender.txt"))?.trim();
   const presenterGender = genderRaw === "male" || genderRaw === "female" ? genderRaw : undefined;
   const engineRaw = (await readProjectFile(projectId, "image-engine.txt"))?.trim();
   const engine: "openai" | "local" = engineRaw === "local" ? "local" : "openai";
   const modelSizeRaw = (await readProjectFile(projectId, "image-local-model-size.txt"))?.trim();
   const localModelSize: LocalImageModelSize = modelSizeRaw === "9b" ? "9b" : "4b";
+  const hchatGeminiModel = (await readProjectFile(projectId, "image-hchat-gemini-model.txt"))?.trim() || undefined;
+
+  const presenterEnabled = overrides.presenterEnabled ?? projectPresenterEnabled;
+  const backgroundFixed = overrides.backgroundFixed ?? projectBackgroundFixed;
+  const styleReferenceEnabled = overrides.styleReferenceEnabled ?? true;
+  const extraPrompt = overrides.extraPrompt;
+
   const referenceImages = {
     background: backgroundFixed ? (await readProjectReferenceImage(projectId, "background")) ?? undefined : undefined,
     presenter: presenterEnabled ? (await readProjectReferenceImage(projectId, "presenter")) ?? undefined : undefined,
-    style: (await readProjectReferenceImage(projectId, "style")) ?? undefined,
+    style: styleReferenceEnabled ? (await readProjectReferenceImage(projectId, "style")) ?? undefined : undefined,
   };
   const referenceImagePaths = [
     referenceImages.background ? projectReferenceImagePath(projectId, "background") : null,
@@ -119,6 +134,7 @@ async function regenerateScene(projectId: string, sceneId: string): Promise<Next
       backgroundFixed,
       relatedScenes: buildRelatedScenesContext(scene, visualDesigns),
       allowTextInImage: false,
+      extraPrompt,
     });
 
     try {
@@ -145,7 +161,7 @@ async function regenerateScene(projectId: string, sceneId: string): Promise<Next
 
   let client;
   try {
-    client = createImageClient();
+    client = createImageClient({ hchatGeminiModel });
   } catch (err) {
     console.error("씬 이미지 재생성 실패:", err);
     return NextResponse.json({ error: "AI 이미지 생성에 실패했습니다" }, { status: 502 });
@@ -164,6 +180,7 @@ async function regenerateScene(projectId: string, sceneId: string): Promise<Next
         presenterGender,
         backgroundFixed,
         relatedScenes: buildRelatedScenesContext(scene, visualDesigns),
+        extraPrompt,
       },
       undefined,
       referenceImages

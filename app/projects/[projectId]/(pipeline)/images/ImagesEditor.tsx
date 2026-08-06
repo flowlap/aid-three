@@ -8,7 +8,13 @@ import { ScreenMockup } from "@/components/ScreenMockup";
 import { AiJobStatus } from "@/components/AiJobStatus";
 import { CommonPromptField } from "@/components/CommonPromptField";
 import { ReferenceImageSection, type PresenterGender } from "@/components/ReferenceImageSection";
-import { ImageEngineSelector, type ImageEngine, type LocalModelSize } from "@/components/ImageEngineSelector";
+import {
+  ImageEngineSelector,
+  type ImageEngine,
+  type LocalModelSize,
+  type ImageProviderType,
+  type HChatGeminiModel,
+} from "@/components/ImageEngineSelector";
 import { computeMockupVariantIndexes } from "@/lib/visual-templates";
 import type { Scene } from "@/lib/pipeline/splitScenes";
 import type { ScreenTypeAssignment } from "@/lib/pipeline/selectScreenTypes";
@@ -51,6 +57,8 @@ export function ImagesEditor({
   initialHasStyleImage,
   initialEngine,
   initialModelSize,
+  imageProviderType,
+  initialHchatGeminiModel,
   imageAspectRatio,
 }: {
   projectId: string;
@@ -70,6 +78,8 @@ export function ImagesEditor({
   initialHasStyleImage: boolean;
   initialEngine: ImageEngine;
   initialModelSize: LocalModelSize;
+  imageProviderType: ImageProviderType;
+  initialHchatGeminiModel: HChatGeminiModel;
   /** Actual generated-image pixel ratio (see lib/pipeline/imageAspectRatio.ts) — OpenAI defaults to 3:2, Gemini to 16:9, so the thumbnail/mockup aspect follows whatever this project actually generated instead of a hardcoded 3:2. */
   imageAspectRatio: { width: number; height: number };
 }) {
@@ -92,6 +102,13 @@ export function ImagesEditor({
   const [regenerateError, setRegenerateError] = useState<string | null>(null);
   const [mockupRegeneratingIds, setMockupRegeneratingIds] = useState<Set<string>>(new Set());
   const [mockupRegenerateError, setMockupRegenerateError] = useState<string | null>(null);
+  const [openOptionsSceneId, setOpenOptionsSceneId] = useState<string | null>(null);
+  const [optionsDraft, setOptionsDraft] = useState<{
+    extraPrompt: string;
+    backgroundFixed: boolean;
+    presenterEnabled: boolean;
+    styleReferenceEnabled: boolean;
+  } | null>(null);
   const [advancing, setAdvancing] = useState(false);
   const [advanceError, setAdvanceError] = useState<string | null>(null);
   const [activityLines, setActivityLines] = useState<string[]>([]);
@@ -147,11 +164,23 @@ export function ImagesEditor({
   const remainingCount = eligibleScenes.length - completedCount;
   const isPartial = completedCount > 0 && remainingCount > 0;
 
-  async function regenerateScene(sceneId: string) {
+  async function regenerateScene(
+    sceneId: string,
+    overrides?: {
+      extraPrompt?: string;
+      backgroundFixed?: boolean;
+      presenterEnabled?: boolean;
+      styleReferenceEnabled?: boolean;
+    }
+  ) {
     setRegenerateError(null);
     setRegeneratingIds((prev) => new Set(prev).add(sceneId));
     try {
-      const res = await fetch(`/api/projects/${projectId}/images/${sceneId}`, { method: "POST" });
+      const res = await fetch(`/api/projects/${projectId}/images/${sceneId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(overrides ?? {}),
+      });
       const data = await res.json();
       if (!res.ok) {
         setRegenerateError(data.error ?? "이미지 재생성에 실패했습니다");
@@ -159,6 +188,8 @@ export function ImagesEditor({
       }
       setImageIds((prev) => new Set(prev).add(sceneId));
       setVersions((prev) => ({ ...prev, [sceneId]: (prev[sceneId] ?? 0) + 1 }));
+      setOpenOptionsSceneId(null);
+      setOptionsDraft(null);
     } catch {
       setRegenerateError("이미지 재생성 요청 중 오류가 발생했습니다");
     } finally {
@@ -168,6 +199,21 @@ export function ImagesEditor({
         return next;
       });
     }
+  }
+
+  function toggleOptionsPanel(sceneId: string) {
+    if (openOptionsSceneId === sceneId) {
+      setOpenOptionsSceneId(null);
+      setOptionsDraft(null);
+      return;
+    }
+    setOpenOptionsSceneId(sceneId);
+    setOptionsDraft({
+      extraPrompt: "",
+      backgroundFixed,
+      presenterEnabled,
+      styleReferenceEnabled: initialHasStyleImage,
+    });
   }
 
   async function regenerateMockup(sceneId: string) {
@@ -224,6 +270,8 @@ export function ImagesEditor({
         projectId={projectId}
         initialEngine={initialEngine}
         initialModelSize={initialModelSize}
+        imageProviderType={imageProviderType}
+        initialHchatGeminiModel={initialHchatGeminiModel}
         onEngineChange={setEngine}
       />
       <CommonPromptField
@@ -416,7 +464,7 @@ export function ImagesEditor({
                       type="button"
                       variant="outline"
                       size="sm"
-                      onClick={() => regenerateScene(scene.id)}
+                      onClick={() => toggleOptionsPanel(scene.id)}
                       disabled={regenerating || loading || !design}
                     >
                       {regenerating ? "생성 중..." : hasImage ? "이미지 재생성" : "이미지 생성"}
@@ -424,6 +472,81 @@ export function ImagesEditor({
                   )}
                 </div>
               </div>
+
+              {openOptionsSceneId === scene.id && optionsDraft && (
+                <div className="space-y-3 rounded-lg border border-dashed bg-muted/20 p-3">
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                      추가 프롬프트 (이번 생성에만 적용)
+                    </label>
+                    <textarea
+                      value={optionsDraft.extraPrompt}
+                      onChange={(e) =>
+                        setOptionsDraft((prev) => (prev ? { ...prev, extraPrompt: e.target.value } : prev))
+                      }
+                      placeholder="예: 배경을 좀 더 밝게 해주세요"
+                      rows={2}
+                      className="w-full rounded-md border bg-background px-2.5 py-1.5 text-sm"
+                    />
+                  </div>
+                  <div className="flex flex-wrap gap-4">
+                    <label className="flex cursor-pointer items-center gap-1.5 text-xs">
+                      <input
+                        type="checkbox"
+                        checked={optionsDraft.backgroundFixed}
+                        onChange={(e) =>
+                          setOptionsDraft((prev) => (prev ? { ...prev, backgroundFixed: e.target.checked } : prev))
+                        }
+                        className="size-3.5 accent-primary"
+                      />
+                      배경 고정
+                    </label>
+                    <label className="flex cursor-pointer items-center gap-1.5 text-xs">
+                      <input
+                        type="checkbox"
+                        checked={optionsDraft.presenterEnabled}
+                        onChange={(e) =>
+                          setOptionsDraft((prev) => (prev ? { ...prev, presenterEnabled: e.target.checked } : prev))
+                        }
+                        className="size-3.5 accent-primary"
+                      />
+                      강사 표시
+                    </label>
+                    <label className="flex cursor-pointer items-center gap-1.5 text-xs">
+                      <input
+                        type="checkbox"
+                        checked={optionsDraft.styleReferenceEnabled}
+                        onChange={(e) =>
+                          setOptionsDraft((prev) => (prev ? { ...prev, styleReferenceEnabled: e.target.checked } : prev))
+                        }
+                        className="size-3.5 accent-primary"
+                      />
+                      톤앤매너 적용
+                    </label>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={() => regenerateScene(scene.id, optionsDraft)}
+                      disabled={regenerating}
+                    >
+                      {regenerating ? "생성 중..." : "생성 실행"}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setOpenOptionsSceneId(null);
+                        setOptionsDraft(null);
+                      }}
+                    >
+                      취소
+                    </Button>
+                  </div>
+                </div>
+              )}
 
               {entry && entry.breadcrumb.length > 0 && (
                 <p className="truncate text-xs text-muted-foreground/70">{entry.breadcrumb.join(" > ")}</p>

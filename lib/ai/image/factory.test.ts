@@ -1,7 +1,22 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { createImageClient } from "./factory";
+import { createImageClient, getImageProviderType } from "./factory";
 import { RealOpenAiImageClient } from "./openaiImageClient";
 import { RealHChatGeminiImageClient } from "./hchatGeminiImageClient";
+
+describe("getImageProviderType", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("defaults to openai when IMAGE_PROVIDER is unset", () => {
+    expect(getImageProviderType()).toBe("openai");
+  });
+
+  it("reflects the IMAGE_PROVIDER env var when set", () => {
+    vi.stubEnv("IMAGE_PROVIDER", "hchat-gemini");
+    expect(getImageProviderType()).toBe("hchat-gemini");
+  });
+});
 
 describe("createImageClient", () => {
   afterEach(() => {
@@ -37,5 +52,20 @@ describe("createImageClient", () => {
     vi.stubEnv("IMAGE_PROVIDER", "hchat-gemini");
 
     expect(() => createImageClient()).toThrow(/HCHAT_KEY/);
+  });
+
+  it("passes a per-project hchatGeminiModel override through to the Gemini client", () => {
+    vi.stubEnv("IMAGE_PROVIDER", "hchat-gemini");
+    vi.stubEnv("HCHAT_KEY", "test-key");
+
+    const client = createImageClient({ hchatGeminiModel: "gemini-3-pro-image" });
+    expect(client).toBeInstanceOf(RealHChatGeminiImageClient);
+    expect((client as unknown as { model: string }).model).toBe("gemini-3-pro-image");
+  });
+
+  it("ignores the hchatGeminiModel option when the provider is openai", () => {
+    vi.stubEnv("OPENAI_API_KEY", "test-key");
+
+    expect(createImageClient({ hchatGeminiModel: "gemini-3-pro-image" })).toBeInstanceOf(RealOpenAiImageClient);
   });
 });

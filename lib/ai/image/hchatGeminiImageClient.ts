@@ -3,6 +3,9 @@ import { getHChatBaseUrl, getHChatHeaders } from "../hchatShared";
 
 const DEFAULT_MODEL = "gemini-3.1-flash-image";
 
+export const HCHAT_GEMINI_IMAGE_MODELS = ["gemini-3.1-flash-image", "gemini-3-pro-image"] as const;
+export type HChatGeminiImageModel = (typeof HCHAT_GEMINI_IMAGE_MODELS)[number];
+
 interface GeminiImagePart {
   inlineData?: { data: string; mimeType: string };
   inline_data?: { data: string; mimeType: string };
@@ -94,8 +97,9 @@ export class RealHChatGeminiImageClient implements ImageClient {
   }
 }
 
-export function createHChatGeminiImageClient(): ImageClient {
+/** modelOverride takes precedence — used to pass a project-level model choice (see lib/ai/image/factory.ts) over the process-wide env var. */
+export function createHChatGeminiImageClient(modelOverride?: string): ImageClient {
   getHChatHeaders();
-  const model = process.env.HCHAT_GEMINI_IMAGE_MODEL || DEFAULT_MODEL;
+  const model = modelOverride || process.env.HCHAT_GEMINI_IMAGE_MODEL || DEFAULT_MODEL;
   return new RealHChatGeminiImageClient(model);
 }

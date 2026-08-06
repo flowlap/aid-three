@@ -6,6 +6,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 
 export type ImageEngine = "openai" | "local";
 export type LocalModelSize = "4b" | "9b";
+export type ImageProviderType = "openai" | "hchat-gemini";
+/** Mirrors HCHAT_GEMINI_IMAGE_MODELS in lib/ai/image/hchatGeminiImageClient.ts — kept as a local literal so this client component doesn't import that server-side module. */
+export type HChatGeminiModel = "gemini-3.1-flash-image" | "gemini-3-pro-image";
 
 const ENGINE_LABELS: Record<ImageEngine, string> = {
   openai: "외부 API (Gemini, OpenAI)",
@@ -15,6 +18,11 @@ const ENGINE_LABELS: Record<ImageEngine, string> = {
 const MODEL_SIZE_LABELS: Record<LocalModelSize, string> = {
   "4b": "4B (기본)",
   "9b": "9B (고품질 · 비상업용)",
+};
+
+const HCHAT_GEMINI_MODEL_LABELS: Record<HChatGeminiModel, string> = {
+  "gemini-3.1-flash-image": "Gemini 3.1 Flash Image (기본 · 빠름)",
+  "gemini-3-pro-image": "Gemini 3 Pro Image (고품질)",
 };
 
 /**
@@ -27,25 +35,35 @@ export function ImageEngineSelector({
   projectId,
   initialEngine,
   initialModelSize,
+  imageProviderType,
+  initialHchatGeminiModel,
   onEngineChange,
 }: {
   projectId: string;
   initialEngine: ImageEngine;
   initialModelSize: LocalModelSize;
+  /** Server's configured IMAGE_PROVIDER — the Gemini model selector only shows when this is "hchat-gemini". */
+  imageProviderType: ImageProviderType;
+  initialHchatGeminiModel: HChatGeminiModel;
   /** Fires whenever the engine changes, so a parent that needs the current value (e.g. for a time estimate) can mirror it without owning the save logic. */
   onEngineChange?: (engine: ImageEngine) => void;
 }) {
   const [engine, setEngine] = useState<ImageEngine>(initialEngine);
   const [modelSize, setModelSize] = useState<LocalModelSize>(initialModelSize);
+  const [hchatGeminiModel, setHchatGeminiModel] = useState<HChatGeminiModel>(initialHchatGeminiModel);
   const [saving, setSaving] = useState(false);
 
-  async function save(next: { engine: ImageEngine; modelSize: LocalModelSize }) {
+  async function save(next: { engine: ImageEngine; modelSize: LocalModelSize; hchatGeminiModel: HChatGeminiModel }) {
     setSaving(true);
     try {
       await fetch(`/api/projects/${projectId}/images/engine`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ engine: next.engine, localModelSize: next.modelSize }),
+        body: JSON.stringify({
+          engine: next.engine,
+          localModelSize: next.modelSize,
+          hchatGeminiModel: next.hchatGeminiModel,
+        }),
       });
     } finally {
       setSaving(false);
@@ -55,13 +73,20 @@ export function ImageEngineSelector({
   function handleEngineChange(next: ImageEngine) {
     setEngine(next);
     onEngineChange?.(next);
-    save({ engine: next, modelSize });
+    save({ engine: next, modelSize, hchatGeminiModel });
   }
 
   function handleModelSizeChange(next: LocalModelSize) {
     setModelSize(next);
-    save({ engine, modelSize: next });
+    save({ engine, modelSize: next, hchatGeminiModel });
   }
+
+  function handleHchatGeminiModelChange(next: HChatGeminiModel) {
+    setHchatGeminiModel(next);
+    save({ engine, modelSize, hchatGeminiModel: next });
+  }
+
+  const showHchatGeminiModelSelect = engine === "openai" && imageProviderType === "hchat-gemini";
 
   return (
     <Card className="gap-3 p-4">
@@ -84,6 +109,21 @@ export function ImageEngineSelector({
             <SelectContent>
               <SelectItem value="4b">{MODEL_SIZE_LABELS["4b"]}</SelectItem>
               <SelectItem value="9b">{MODEL_SIZE_LABELS["9b"]}</SelectItem>
+            </SelectContent>
+          </Select>
+        )}
+        {showHchatGeminiModelSelect && (
+          <Select
+            value={hchatGeminiModel}
+            onValueChange={(value) => handleHchatGeminiModelChange(value as HChatGeminiModel)}
+            disabled={saving}
+          >
+            <SelectTrigger className="w-full sm:w-64">
+              <SelectValue>{(value: HChatGeminiModel) => HCHAT_GEMINI_MODEL_LABELS[value]}</SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="gemini-3.1-flash-image">{HCHAT_GEMINI_MODEL_LABELS["gemini-3.1-flash-image"]}</SelectItem>
+              <SelectItem value="gemini-3-pro-image">{HCHAT_GEMINI_MODEL_LABELS["gemini-3-pro-image"]}</SelectItem>
             </SelectContent>
           </Select>
         )}

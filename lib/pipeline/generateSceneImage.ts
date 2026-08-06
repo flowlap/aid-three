@@ -81,6 +81,14 @@ export interface BuildImagePromptOptions {
    * every scene gets the plain NO_TEXT_INSTRUCTION regardless of screen type.
    */
   allowTextInImage?: boolean;
+  /**
+   * One-off extra instruction supplied only when regenerating this specific
+   * scene from the images step's per-scene panel (see ImagesEditor.tsx) —
+   * never persisted, unlike every other option here. Placed right after the
+   * design spec and before the common style guide so a "just for this retry"
+   * instruction can override the project-wide prompt when they conflict.
+   */
+  extraPrompt?: string;
 }
 
 /** Reference images attached to a single generateSceneImage(WithRetry) call — forwarded to the client as multi-image /images/edits input. */
@@ -110,7 +118,7 @@ const PRESENTER_GENDER_LABEL: Record<"male" | "female", string> = {
  * text would otherwise suggest a large, dominant appearance.
  */
 const PRESENTER_SIZE_CONSTRAINT =
-  "단, 등장 형태(좌측/우측/중앙/풀샷)와 무관하게 강사는 화면 전체 면적의 20%를 넘지 않는 크기로 작게, 보조적인 역할로만 배치하세요. 화면의 주인공은 시각 자료이며, 강사가 화면을 압도하거나 과도하게 크게 등장해서는 안 됩니다.";
+  "단, 등장 형태(좌측/우측/중앙/풀샷)와 무관하게 강사는 화면 전체 면적의 약 20% 정도를 차지하도록 배치하세요 — 지나치게 작아서 잘 보이지 않거나, 반대로 화면을 압도할 만큼 크게 등장해서는 안 됩니다. 화면의 주인공은 시각 자료이며 강사는 보조적인 역할입니다.";
 
 /**
  * Appended when the project-wide "강사 표시" toggle is on. Prefers a
@@ -122,10 +130,25 @@ const PRESENTER_SIZE_CONSTRAINT =
  * person" — that reference image (not this text) is what actually keeps the
  * announcer's face/outfit consistent across scenes.
  */
+/**
+ * Appended only when a presenter reference image is attached — locks two
+ * things a plain "match this person" instruction doesn't cover: (1) items
+ * like glasses or a microphone must not be added or removed relative to the
+ * reference, even though pose/gesture/expression are free to vary; (2) when
+ * the reference is a real photo, the presenter's likeness itself must stay
+ * photorealistic even if the project's common style guide asks for flat
+ * illustration — that conflict (DEFAULT_IMAGE_COMMON_PROMPT in
+ * commonPromptDefaults.ts explicitly requests flat-illustration style and
+ * forbids real faces) was the cause of photo references drifting into
+ * illustrated output.
+ */
+const PRESENTER_LIKENESS_LOCK =
+  "자세, 손동작, 표정은 이 화면 내용에 맞게 자연스럽게 바꿔도 되지만, 참고 이미지에 없던 안경, 마이크, 액세서리 등을 새로 추가하거나 반대로 참고 이미지에 있던 것을 빼지 마세요. 또한 참고 이미지가 실사(사진) 스타일이라면, 공통 스타일 가이드가 일러스트 톤을 요구하더라도 강사 인물만큼은 예외로 실사 그대로의 화풍을 유지하고 다른 화풍(일러스트 등)으로 바꾸지 마세요. 배경이나 다른 구성 요소는 공통 스타일 가이드를 따르되, 강사 인물의 외형과 화풍만은 참고 이미지를 그대로 따르세요.";
+
 function buildPresenterInstruction(position?: PresenterPosition, gender?: "male" | "female", hasReferenceImage?: boolean): string {
   if (hasReferenceImage) {
     const positionPhrase = position ? `${PRESENTER_POSITION_LABEL[position]} 형태로` : "화면 내용과 구도에 가장 잘 어울리는 형태로";
-    return `이 화면에는 제공된 강사 참고 이미지와 동일한 인물(얼굴, 헤어스타일, 의상)이 ${positionPhrase} 등장해야 합니다. 참고 이미지 속 인물의 외형을 그대로 유지하고, 위 화면 구성 명세와 자연스럽게 어우러지게 배치하세요. ${PRESENTER_SIZE_CONSTRAINT}`;
+    return `이 화면에는 제공된 강사 참고 이미지와 동일한 인물(얼굴, 헤어스타일, 의상)이 ${positionPhrase} 등장해야 합니다. 참고 이미지 속 인물의 외형을 그대로 유지하고, 위 화면 구성 명세와 자연스럽게 어우러지게 배치하세요. ${PRESENTER_SIZE_CONSTRAINT} ${PRESENTER_LIKENESS_LOCK}`;
   }
 
   const genderPrefix = gender ? `${PRESENTER_GENDER_LABEL[gender]} ` : "";
@@ -175,6 +198,9 @@ export function buildImagePrompt(scene: Scene, design: VisualDesign, promptOptio
       : isTextForward
         ? buildTextInstruction(scene, design)
         : NO_TEXT_INSTRUCTION;
+  const extraInstruction = promptOptions?.extraPrompt?.trim()
+    ? `\n\n추가 수정 지시(이번 생성에서 최우선으로 반영하세요): ${promptOptions.extraPrompt.trim()}`
+    : "";
   const styleGuide = promptOptions?.commonPrompt?.trim()
     ? `\n\n공통 스타일 가이드(모든 화면에 일관되게 적용):\n${promptOptions.commonPrompt.trim()}`
     : "";
@@ -199,7 +225,7 @@ export function buildImagePrompt(scene: Scene, design: VisualDesign, promptOptio
 - 무엇을 그릴지: ${design.imageOrDiagramDescription}
 - 요소 배치: ${design.objectPlacement}
 
-${PRODUCTION_STYLE_INSTRUCTION} ${textInstruction}${styleGuide}${styleReferenceInstruction}${backgroundInstruction}${presenterInstruction}${relatedContext}
+${PRODUCTION_STYLE_INSTRUCTION} ${textInstruction}${extraInstruction}${styleGuide}${styleReferenceInstruction}${backgroundInstruction}${presenterInstruction}${relatedContext}
 
 관련 나레이션(맥락 참고용 — 화면 구성 명세와 배치를 우선하고, 나레이션 문장을 그대로 옮기지 마세요): ${scene.narrationText}`;
 }

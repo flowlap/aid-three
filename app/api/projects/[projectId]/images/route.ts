@@ -60,6 +60,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
   const engine: "openai" | "local" = engineRaw === "local" ? "local" : "openai";
   const modelSizeRaw = (await readProjectFile(projectId, "image-local-model-size.txt"))?.trim();
   const localModelSize: LocalImageModelSize = modelSizeRaw === "9b" ? "9b" : "4b";
+  const hchatGeminiModel = (await readProjectFile(projectId, "image-hchat-gemini-model.txt"))?.trim() || undefined;
   const referenceImages = {
     background: backgroundFixed ? (await readProjectReferenceImage(projectId, "background")) ?? undefined : undefined,
     presenter: presenterEnabled ? (await readProjectReferenceImage(projectId, "presenter")) ?? undefined : undefined,
@@ -111,7 +112,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
     }
   } else {
     try {
-      client = createImageClient();
+      client = createImageClient({ hchatGeminiModel });
     } catch (err) {
       console.error("이미지 생성 실패:", err);
       finishJob(projectId, STEP, "error", "AI 이미지 생성에 실패했습니다");

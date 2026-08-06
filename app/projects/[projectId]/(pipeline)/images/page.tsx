@@ -1,7 +1,8 @@
 import { readProjectFile, readProjectReferenceImage, listProjectImageIds } from "@/lib/projects/store";
 import { getProjectImageAspectRatio } from "@/lib/pipeline/imageAspectRatio";
 import { ImagesEditor } from "./ImagesEditor";
-import type { ImageEngine, LocalModelSize } from "@/components/ImageEngineSelector";
+import type { ImageEngine, LocalModelSize, HChatGeminiModel } from "@/components/ImageEngineSelector";
+import { getImageProviderType } from "@/lib/ai/image/factory";
 import {
   DEFAULT_IMAGE_COMMON_PROMPT,
   DEFAULT_BACKGROUND_IMAGE_PROMPT,
@@ -42,6 +43,10 @@ export default async function ImagesPage({ params }: { params: Promise<{ project
   const initialEngine: ImageEngine = engineRaw === "local" ? "local" : "openai";
   const modelSizeRaw = (await readProjectFile(projectId, "image-local-model-size.txt"))?.trim();
   const initialModelSize: LocalModelSize = modelSizeRaw === "9b" ? "9b" : "4b";
+  const imageProviderType = getImageProviderType();
+  const hchatGeminiModelRaw = (await readProjectFile(projectId, "image-hchat-gemini-model.txt"))?.trim();
+  const initialHchatGeminiModel: HChatGeminiModel =
+    hchatGeminiModelRaw === "gemini-3-pro-image" ? "gemini-3-pro-image" : "gemini-3.1-flash-image";
   const imageAspectRatio = await getProjectImageAspectRatio(projectId);
 
   return (
@@ -68,6 +73,8 @@ export default async function ImagesPage({ params }: { params: Promise<{ project
         initialHasStyleImage={initialHasStyleImage}
         initialEngine={initialEngine}
         initialModelSize={initialModelSize}
+        imageProviderType={imageProviderType}
+        initialHchatGeminiModel={initialHchatGeminiModel}
         imageAspectRatio={imageAspectRatio}
       />
     </>

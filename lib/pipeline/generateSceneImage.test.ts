@@ -217,6 +217,32 @@ describe("generateSceneImage", () => {
     const prompt = buildImagePrompt(scene, design, { screenType: "간지/타이틀형" });
     expect(prompt).toContain("명사형");
   });
+
+  it("inserts extraPrompt as a top-priority instruction when provided", () => {
+    const prompt = buildImagePrompt(scene, design, { extraPrompt: "배경을 좀 더 밝게 해주세요" });
+    expect(prompt).toContain("추가 수정 지시(이번 생성에서 최우선으로 반영하세요): 배경을 좀 더 밝게 해주세요");
+  });
+
+  it("omits the extraPrompt section when not provided or blank", () => {
+    expect(buildImagePrompt(scene, design)).not.toContain("추가 수정 지시");
+    expect(buildImagePrompt(scene, design, { extraPrompt: "   " })).not.toContain("추가 수정 지시");
+  });
+
+  it("locks accessories and pose freedom when a presenter reference image is attached", () => {
+    const prompt = buildImagePrompt(scene, design, { presenterEnabled: true, hasPresenterReferenceImage: true });
+    expect(prompt).toContain("안경, 마이크, 액세서리 등을 새로 추가하거나 반대로 참고 이미지에 있던 것을 빼지 마세요");
+    expect(prompt).toContain("자세, 손동작, 표정은 이 화면 내용에 맞게 자연스럽게 바꿔도 되지만");
+  });
+
+  it("keeps the presenter's likeness photorealistic over the common illustration style guide when a reference image is attached", () => {
+    const prompt = buildImagePrompt(scene, design, { presenterEnabled: true, hasPresenterReferenceImage: true });
+    expect(prompt).toContain("공통 스타일 가이드가 일러스트 톤을 요구하더라도 강사 인물만큼은 예외로 실사 그대로의 화풍을 유지");
+  });
+
+  it("does not include the accessory/likeness lock when no presenter reference image is attached", () => {
+    const prompt = buildImagePrompt(scene, design, { presenterEnabled: true, presenterGender: "female" });
+    expect(prompt).not.toContain("안경, 마이크, 액세서리");
+  });
 });
 
 describe("buildRelatedScenesContext", () => {
