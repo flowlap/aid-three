@@ -14,8 +14,14 @@ import {
   writeProjectImage,
   readProjectImage,
   listProjectImageIds,
+  readSequencePlan,
+  writeSequencePlan,
+  writeSequenceMasterImage,
+  readSequenceMasterImage,
+  listSequenceMasterImageIds,
 } from "./store";
 import { getProductionMode, type ProductionMode } from "./types";
+import type { SequencePlan } from "../pipeline/sequenceTypes";
 
 let tempRoot: string;
 
@@ -227,6 +233,95 @@ describe("mergeProjectJsonMap", () => {
     const project = await createProject("병합 경로 검증", "script");
     await expect(
       mergeProjectJsonMap(project.id, "../../evil.json", "screenTypes", "scene-001", {})
+    ).rejects.toThrow();
+  });
+});
+
+function samplePlan(): SequencePlan {
+  return {
+    version: 1,
+    sequences: [
+      {
+        id: "sequence-001",
+        order: 1,
+        title: "도입부",
+        sceneIds: ["scene-001", "scene-002"],
+        estimatedDurationSec: 20,
+        purpose: "테스트 목적",
+        continuity: { location: "교실", visualStyle: "플랫 일러스트", fixedElements: [], doNotChange: [] },
+        masterVisual: { description: "마스터 비주얼", status: "not-generated" },
+        cameraPlan: [],
+        overlays: [],
+      },
+    ],
+  };
+}
+
+describe("sequence plan storage", () => {
+  it("returns null when no sequence plan has been written yet", async () => {
+    const project = await createProject("시퀀스 없음", "script", "sequence");
+    expect(await readSequencePlan(project.id)).toBeNull();
+  });
+
+  it("writes and reads back a sequence plan", async () => {
+    const project = await createProject("시퀀스 저장", "script", "sequence");
+    const plan = samplePlan();
+
+    await writeSequencePlan(project.id, plan);
+    const read = await readSequencePlan(project.id);
+
+    expect(read).toEqual(plan);
+  });
+
+  it("returns null for a malformed sequences.json instead of throwing", async () => {
+    const project = await createProject("시퀀스 손상", "script", "sequence");
+    await writeProjectFile(project.id, "sequences.json", "{not valid json");
+
+    await expect(readSequencePlan(project.id)).resolves.toBeNull();
+  });
+});
+
+describe("sequence master image storage", () => {
+  it("writes and reads back a sequence master image", async () => {
+    const project = await createProject("마스터 이미지", "script", "sequence");
+    const buffer = Buffer.from([9, 9, 9]);
+
+    await writeSequenceMasterImage(project.id, "sequence-001", "asset-001", buffer);
+    const read = await readSequenceMasterImage(project.id, "sequence-001", "asset-001");
+
+    expect(read).toEqual(buffer);
+  });
+
+  it("returns null for a sequence with no master image yet", async () => {
+    const project = await createProject("마스터 이미지 없음", "script", "sequence");
+    expect(await readSequenceMasterImage(project.id, "sequence-001", "asset-001")).toBeNull();
+  });
+
+  it("lists only asset ids that have a saved master image for that sequence", async () => {
+    const project = await createProject("마스터 이미지 목록", "script", "sequence");
+    await writeSequenceMasterImage(project.id, "sequence-001", "asset-001", Buffer.from([1]));
+    await writeSequenceMasterImage(project.id, "sequence-001", "asset-002", Buffer.from([2]));
+    await writeSequenceMasterImage(project.id, "sequence-002", "asset-001", Buffer.from([3]));
+
+    const ids = await listSequenceMasterImageIds(project.id, "sequence-001");
+
+    expect(ids.sort()).toEqual(["asset-001", "asset-002"]);
+  });
+
+  it("returns an empty list when the sequence has no asset directory yet", async () => {
+    const project = await createProject("마스터 이미지 빈 목록", "script", "sequence");
+    expect(await listSequenceMasterImageIds(project.id, "sequence-001")).toEqual([]);
+  });
+
+  it("rejects an unsafe sequence id", async () => {
+    const project = await createProject("시퀀스 경로 검증", "script", "sequence");
+    await expect(writeSequenceMasterImage(project.id, "../evil", "asset-001", Buffer.from([1]))).rejects.toThrow();
+  });
+
+  it("rejects an unsafe asset id", async () => {
+    const project = await createProject("에셋 경로 검증", "script", "sequence");
+    await expect(
+      writeSequenceMasterImage(project.id, "sequence-001", "../evil", Buffer.from([1]))
     ).rejects.toThrow();
   });
 });

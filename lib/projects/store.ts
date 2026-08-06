@@ -2,6 +2,7 @@ import { promises as fs } from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
 import type { ProjectMeta, PipelineStep, ScriptType, ProductionMode } from "./types";
+import type { SequencePlan } from "../pipeline/sequenceTypes";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -33,6 +34,26 @@ function assertSafeSceneId(sceneId: string): void {
   }
 }
 
+// Same defensive shape as SCENE_ID_PATTERN (alphanumeric/underscore/dash only,
+// no path separators or "..") rather than a strict "sequence-NNN" regex, so a
+// hand-edited or future non-zero-padded id doesn't hit a path-safety wall
+// unrelated to its actual purpose (mirrors the scene id precedent).
+const SEQUENCE_ID_PATTERN = /^[a-zA-Z0-9_-]+$/;
+
+function assertSafeSequenceId(sequenceId: string): void {
+  if (!SEQUENCE_ID_PATTERN.test(sequenceId)) {
+    throw new Error(`Invalid sequence id: ${sequenceId}`);
+  }
+}
+
+const ASSET_ID_PATTERN = /^[a-zA-Z0-9_-]+$/;
+
+function assertSafeAssetId(assetId: string): void {
+  if (!ASSET_ID_PATTERN.test(assetId)) {
+    throw new Error(`Invalid asset id: ${assetId}`);
+  }
+}
+
 function getProjectsRoot(): string {
   return process.env.PROJECTS_DATA_DIR || path.join(process.cwd(), "data", "projects");
 }
@@ -48,6 +69,15 @@ export function projectSourceDir(id: string): string {
 
 export function projectImagesDir(id: string): string {
   return path.join(projectDir(id), "images");
+}
+
+export function projectSequenceAssetsDir(id: string): string {
+  return path.join(projectDir(id), "sequence-assets");
+}
+
+export function projectSequenceAssetDir(id: string, sequenceId: string): string {
+  assertSafeSequenceId(sequenceId);
+  return path.join(projectSequenceAssetsDir(id), sequenceId);
 }
 
 export function projectAudioDir(id: string): string {
@@ -200,6 +230,31 @@ export async function readProjectFile(id: string, filename: string): Promise<str
   }
 }
 
+const SEQUENCES_FILENAME = "sequences.json";
+
+/**
+ * sequences.json is only ever written for sequence-mode projects — callers
+ * decide when that's appropriate (this task only adds the capability, not
+ * the write call sites). Like readProject's project.json handling, this does
+ * a blind JSON.parse + cast with no runtime shape validation; that's the
+ * existing convention for project files in this codebase (see store.ts's
+ * readProject) — validateSequenceIntegrity is where real shape/integrity
+ * checking happens, applied by callers after reading.
+ */
+export async function readSequencePlan(id: string): Promise<SequencePlan | null> {
+  const raw = await readProjectFile(id, SEQUENCES_FILENAME);
+  if (raw === null) return null;
+  try {
+    return JSON.parse(raw) as SequencePlan;
+  } catch {
+    return null;
+  }
+}
+
+export async function writeSequencePlan(id: string, plan: SequencePlan): Promise<void> {
+  await writeProjectFile(id, SEQUENCES_FILENAME, JSON.stringify(plan, null, 2));
+}
+
 export async function writeProjectImage(id: string, sceneId: string, buffer: Buffer): Promise<void> {
   assertSafeSceneId(sceneId);
   await fs.mkdir(projectImagesDir(id), { recursive: true });
@@ -218,6 +273,48 @@ export async function readProjectImage(id: string, sceneId: string): Promise<Buf
 export async function listProjectImageIds(id: string): Promise<string[]> {
   try {
     const entries = await fs.readdir(projectImagesDir(id));
+    return entries.filter((name) => name.endsWith(".png")).map((name) => name.slice(0, -".png".length));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Sequence master visuals, stored one directory deeper than per-scene images:
+ * sequence-assets/{sequenceId}/{assetId}.png. `assetId` lets a sequence keep
+ * more than one generated master (e.g. after regeneration) without
+ * overwriting the previous file — masterVisual.assetId in sequences.json
+ * points at whichever one is current. This task only adds the storage
+ * helpers; actual generation is a later task.
+ */
+export async function writeSequenceMasterImage(
+  id: string,
+  sequenceId: string,
+  assetId: string,
+  buffer: Buffer
+): Promise<void> {
+  assertSafeAssetId(assetId);
+  const dir = projectSequenceAssetDir(id, sequenceId);
+  await fs.mkdir(dir, { recursive: true });
+  await fs.writeFile(path.join(dir, `${assetId}.png`), buffer);
+}
+
+export async function readSequenceMasterImage(
+  id: string,
+  sequenceId: string,
+  assetId: string
+): Promise<Buffer | null> {
+  try {
+    assertSafeAssetId(assetId);
+    return await fs.readFile(path.join(projectSequenceAssetDir(id, sequenceId), `${assetId}.png`));
+  } catch {
+    return null;
+  }
+}
+
+export async function listSequenceMasterImageIds(id: string, sequenceId: string): Promise<string[]> {
+  try {
+    const entries = await fs.readdir(projectSequenceAssetDir(id, sequenceId));
     return entries.filter((name) => name.endsWith(".png")).map((name) => name.slice(0, -".png".length));
   } catch {
     return [];
