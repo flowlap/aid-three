@@ -262,6 +262,41 @@ describe("mergeAdjacentSequences", () => {
     const result = mergeAdjacentSequences(threeSequencePlan(), scenes, "sequence-001", "sequence-999");
     expect("error" in result).toBe(true);
   });
+
+  it("sets needsReview on the merged sequence when only the first input has it", () => {
+    const scenes = sixScenes();
+    const p = plan([
+      sequence({ id: "sequence-001", order: 1, sceneIds: ["scene-001", "scene-002"], needsReview: true }),
+      sequence({ id: "sequence-002", order: 2, sceneIds: ["scene-003", "scene-004"] }),
+    ]);
+    const result = mergeAdjacentSequences(p, scenes, "sequence-001", "sequence-002");
+    if ("error" in result) throw new Error(result.error);
+    expect(seqById(result.plan, "sequence-001").needsReview).toBe(true);
+  });
+
+  it("sets needsReview on the merged sequence when only the second input has it", () => {
+    const scenes = sixScenes();
+    const p = plan([
+      sequence({ id: "sequence-001", order: 1, sceneIds: ["scene-001", "scene-002"] }),
+      sequence({ id: "sequence-002", order: 2, sceneIds: ["scene-003", "scene-004"], needsReview: true }),
+    ]);
+    const result = mergeAdjacentSequences(p, scenes, "sequence-001", "sequence-002");
+    if ("error" in result) throw new Error(result.error);
+    expect(seqById(result.plan, "sequence-001").needsReview).toBe(true);
+  });
+
+  it("omits needsReview on the merged sequence when neither input has it", () => {
+    const scenes = sixScenes();
+    const p = plan([
+      sequence({ id: "sequence-001", order: 1, sceneIds: ["scene-001", "scene-002"] }),
+      sequence({ id: "sequence-002", order: 2, sceneIds: ["scene-003", "scene-004"] }),
+    ]);
+    const result = mergeAdjacentSequences(p, scenes, "sequence-001", "sequence-002");
+    if ("error" in result) throw new Error(result.error);
+    const merged = seqById(result.plan, "sequence-001");
+    expect(merged.needsReview).toBeUndefined();
+    expect("needsReview" in merged).toBe(false);
+  });
 });
 
 describe("splitSequence", () => {
@@ -326,6 +361,37 @@ describe("splitSequence", () => {
     const scenes = sixScenes();
     const result = splitSequence(threeSequencePlan(), scenes, "sequence-999", "scene-001");
     expect("error" in result).toBe(true);
+  });
+
+  it("falls back to a numbered id when the natural '-b' id is already taken", () => {
+    const scenes = sixScenes();
+    const p = plan([
+      sequence({ id: "sequence-001", order: 1, sceneIds: ["scene-001", "scene-002", "scene-003"] }),
+      sequence({ id: "sequence-001-b", order: 2, sceneIds: ["scene-004"] }),
+    ]);
+    const result = splitSequence(p, scenes, "sequence-001", "scene-001");
+    if ("error" in result) throw new Error(result.error);
+    const secondHalf = result.plan.sequences.find(
+      (s) => s.id !== "sequence-001" && s.id !== "sequence-001-b"
+    );
+    expect(secondHalf?.id).toBe("sequence-001-2");
+    expect(secondHalf?.sceneIds).toEqual(["scene-002", "scene-003"]);
+  });
+
+  it("skips multiple taken numbered ids and lands on the first free one", () => {
+    const scenes = sixScenes();
+    const p = plan([
+      sequence({ id: "sequence-001", order: 1, sceneIds: ["scene-001", "scene-002", "scene-003"] }),
+      sequence({ id: "sequence-001-b", order: 2, sceneIds: ["scene-004"] }),
+      sequence({ id: "sequence-001-2", order: 3, sceneIds: ["scene-005"] }),
+      sequence({ id: "sequence-001-3", order: 4, sceneIds: ["scene-006"] }),
+    ]);
+    const result = splitSequence(p, scenes, "sequence-001", "scene-001");
+    if ("error" in result) throw new Error(result.error);
+    const takenIds = new Set(["sequence-001", "sequence-001-b", "sequence-001-2", "sequence-001-3"]);
+    const secondHalf = result.plan.sequences.find((s) => !takenIds.has(s.id));
+    expect(secondHalf?.id).toBe("sequence-001-4");
+    expect(secondHalf?.sceneIds).toEqual(["scene-002", "scene-003"]);
   });
 });
 

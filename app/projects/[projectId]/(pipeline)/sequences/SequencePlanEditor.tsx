@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -85,6 +86,7 @@ export function SequencePlanEditor({
   initialPlan: SequencePlan | null;
   productionMode: ProductionMode;
 }) {
+  const router = useRouter();
   const [scenes] = useState<Scene[]>(initialScenes);
   const [plan, setPlan] = useState<SequencePlan | null>(initialPlan);
   const [rawPreview, setRawPreview] = useState("");
@@ -104,11 +106,13 @@ export function SequencePlanEditor({
         setPlan(event.plan);
         setOpError(null);
         setSaveIssues([]);
+        setSaveError(null);
       }
     },
     onPollUpdate: (status) => {
       if (typeof status.partialRaw === "string") setRawPreview(status.partialRaw);
     },
+    onSettled: () => router.refresh(),
   });
 
   const sceneById = useMemo(() => new Map(scenes.map((scene) => [scene.id, scene])), [scenes]);
