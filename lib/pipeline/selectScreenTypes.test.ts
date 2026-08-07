@@ -449,13 +449,68 @@ describe("selectScreenTypes", () => {
       const client = new MockLlmClient([batchResponse(scenes)]);
 
       const result = await selectScreenTypes(client, withTitle, {
-        sequenceContextByScene: { "scene-001": makeSequenceContext() },
+        // Includes an entry keyed by the title scene's own id — title scenes
+        // are never supposed to end up in sequenceContextByScene in
+        // practice (see buildSequenceContextByScene), but this proves the
+        // title code path ignores it even if one were present, rather than
+        // merely never being asked to check (which the "scene-001"-only
+        // version above would not distinguish).
+        sequenceContextByScene: { "scene-000": makeSequenceContext(), "scene-001": makeSequenceContext() },
       });
 
       // Title scenes never hit the AI at all, so there's no prompt to check —
       // just confirm the fixed local title design is untouched by the option.
       expect(result["scene-000"]).toMatchObject({ screenType: "간지/타이틀형", caption: "1장 소개" });
       expect(client.calls[0].messages[1].content).toContain("시퀀스 공유 맥락");
+    });
+
+    it("omits the camera-plan bullet when the scene has no camera entry (overlays only)", async () => {
+      const client = new MockLlmClient([batchResponse([scenes[0]])]);
+      const sequenceContext = makeSequenceContext({
+        overlays: [{ sceneId: "scene-001", type: "chart", description: "배출권 가격 추이 그래프" }],
+      });
+
+      await selectScreenTypes(client, [scenes[0]], {
+        sequenceContextByScene: { "scene-001": sequenceContext },
+      });
+
+      const prompt = client.calls[0].messages[1].content;
+      expect(prompt).not.toContain("카메라 계획");
+      expect(prompt).toContain("배출권 가격 추이 그래프");
+    });
+
+    it("omits the camera-plan bullet when the scene has neither camera nor overlays", async () => {
+      const client = new MockLlmClient([batchResponse([scenes[0]])]);
+      const sequenceContext = makeSequenceContext();
+
+      await selectScreenTypes(client, [scenes[0]], {
+        sequenceContextByScene: { "scene-001": sequenceContext },
+      });
+
+      const prompt = client.calls[0].messages[1].content;
+      expect(prompt).not.toContain("카메라 계획");
+      expect(prompt).not.toContain("계획된 오버레이");
+    });
+
+    it("never emits the literal string 'undefined' in the sequence-context block when continuity has no timeOfDay", async () => {
+      const client = new MockLlmClient([batchResponse([scenes[0]])]);
+      const sequenceContext = makeSequenceContext({
+        continuity: {
+          location: "현대적 사무실",
+          visualStyle: "플랫 일러스트, 파스텔톤",
+          fixedElements: [],
+          doNotChange: [],
+        },
+      });
+
+      await selectScreenTypes(client, [scenes[0]], {
+        sequenceContextByScene: { "scene-001": sequenceContext },
+      });
+
+      const prompt = client.calls[0].messages[1].content;
+      const blockStart = prompt.indexOf("시퀀스 공유 맥락");
+      expect(blockStart).toBeGreaterThanOrEqual(0);
+      expect(prompt.slice(blockStart)).not.toContain("undefined");
     });
   });
 });

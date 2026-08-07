@@ -4,8 +4,7 @@ import { SCREEN_TYPE_OPTIONS, SCREEN_TYPE_INFO, PRESENTER_EXCLUDED_SCREEN_TYPES 
 import { LAYOUT_POSITIONS, PRESENTER_POSITIONS, type LayoutElement, type LayoutPosition, type PresenterPosition } from "./designVisuals";
 import type { Scene } from "./splitScenes";
 import { groupContentScenesByParentTitle } from "./sceneHierarchy";
-import type { SequenceCameraPlanEntry, SequenceContinuity, SequenceOverlayEntry, SequencePlan } from "./sequenceTypes";
-import { findSequenceForScene } from "./sequenceLookup";
+import type { Sequence, SequenceCameraPlanEntry, SequenceContinuity, SequenceOverlayEntry, SequencePlan } from "./sequenceTypes";
 
 export interface ScreenTypeAssignment {
   screenType: string;
@@ -64,9 +63,10 @@ function isStringArray(value: unknown): value is string[] {
 
 /**
  * Sequence-mode-only context for a single scene, derived by the caller (see
- * the screen-design routes) from that scene's owning Sequence via
- * findSequenceForScene (sequenceLookup.ts). Deliberately narrow: only the
- * fields relevant to designing THIS scene's screen — the sequence's shared
+ * the screen-design routes, via loadSequenceContextByScene in
+ * lib/pipeline/loadSequenceContext.ts) from that scene's owning Sequence.
+ * Deliberately narrow: only the fields relevant to designing THIS scene's
+ * screen — the sequence's shared
  * purpose/continuity/master-visual description for visual-world consistency,
  * plus this scene's own camera and overlay plan entries (never the whole
  * sequence's overlays/camera plan for every scene). Scene-mode projects (and
@@ -95,9 +95,19 @@ export function buildSequenceContextByScene(
   plan: SequencePlan,
   scenes: Scene[]
 ): Record<string, SceneSequenceContext> {
+  // Precompute a sceneId -> Sequence reverse map once instead of having
+  // findSequenceForScene rescan plan.sequences[].sceneIds for every scene
+  // (O(scenes * sceneIds) otherwise).
+  const sequenceBySceneId = new Map<string, Sequence>();
+  for (const seq of plan.sequences) {
+    for (const sceneId of seq.sceneIds) {
+      sequenceBySceneId.set(sceneId, seq);
+    }
+  }
+
   const result: Record<string, SceneSequenceContext> = {};
   for (const scene of scenes) {
-    const seq = findSequenceForScene(plan, scene.id);
+    const seq = sequenceBySceneId.get(scene.id);
     if (!seq) continue;
     result[scene.id] = {
       purpose: seq.purpose,

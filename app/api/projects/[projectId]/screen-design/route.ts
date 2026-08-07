@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { readProject, readProjectFile, writeProjectFile, updateProjectStep, mergeProjectJsonMap, readSequencePlan } from "@/lib/projects/store";
+import { readProject, readProjectFile, writeProjectFile, updateProjectStep, mergeProjectJsonMap } from "@/lib/projects/store";
 import { getProductionMode } from "@/lib/projects/types";
 import { createLlmClient } from "@/lib/ai/llm/factory";
-import { selectScreenTypes, buildSequenceContextByScene, type ScreenTypeAssignment, type SceneSequenceContext } from "@/lib/pipeline/selectScreenTypes";
+import { selectScreenTypes, type ScreenTypeAssignment, type SceneSequenceContext } from "@/lib/pipeline/selectScreenTypes";
 import { computeVisualDesign } from "@/lib/visual-templates";
 import type { VisualDesign } from "@/lib/pipeline/designVisuals";
 import type { Scene } from "@/lib/pipeline/splitScenes";
-import { validateSequenceIntegrity } from "@/lib/pipeline/validateSequenceIntegrity";
+import { loadSequenceContextByScene } from "@/lib/pipeline/loadSequenceContext";
 import { createResilientStream } from "@/lib/http/resilientStream";
 import { startJob, finishJob, recordProgress, getJob, JobAlreadyRunningError } from "@/lib/jobs/registry";
 import { DEFAULT_SCREEN_DESIGN_COMMON_PROMPT } from "@/lib/pipeline/commonPromptDefaults";
@@ -55,18 +55,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
     return NextResponse.json({ error: "씬 데이터 형식이 올바르지 않습니다" }, { status: 400 });
   }
 
-  const productionMode = getProductionMode(project);
   let sequenceContextByScene: Record<string, SceneSequenceContext> | undefined;
-  if (productionMode === "sequence") {
-    const sequencePlan = await readSequencePlan(projectId);
-    if (!sequencePlan) {
-      return NextResponse.json({ error: "시퀀스 계획이 없습니다. 먼저 시퀀스 단계를 완료해주세요." }, { status: 400 });
-    }
-    const issues = validateSequenceIntegrity(scenes, sequencePlan);
-    if (issues.some((issue) => issue.severity === "error")) {
-      return NextResponse.json({ error: "시퀀스 계획에 오류가 있습니다. 시퀀스 단계에서 먼저 수정해주세요." }, { status: 400 });
-    }
-    sequenceContextByScene = buildSequenceContextByScene(sequencePlan, scenes);
+  if (getProductionMode(project) === "sequence") {
+    const contextResult = await loadSequenceContextByScene(projectId, scenes);
+    if ("errorResponse" in contextResult) return contextResult.errorResponse;
+    sequenceContextByScene = contextResult.sequenceContextByScene;
   }
 
   let job;
