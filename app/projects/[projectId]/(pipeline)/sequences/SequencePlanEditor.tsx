@@ -95,6 +95,9 @@ export function SequencePlanEditor({
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveIssues, setSaveIssues] = useState<SequenceIntegrityIssue[]>([]);
   const [titleDrafts, setTitleDrafts] = useState<Record<string, string>>({});
+  const [generatingMasterFor, setGeneratingMasterFor] = useState<Set<string>>(new Set());
+  const [masterImageError, setMasterImageError] = useState<Record<string, string>>({});
+  const [masterImageVersion, setMasterImageVersion] = useState<Record<string, number>>({});
 
   const { loading, discoveredRunning, error, startedAt, start, cancel } = useAiJob<SequenceStreamEvent>({
     projectId,
@@ -163,6 +166,39 @@ export function SequencePlanEditor({
   function handleMasterVisualDescription(sequenceId: string, description: string) {
     if (!plan) return;
     applyOp(updateMasterVisualDescription(plan, sequenceId, description));
+  }
+
+  /** Triggers one explicit master-visual generation for a sequence (Task 7) — patches `plan` in place on success rather than a full router.refresh(), mirroring ImagesEditor.tsx's per-scene regenerate pattern. */
+  async function handleGenerateMasterVisual(sequenceId: string) {
+    setGeneratingMasterFor((prev) => new Set(prev).add(sequenceId));
+    setMasterImageError((prev) => ({ ...prev, [sequenceId]: "" }));
+    try {
+      const res = await fetch(`/api/projects/${projectId}/sequences/${sequenceId}/master-image`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        setMasterImageError((prev) => ({ ...prev, [sequenceId]: data.error ?? "마스터 비주얼 생성에 실패했습니다" }));
+        return;
+      }
+      setPlan((prev) =>
+        prev
+          ? {
+              ...prev,
+              sequences: prev.sequences.map((s) =>
+                s.id === sequenceId ? { ...s, masterVisual: { ...s.masterVisual, status: "generated", assetId: data.assetId } } : s
+              ),
+            }
+          : prev
+      );
+      setMasterImageVersion((prev) => ({ ...prev, [sequenceId]: (prev[sequenceId] ?? 0) + 1 }));
+    } catch {
+      setMasterImageError((prev) => ({ ...prev, [sequenceId]: "요청 중 오류가 발생했습니다" }));
+    } finally {
+      setGeneratingMasterFor((prev) => {
+        const next = new Set(prev);
+        next.delete(sequenceId);
+        return next;
+      });
+    }
   }
 
   function handleMoveScene(sceneId: string, direction: "prev" | "next") {
@@ -407,6 +443,31 @@ export function SequencePlanEditor({
                       onChange={(e) => handleMasterVisualDescription(seq.id, e.target.value)}
                       className="text-sm"
                     />
+                    <div className="flex flex-wrap items-center gap-2 pt-1">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={generatingMasterFor.has(seq.id)}
+                        onClick={() => void handleGenerateMasterVisual(seq.id)}
+                      >
+                        {generatingMasterFor.has(seq.id)
+                          ? "생성 중..."
+                          : seq.masterVisual.status === "not-generated"
+                            ? "마스터 비주얼 생성"
+                            : "다시 생성"}
+                      </Button>
+                      {masterImageError[seq.id] && (
+                        <span className="text-xs text-destructive">{masterImageError[seq.id]}</span>
+                      )}
+                    </div>
+                    {seq.masterVisual.assetId && (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={`/api/projects/${projectId}/sequences/${seq.id}/master-image?v=${masterImageVersion[seq.id] ?? 0}`}
+                        alt="마스터 비주얼 미리보기"
+                        className="mt-1 max-h-40 rounded-md border object-cover"
+                      />
+                    )}
                   </div>
 
                   <ul className="space-y-1.5">

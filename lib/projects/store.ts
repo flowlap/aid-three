@@ -2,7 +2,7 @@ import { promises as fs } from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
 import type { ProjectMeta, PipelineStep, ScriptType, ProductionMode } from "./types";
-import type { SequencePlan } from "../pipeline/sequenceTypes";
+import type { Sequence, SequenceMasterVisual, SequencePlan } from "../pipeline/sequenceTypes";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -251,6 +251,30 @@ export async function readSequencePlan(id: string): Promise<SequencePlan | null>
 
 export async function writeSequencePlan(id: string, plan: SequencePlan): Promise<void> {
   await writeProjectFile(id, SEQUENCES_FILENAME, JSON.stringify(plan, null, 2));
+}
+
+/**
+ * Atomically patches one sequence's masterVisual field and persists the whole
+ * plan. Returns the updated Sequence, or null if the plan or the sequence
+ * doesn't exist. Caller is responsible for concurrency control (e.g.
+ * withInFlightLock) around this — this function itself does a plain
+ * read-modify-write.
+ */
+export async function updateSequenceMasterVisual(
+  id: string,
+  sequenceId: string,
+  patch: Partial<SequenceMasterVisual>
+): Promise<Sequence | null> {
+  const plan = await readSequencePlan(id);
+  if (!plan) return null;
+
+  const idx = plan.sequences.findIndex((seq) => seq.id === sequenceId);
+  if (idx === -1) return null;
+
+  const updated: Sequence = { ...plan.sequences[idx], masterVisual: { ...plan.sequences[idx].masterVisual, ...patch } };
+  const sequences = plan.sequences.map((seq, i) => (i === idx ? updated : seq));
+  await writeSequencePlan(id, { ...plan, sequences });
+  return updated;
 }
 
 export async function writeProjectImage(id: string, sceneId: string, buffer: Buffer): Promise<void> {
