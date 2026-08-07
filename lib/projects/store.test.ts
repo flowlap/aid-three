@@ -14,12 +14,18 @@ import {
   writeProjectImage,
   readProjectImage,
   listProjectImageIds,
+  projectImagePath,
   readSequencePlan,
   writeSequencePlan,
   writeSequenceMasterImage,
   readSequenceMasterImage,
   listSequenceMasterImageIds,
   projectSequenceMasterImagePath,
+  projectVideoClipFingerprintPath,
+  writeProjectVideoClipFingerprint,
+  readProjectVideoClipFingerprint,
+  projectVideoOverlayPath,
+  writeProjectVideoOverlay,
 } from "./store";
 import { getProductionMode, type ProductionMode } from "./types";
 import type { SequencePlan } from "../pipeline/sequenceTypes";
@@ -340,5 +346,62 @@ describe("sequence master image storage", () => {
   it("rejects an unsafe asset id when building the path", async () => {
     const project = await createProject("마스터 이미지 경로 검증", "script", "sequence");
     expect(() => projectSequenceMasterImagePath(project.id, "sequence-001", "../evil")).toThrow();
+  });
+});
+
+describe("projectImagePath", () => {
+  it("builds the same path writeProjectImage/readProjectImage use internally", async () => {
+    const project = await createProject("이미지 경로", "script");
+    const buffer = Buffer.from([5, 6]);
+    await writeProjectImage(project.id, "scene-001", buffer);
+
+    const filePath = projectImagePath(project.id, "scene-001");
+    const { promises: fs } = await import("fs");
+
+    await expect(fs.readFile(filePath)).resolves.toEqual(buffer);
+  });
+
+  it("rejects an unsafe scene id", async () => {
+    const project = await createProject("이미지 경로 검증", "script");
+    expect(() => projectImagePath(project.id, "../evil")).toThrow();
+  });
+});
+
+describe("project video clip fingerprint storage", () => {
+  it("returns null when no fingerprint has been written yet", async () => {
+    const project = await createProject("핑거프린트 없음", "script", "sequence");
+    expect(await readProjectVideoClipFingerprint(project.id, "scene-001")).toBeNull();
+  });
+
+  it("writes and reads back a fingerprint", async () => {
+    const project = await createProject("핑거프린트 저장", "script", "sequence");
+
+    await writeProjectVideoClipFingerprint(project.id, "scene-001", "abc123");
+    const read = await readProjectVideoClipFingerprint(project.id, "scene-001");
+
+    expect(read).toBe("abc123");
+  });
+
+  it("rejects an unsafe scene id", async () => {
+    const project = await createProject("핑거프린트 경로 검증", "script", "sequence");
+    expect(() => projectVideoClipFingerprintPath(project.id, "../evil")).toThrow();
+  });
+});
+
+describe("project video overlay storage", () => {
+  it("writes and reads back an overlay PNG from its own path", async () => {
+    const project = await createProject("오버레이 저장", "script", "sequence");
+    const buffer = Buffer.from([1, 2, 3]);
+
+    await writeProjectVideoOverlay(project.id, "scene-001", buffer);
+    const filePath = projectVideoOverlayPath(project.id, "scene-001");
+    const { promises: fs } = await import("fs");
+
+    await expect(fs.readFile(filePath)).resolves.toEqual(buffer);
+  });
+
+  it("rejects an unsafe scene id", async () => {
+    const project = await createProject("오버레이 경로 검증", "script", "sequence");
+    expect(() => projectVideoOverlayPath(project.id, "../evil")).toThrow();
   });
 });

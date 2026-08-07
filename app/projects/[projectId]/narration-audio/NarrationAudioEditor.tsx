@@ -18,6 +18,7 @@ type TtsStreamEvent =
 type VideoStreamEvent =
   | { type: "scene"; sceneId: string; index: number; total: number }
   | { type: "concatenating" }
+  | { type: "warning"; message: string }
   | { type: "result" }
   | { type: "error"; message: string }
   | { type: "cancelled" };
@@ -108,6 +109,8 @@ export function NarrationAudioEditor({
         setVideoActivityLines((prev) => [...prev, `[${event.index + 1}/${event.total}] ${event.sceneId} 클립 생성 완료`]);
       } else if (event.type === "concatenating") {
         setVideoActivityLines((prev) => [...prev, "클립을 하나로 연결하는 중..."]);
+      } else if (event.type === "warning") {
+        setVideoActivityLines((prev) => [...prev, `⚠️ ${event.message}`]);
       } else if (event.type === "result") {
         setVideoReady(true);
         setVideoVersion((v) => v + 1);

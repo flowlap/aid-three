@@ -292,6 +292,18 @@ export async function updateSequenceMasterVisual(
   return updated;
 }
 
+/**
+ * File path (not buffer) for one scene's already-generated image — mirrors
+ * projectSequenceMasterImagePath, for callers that need a path rather than
+ * contents (e.g. ffmpeg's `-i`, or sequence-mode video rendering reading the
+ * raw generated PNG directly instead of going through the Satori frame
+ * renderer — see the video route).
+ */
+export function projectImagePath(id: string, sceneId: string): string {
+  assertSafeSceneId(sceneId);
+  return path.join(projectImagesDir(id), `${sceneId}.png`);
+}
+
 export async function writeProjectImage(id: string, sceneId: string, buffer: Buffer): Promise<void> {
   assertSafeSceneId(sceneId);
   await fs.mkdir(projectImagesDir(id), { recursive: true });
@@ -397,6 +409,23 @@ export async function readProjectVideoFrame(id: string, sceneId: string): Promis
   }
 }
 
+/**
+ * Path for one scene's rasterized sequence-mode overlay layer (label/arrow/
+ * highlight/diagram/chart banners) — a separate transparent PNG composited
+ * onto the base frame by ffmpeg's overlay filter after motion cropping, not
+ * baked into the base frame itself (see renderSequenceFrameToPng.ts).
+ */
+export function projectVideoOverlayPath(id: string, sceneId: string): string {
+  assertSafeSceneId(sceneId);
+  return path.join(projectVideoFramesDir(id), `${sceneId}.overlay.png`);
+}
+
+export async function writeProjectVideoOverlay(id: string, sceneId: string, buffer: Buffer): Promise<void> {
+  assertSafeSceneId(sceneId);
+  await fs.mkdir(projectVideoFramesDir(id), { recursive: true });
+  await fs.writeFile(projectVideoOverlayPath(id, sceneId), buffer);
+}
+
 export async function listProjectVideoFrameIds(id: string): Promise<string[]> {
   try {
     const entries = await fs.readdir(projectVideoFramesDir(id));
@@ -412,6 +441,33 @@ export async function listProjectVideoClipIds(id: string): Promise<string[]> {
     return entries.filter((name) => name.endsWith(".mp4")).map((name) => name.slice(0, -".mp4".length));
   } catch {
     return [];
+  }
+}
+
+/**
+ * Sequence-mode resume needs more than "does a clip file exist for this
+ * scene ID" (that's scene mode's coarse check, and staying coarse there is
+ * intentional — see sceneClipFingerprint.ts for why sequence mode can't reuse
+ * it). This stores the computeSceneClipFingerprint() value alongside each
+ * rendered clip so a later resume run can detect drift in the image, audio,
+ * motion, overlays, or master visual and re-render instead of silently
+ * reusing a stale clip.
+ */
+export function projectVideoClipFingerprintPath(id: string, sceneId: string): string {
+  assertSafeSceneId(sceneId);
+  return path.join(projectVideoClipsDir(id), `${sceneId}.fingerprint`);
+}
+
+export async function writeProjectVideoClipFingerprint(id: string, sceneId: string, fingerprint: string): Promise<void> {
+  await fs.mkdir(projectVideoClipsDir(id), { recursive: true });
+  await fs.writeFile(projectVideoClipFingerprintPath(id, sceneId), fingerprint, "utf-8");
+}
+
+export async function readProjectVideoClipFingerprint(id: string, sceneId: string): Promise<string | null> {
+  try {
+    return await fs.readFile(projectVideoClipFingerprintPath(id, sceneId), "utf-8");
+  } catch {
+    return null;
   }
 }
 
