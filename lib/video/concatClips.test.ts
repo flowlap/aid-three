@@ -4,7 +4,13 @@ import { promisify } from "util";
 import { promises as fs } from "fs";
 import os from "os";
 import path from "path";
-import { buildTransitionFilter, concatClips, MAX_CROSSFADE_BATCH } from "./concatClips";
+import {
+  buildTransitionFilter,
+  concatClips,
+  MAX_CROSSFADE_BATCH,
+  PAGE_TRANSITION_DURATION_SEC,
+  SEQUENCE_HARD_CUT_DURATION_SEC,
+} from "./concatClips";
 
 const execFileAsync = promisify(execFile);
 
@@ -46,6 +52,30 @@ describe("buildTransitionFilter", () => {
     expect(filter).toContain("[v2][3:v]xfade=transition=fade:duration=0.450:offset=8.550[x3]");
     expect(filter).toContain("[v3][4:v]xfade=transition=fade:duration=0.450:offset=11.550[x4]");
     expect(filter).toContain("[v4][5:v]xfade=transition=fade:duration=0.450:offset=14.550[xvout]");
+  });
+
+  it("a plain uniform number still produces byte-identical output to the pre-sequence-mode behavior (regression)", () => {
+    const durations = [10, 8, 12];
+    const explicit = buildTransitionFilter(durations, PAGE_TRANSITION_DURATION_SEC);
+    const usingDefault = buildTransitionFilter(durations);
+    expect(explicit).toBe(usingDefault);
+    expect(explicit).toContain("[0:v][1:v]xfade=transition=fade:duration=0.450:offset=9.550[x1]");
+    expect(explicit).toContain("[v1][2:v]xfade=transition=fade:duration=0.450:offset=17.550[xvout]");
+  });
+
+  it("accepts a per-pair duration array: a hard cut at one boundary and the default fade at another", () => {
+    const filter = buildTransitionFilter([10, 8, 12], [SEQUENCE_HARD_CUT_DURATION_SEC, PAGE_TRANSITION_DURATION_SEC]);
+
+    // First boundary: near-zero hard cut (clamped duration equals the
+    // requested 0.05 since it's well under half of either adjacent clip).
+    expect(filter).toContain("[0:v][1:v]xfade=transition=fade:duration=0.050:offset=9.950[x1]");
+    // Second boundary: the default page-transition fade, unaffected by the
+    // hard cut used at the first boundary.
+    expect(filter).toContain("[v1][2:v]xfade=transition=fade:duration=0.450:offset=17.550[xvout]");
+  });
+
+  it("throws if a per-pair duration array's length doesn't match the number of boundaries", () => {
+    expect(() => buildTransitionFilter([10, 8, 12], [SEQUENCE_HARD_CUT_DURATION_SEC])).toThrow();
   });
 });
 
@@ -107,4 +137,43 @@ describe("concatClips batching (real ffmpeg)", () => {
     const expectedDuration = clipCount * clipDuration;
     expect(Math.abs(actualDuration - expectedDuration)).toBeLessThan(1);
   }, 60000);
+
+  /**
+   * Sequence-mode video passes a per-pair transitionDurations array through
+   * concatClips (hard cuts within a sequence, real fades at sequence
+   * boundaries) — this must keep working even when the clip count forces
+   * the MAX_CROSSFADE_BATCH recursive-batching path, where only the leaf
+   * level's own internal merges get the real per-pair slice and the
+   * artificial batch-output re-merge falls back to the uniform default (see
+   * the doc comment on concatClips).
+   */
+  it("merges more clips than MAX_CROSSFADE_BATCH with a per-pair transitionDurations array into a valid output", async () => {
+    const outputPath = path.join(tmpRoot, "final-per-pair.mp4");
+    const durations = clipPaths.map(() => clipDuration);
+    // Alternate hard cut / default fade across every real boundary.
+    const transitionDurations = durations
+      .slice(1)
+      .map((_, index) => (index % 2 === 0 ? SEQUENCE_HARD_CUT_DURATION_SEC : PAGE_TRANSITION_DURATION_SEC));
+
+    await concatClips(clipPaths, durations, outputPath, undefined, transitionDurations);
+
+    await expect(fs.access(outputPath)).resolves.toBeUndefined();
+    await expect(fs.access(`${outputPath}.batch-tmp`)).rejects.toThrow();
+
+    const { stdout } = await execFileAsync("ffprobe", [
+      "-v", "error",
+      "-show_entries", "format=duration",
+      "-of", "default=noprint_wrappers=1:nokey=1",
+      outputPath,
+    ]);
+    const actualDuration = parseFloat(stdout);
+    const expectedDuration = clipCount * clipDuration;
+    expect(Math.abs(actualDuration - expectedDuration)).toBeLessThan(1);
+  }, 60000);
+
+  it("rejects a transitionDurations array whose length doesn't match the clip boundary count", async () => {
+    const outputPath = path.join(tmpRoot, "final-bad-transitions.mp4");
+    const durations = clipPaths.map(() => clipDuration);
+    await expect(concatClips(clipPaths, durations, outputPath, undefined, [SEQUENCE_HARD_CUT_DURATION_SEC])).rejects.toThrow();
+  });
 });
