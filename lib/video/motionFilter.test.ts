@@ -79,15 +79,57 @@ describe("buildMotionFilter", () => {
 
     const pushParams = parseCropParams(pushIn!);
     const pullParams = parseCropParams(pullOut!);
-    // Both shrink towards 82% of source, but from opposite ends of progress.
-    expect(pushParams.w).toContain("in_w");
-    expect(pullParams.w).toContain("in_w");
+    // Both re-center within the source (via in_w/in_h) and shrink towards
+    // 82% of the same base window, but from opposite ends of progress.
+    expect(pushParams.x).toContain("in_w");
+    expect(pullParams.x).toContain("in_w");
     expect(pushParams.w).not.toBe(pullParams.w);
   });
 
   it("push-in/pull-out never fall back to static, even with zero pan slack", () => {
     expect(buildMotionFilter("slow-push-in", MATCHING_SOURCE, OUTPUT, 5)).not.toBeNull();
     expect(buildMotionFilter("slow-pull-out", MATCHING_SOURCE, OUTPUT, 5)).not.toBeNull();
+  });
+
+  /**
+   * Regression test for a real bug: push-in/pull-out used to scale in_w/in_h
+   * directly, so the crop window's aspect ratio always equaled the SOURCE's
+   * own aspect ratio -- when that differs from the output's (the normal
+   * case; it's exactly why buildStaticScaleFilter needs
+   * force_original_aspect_ratio + pad), the trailing
+   * scale=${output.width}:${output.height} would stretch/squash the image
+   * non-uniformly for the whole clip. Evaluates the actual w/h ffmpeg
+   * expressions (substituting in_w/in_h/t) at both t=0 and t=clipDurationSec
+   * against a deliberately non-aspect-matched source.
+   */
+  it("keeps the push-in/pull-out crop window at the output's aspect ratio (not the source's) at both the start and end of the animation", () => {
+    const clipDurationSec = 5;
+    const outAspect = OUTPUT.width / OUTPUT.height;
+
+    function evalExpr(expr: string, t: number): number {
+      const jsExpr = expr
+        .replace(/\bmin\(/g, "Math.min(")
+        .replace(/\bmax\(/g, "Math.max(")
+        .replace(/\bin_w\b/g, String(WIDE_SOURCE.width))
+        .replace(/\bin_h\b/g, String(WIDE_SOURCE.height))
+        .replace(/\bt\b/g, String(t));
+      // Evaluating our own generated ffmpeg-expression string in a test, not user input.
+      return new Function(`return (${jsExpr});`)() as number;
+    }
+
+    for (const motion of ["slow-push-in", "slow-pull-out"] as const) {
+      const filter = buildMotionFilter(motion, WIDE_SOURCE, OUTPUT, clipDurationSec)!;
+      expect(filter).not.toBeNull();
+      const params = parseCropParams(filter);
+
+      for (const t of [0, clipDurationSec]) {
+        const w = evalExpr(params.w, t);
+        const h = evalExpr(params.h, t);
+        expect(w / h).toBeCloseTo(outAspect, 6);
+        expect(w).toBeLessThanOrEqual(WIDE_SOURCE.width + 1e-6);
+        expect(h).toBeLessThanOrEqual(WIDE_SOURCE.height + 1e-6);
+      }
+    }
   });
 
   it("pan-left and pan-right slide the crop window in opposite directions", () => {

@@ -41,6 +41,22 @@ function progressExpr(clipDurationSec: number): string {
   return `(min(max(t,0),${formatNum(clipDurationSec)})/${formatNum(clipDurationSec)})`;
 }
 
+/**
+ * The largest crop window matching the OUTPUT's aspect ratio that fits
+ * inside the source (a "cover" fit) — used as the base window for every
+ * motion so the trailing `scale=${output.width}:${output.height}` never has
+ * to stretch a mismatched-aspect crop non-uniformly. Without this, a source
+ * whose own aspect ratio differs from the output's (the normal case — it's
+ * exactly why buildStaticScaleFilter needs force_original_aspect_ratio +
+ * pad) would get visibly squashed/stretched for the whole clip.
+ */
+function fitOutputAspectCrop(source: SourceDimensions, output: FrameDimensions): { width: number; height: number } {
+  const outAspect = output.width / output.height;
+  const width = Math.min(source.width, source.height * outAspect);
+  const height = width / outAspect;
+  return { width, height };
+}
+
 function cropFilter(w: string, h: string, x: string, y: string, output: FrameDimensions): string {
   // eval=frame is required: crop's x/y/w/h expressions default to
   // evaluating once at filter init (eval=init) and would otherwise freeze
@@ -71,25 +87,36 @@ export function buildMotionFilter(
 
     case "slow-push-in":
     case "slow-pull-out": {
+      // Start from the same output-aspect-matched base window pan-left/
+      // pan-right/follow-flow use below (fitOutputAspectCrop), NOT in_w/in_h
+      // directly -- otherwise the crop window's aspect ratio would always
+      // equal the SOURCE's own aspect ratio, and the trailing scale to
+      // output dimensions would non-uniformly stretch/squash it whenever
+      // the source and output aspect ratios differ (the normal case).
+      const base = fitOutputAspectCrop(source, output);
       // progress' = 1 - progress for pull-out, so it starts at 82% and
-      // grows back to 100% -- the exact mirror of push-in's shrink.
+      // grows back to 100% -- the exact mirror of push-in's shrink. Both
+      // w and h are scaled by this identical factor, so the crop window's
+      // aspect ratio (== the output's, by construction of `base`) stays
+      // constant for the whole animation.
       const progress = motion === "slow-push-in" ? progressExpr(clipDurationSec) : `(1-${progressExpr(clipDurationSec)})`;
-      const w = `(in_w*(1-${ZOOM_RATIO}*${progress}))`;
-      const h = `(in_h*(1-${ZOOM_RATIO}*${progress}))`;
+      const zoomFactor = `(1-${ZOOM_RATIO}*${progress})`;
+      const w = `(${formatNum(base.width)}*${zoomFactor})`;
+      const h = `(${formatNum(base.height)}*${zoomFactor})`;
       const x = `((in_w-${w})/2)`;
       const y = `((in_h-${h})/2)`;
-      // The crop window is always <=100% of the source by construction, so
-      // this is always geometrically valid -- push-in/pull-out never fall
-      // back to static for lack of room, unlike the pan motions below.
+      // The crop window is always <=100% of the source by construction
+      // (base is itself a cover-fit crop, and it's only ever shrunk further
+      // from there), so this is always geometrically valid -- push-in/
+      // pull-out never fall back to static for lack of room, unlike the pan
+      // motions below.
       return cropFilter(w, h, x, y, output);
     }
 
     case "pan-left":
     case "pan-right":
     case "follow-flow": {
-      const outAspect = output.width / output.height;
-      const cropW = Math.min(source.width, source.height * outAspect);
-      const cropH = cropW / outAspect;
+      const { width: cropW, height: cropH } = fitOutputAspectCrop(source, output);
       const slackX = source.width - cropW;
       const slackY = source.height - cropH;
       const progress = progressExpr(clipDurationSec);
