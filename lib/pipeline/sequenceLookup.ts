@@ -1,3 +1,4 @@
+import { readSequenceMasterImage, projectSequenceMasterImagePath } from "@/lib/projects/store";
 import type { Sequence, SequencePlan } from "./sequenceTypes";
 import type { Scene } from "./splitScenes";
 
@@ -46,4 +47,35 @@ export function groupScenesBySequence(scenes: Scene[], plan: SequencePlan): Sequ
       scenes: seq.sceneIds.map((id) => sceneById.get(id)).filter((s): s is Scene => s !== undefined),
     }))
     .filter((group) => group.scenes.length > 0);
+}
+
+export interface SequenceMasterAsset {
+  buffer?: Buffer;
+  path?: string;
+}
+
+/**
+ * Loads a sequence's master reference image, for both routes that generate
+ * scene images in sequence mode (the batch route and the single-scene
+ * regenerate route — see Task 8). Returns an empty object (no buffer/path)
+ * when there's no readable master image, which callers treat as "fall back
+ * to the textual continuity instruction in buildImagePrompt."
+ *
+ * A "stale" master (see staleIfGenerated in sequenceEditorOps.ts) is still a
+ * real, on-disk image — editing the plan's continuity text doesn't delete
+ * the file, it only flags the sequence as needing eventual regeneration
+ * (surfaced to the user as "재생성 필요 (변경됨)" in SequencePlanEditor.tsx).
+ * Treating "stale" the same as "not-generated" here would silently discard a
+ * perfectly readable continuity plate, so both "generated" and "stale" are
+ * accepted so long as `assetId` is set and the file is actually readable.
+ */
+export async function loadSequenceMasterAsset(
+  projectId: string,
+  sequence: Sequence | undefined
+): Promise<SequenceMasterAsset> {
+  const { status, assetId } = sequence?.masterVisual ?? {};
+  if (!sequence || (status !== "generated" && status !== "stale") || !assetId) return {};
+  const buffer = await readSequenceMasterImage(projectId, sequence.id, assetId);
+  if (!buffer) return {};
+  return { buffer, path: projectSequenceMasterImagePath(projectId, sequence.id, assetId) };
 }

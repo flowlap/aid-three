@@ -7,8 +7,6 @@ import {
   projectReferenceImagePath,
   projectImagesDir,
   writeProjectImage,
-  readSequenceMasterImage,
-  projectSequenceMasterImagePath,
 } from "@/lib/projects/store";
 import { getProductionMode } from "@/lib/projects/types";
 import { createImageClient } from "@/lib/ai/image/factory";
@@ -33,7 +31,7 @@ import type { ScreenTypeAssignment } from "@/lib/pipeline/selectScreenTypes";
 import type { VisualDesign } from "@/lib/pipeline/designVisuals";
 import { withInFlightLock, AlreadyInFlightError } from "@/lib/jobs/inFlightLock";
 import { loadSequenceContextByScene } from "@/lib/pipeline/loadSequenceContext";
-import { findSequenceForScene } from "@/lib/pipeline/sequenceLookup";
+import { findSequenceForScene, loadSequenceMasterAsset } from "@/lib/pipeline/sequenceLookup";
 
 export async function GET(
   _req: NextRequest,
@@ -133,9 +131,11 @@ async function regenerateScene(projectId: string, sceneId: string, overrides: Re
   // missing/broken, a single-scene regenerate is blocked the same way a full
   // batch run would be — a broken plan genuinely blocks meaningful per-scene
   // generation in this mode. When this scene's owning sequence has no
-  // generated master image yet, proceed without one (buildImagePrompt's
-  // textual continuity fallback handles it) — there's no stream here to emit
-  // a warning event on, so nothing further to do for that case.
+  // readable master image (not-generated, or a missing asset file), proceed
+  // without one (buildImagePrompt's textual continuity fallback handles it)
+  // — there's no stream here to emit a warning event on, so nothing further
+  // to do for that case. "stale" masters are still real, readable files and
+  // are reused just like "generated" ones — see loadSequenceMasterAsset.
   let sequenceImageContext;
   let sequenceMasterBuffer: Buffer | undefined;
   let sequenceMasterPath: string | undefined;
@@ -144,13 +144,9 @@ async function regenerateScene(projectId: string, sceneId: string, overrides: Re
     if ("errorResponse" in contextResult) return contextResult.errorResponse;
     sequenceImageContext = contextResult.sequenceContextByScene[sceneId];
     const owningSequence = findSequenceForScene(contextResult.plan, sceneId);
-    if (owningSequence?.masterVisual.status === "generated" && owningSequence.masterVisual.assetId) {
-      const found = await readSequenceMasterImage(projectId, owningSequence.id, owningSequence.masterVisual.assetId);
-      if (found) {
-        sequenceMasterBuffer = found;
-        sequenceMasterPath = projectSequenceMasterImagePath(projectId, owningSequence.id, owningSequence.masterVisual.assetId);
-      }
-    }
+    const asset = await loadSequenceMasterAsset(projectId, owningSequence);
+    sequenceMasterBuffer = asset.buffer;
+    sequenceMasterPath = asset.path;
   }
 
   if (engine === "local") {
@@ -173,6 +169,7 @@ async function regenerateScene(projectId: string, sceneId: string, overrides: Re
       allowTextInImage: false,
       extraPrompt,
       sequenceImageContext,
+      hasMasterReferenceImage: Boolean(sequenceMasterPath),
     });
     const itemReferenceImagePaths = sequenceMasterPath ? [...referenceImagePaths, sequenceMasterPath] : referenceImagePaths;
 

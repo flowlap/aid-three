@@ -8,8 +8,6 @@ import {
   writeProjectImage,
   updateProjectStep,
   listProjectImageIds,
-  readSequenceMasterImage,
-  projectSequenceMasterImagePath,
 } from "@/lib/projects/store";
 import { getProductionMode } from "@/lib/projects/types";
 import { createImageClient } from "@/lib/ai/image/factory";
@@ -30,7 +28,7 @@ import { startJob, finishJob, recordProgress, JobAlreadyRunningError } from "@/l
 import { runWithConcurrencyLimit } from "@/lib/concurrency";
 import { groupContentScenesByParentTitle } from "@/lib/pipeline/sceneHierarchy";
 import { loadSequenceContextByScene } from "@/lib/pipeline/loadSequenceContext";
-import { groupScenesBySequence } from "@/lib/pipeline/sequenceLookup";
+import { groupScenesBySequence, loadSequenceMasterAsset, type SequenceMasterAsset } from "@/lib/pipeline/sequenceLookup";
 import type { SequencePlan } from "@/lib/pipeline/sequenceTypes";
 import {
   IMAGE_GENERATION_CONCURRENCY,
@@ -177,35 +175,30 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
         .filter((group) => group.scenes.length > 0);
       let completedSoFar = eligibleScenes.filter((scene) => alreadyGenerated.has(scene.id)).length;
 
-      // Sequence mode only: load each affected sequence's generated master
-      // image (once per sequence, not per scene) so every scene in that
-      // sequence can be generated against the same background/continuity
-      // plate. A sequence with no generated master yet (or whose asset file
-      // is missing despite masterVisual.status saying "generated") falls
-      // back to the textual continuity instruction in buildImagePrompt —
-      // this must not abort the job, just warn once per affected sequence.
-      const sequenceMasterAssets = new Map<string, { buffer?: Buffer; path?: string }>();
+      // Sequence mode only: load each affected sequence's master image
+      // (once per sequence, not per scene — groupScenesBySequence already
+      // guarantees at most one group per sequenceId, so no dedup check is
+      // needed here) so every scene in that sequence can be generated
+      // against the same background/continuity plate. "stale" masters (see
+      // staleIfGenerated in sequenceEditorOps.ts) are still real, readable
+      // files and are reused just like "generated" ones — only a missing
+      // asset (not-generated, or a "generated"/"stale" status whose file
+      // vanished) falls back to the textual continuity instruction in
+      // buildImagePrompt. This must not abort the job, just warn once per
+      // affected sequence.
+      const sequenceMasterAssets = new Map<string, SequenceMasterAsset>();
       if (sequencePlan) {
         for (const group of pendingGroups) {
-          if (!group.sequenceId || sequenceMasterAssets.has(group.sequenceId)) continue;
+          if (!group.sequenceId) continue;
           const sequence = sequencePlan.sequences.find((seq) => seq.id === group.sequenceId);
-          let buffer: Buffer | undefined;
-          let assetPath: string | undefined;
-          if (sequence?.masterVisual.status === "generated" && sequence.masterVisual.assetId) {
-            const found = await readSequenceMasterImage(projectId, group.sequenceId, sequence.masterVisual.assetId);
-            if (found) {
-              buffer = found;
-              assetPath = projectSequenceMasterImagePath(projectId, group.sequenceId, sequence.masterVisual.assetId);
-            }
-          }
-          sequenceMasterAssets.set(group.sequenceId, { buffer, path: assetPath });
-          if (!buffer) {
-            emit(
-              JSON.stringify({
-                type: "warning",
-                message: `${sequence?.title ?? group.sequenceId} 시퀀스의 마스터 이미지가 없어 텍스트 설명만으로 씬 이미지를 생성합니다.`,
-              }) + "\n"
-            );
+          const asset = await loadSequenceMasterAsset(projectId, sequence);
+          sequenceMasterAssets.set(group.sequenceId, asset);
+          if (!asset.buffer) {
+            const message =
+              sequence?.masterVisual.status === "stale"
+                ? `${sequence.title} 시퀀스의 마스터 이미지 파일을 찾을 수 없어 텍스트 설명만으로 씬 이미지를 생성합니다.`
+                : `${sequence?.title ?? group.sequenceId} 시퀀스의 마스터 이미지가 아직 생성되지 않아 텍스트 설명만으로 씬 이미지를 생성합니다.`;
+            emit(JSON.stringify({ type: "warning", message }) + "\n");
           }
         }
       }
@@ -231,6 +224,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
             relatedScenes: buildRelatedScenesContext(scene, visualDesigns),
             allowTextInImage: false,
             sequenceImageContext: sequenceContextByScene?.[scene.id],
+            hasMasterReferenceImage: Boolean(masterPath),
           });
           const itemReferenceImagePaths = masterPath ? [...referenceImagePaths, masterPath] : referenceImagePaths;
           return { sceneId: scene.id, prompt, referenceImagePaths: itemReferenceImagePaths };

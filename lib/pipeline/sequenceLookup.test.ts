@@ -1,6 +1,10 @@
-import { describe, it, expect } from "vitest";
-import { findSequenceForScene, groupScenesBySequence } from "./sequenceLookup";
-import type { SequencePlan } from "./sequenceTypes";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { promises as fs } from "fs";
+import path from "path";
+import os from "os";
+import { createProject, writeSequenceMasterImage } from "@/lib/projects/store";
+import { findSequenceForScene, groupScenesBySequence, loadSequenceMasterAsset } from "./sequenceLookup";
+import type { Sequence, SequencePlan } from "./sequenceTypes";
 import type { Scene } from "./splitScenes";
 
 function makePlan(): SequencePlan {
@@ -99,5 +103,81 @@ describe("groupScenesBySequence", () => {
     const groups = groupScenesBySequence(scenes, plan);
 
     expect(groups.map((g) => g.sequenceId)).toEqual(["sequence-001"]);
+  });
+});
+
+describe("loadSequenceMasterAsset", () => {
+  let tempRoot: string;
+
+  beforeEach(async () => {
+    tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "load-sequence-master-asset-"));
+    process.env.PROJECTS_DATA_DIR = tempRoot;
+  });
+
+  afterEach(async () => {
+    delete process.env.PROJECTS_DATA_DIR;
+    await fs.rm(tempRoot, { recursive: true, force: true });
+  });
+
+  function makeSequence(overrides: Partial<Sequence>): Sequence {
+    return {
+      id: "sequence-001",
+      order: 1,
+      title: "도입부",
+      sceneIds: ["scene-001"],
+      estimatedDurationSec: 5,
+      purpose: "개념 소개",
+      continuity: { location: "사무실", visualStyle: "플랫 일러스트", fixedElements: [], doNotChange: [] },
+      masterVisual: { description: "사무실 배경", status: "not-generated" },
+      cameraPlan: [],
+      overlays: [],
+      ...overrides,
+    };
+  }
+
+  it("returns the buffer and path when status is generated and the asset file exists", async () => {
+    const project = await createProject("샘플", "script", "sequence");
+    await writeSequenceMasterImage(project.id, "sequence-001", "asset-001", Buffer.from("fake-png"));
+    const sequence = makeSequence({ masterVisual: { description: "사무실 배경", status: "generated", assetId: "asset-001" } });
+
+    const asset = await loadSequenceMasterAsset(project.id, sequence);
+
+    expect(asset.buffer).toEqual(Buffer.from("fake-png"));
+    expect(asset.path).toContain("asset-001.png");
+  });
+
+  it("returns the buffer and path when status is stale, since the on-disk file is still valid", async () => {
+    const project = await createProject("샘플", "script", "sequence");
+    await writeSequenceMasterImage(project.id, "sequence-001", "asset-001", Buffer.from("fake-png"));
+    const sequence = makeSequence({ masterVisual: { description: "사무실 배경", status: "stale", assetId: "asset-001" } });
+
+    const asset = await loadSequenceMasterAsset(project.id, sequence);
+
+    expect(asset.buffer).toEqual(Buffer.from("fake-png"));
+    expect(asset.path).toContain("asset-001.png");
+  });
+
+  it("returns an empty object when status is not-generated", async () => {
+    const project = await createProject("샘플", "script", "sequence");
+    const sequence = makeSequence({ masterVisual: { description: "사무실 배경", status: "not-generated" } });
+
+    const asset = await loadSequenceMasterAsset(project.id, sequence);
+
+    expect(asset).toEqual({});
+  });
+
+  it("returns an empty object when status is generated but the asset file is missing on disk", async () => {
+    const project = await createProject("샘플", "script", "sequence");
+    const sequence = makeSequence({ masterVisual: { description: "사무실 배경", status: "generated", assetId: "missing-asset" } });
+
+    const asset = await loadSequenceMasterAsset(project.id, sequence);
+
+    expect(asset).toEqual({});
+  });
+
+  it("returns an empty object when the sequence itself is undefined", async () => {
+    const asset = await loadSequenceMasterAsset("some-project", undefined);
+
+    expect(asset).toEqual({});
   });
 });
