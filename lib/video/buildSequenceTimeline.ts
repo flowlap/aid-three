@@ -41,11 +41,15 @@ export function buildSequenceTimeline(
   plan: SequencePlan,
   durationsBySceneId: Record<string, number>
 ): SequenceTimeline {
-  const sequenceIdByScene = scenes.map((scene) => findSequenceForScene(plan, scene.id)?.id ?? null);
+  // Looked up once per scene and reused below for both the sequence object
+  // (camera plan / overlays) and its id, instead of calling
+  // findSequenceForScene twice with identical arguments.
+  const owningSequenceByScene = scenes.map((scene) => findSequenceForScene(plan, scene.id));
+  const sequenceIdByScene = owningSequenceByScene.map((sequence) => sequence?.id ?? null);
 
   let cumulativeStartSec = 0;
   const entries: SequenceTimelineEntry[] = scenes.map((scene, index) => {
-    const sequence = findSequenceForScene(plan, scene.id);
+    const sequence = owningSequenceByScene[index];
     const sequenceId = sequenceIdByScene[index];
 
     const narrationDurationSec = durationsBySceneId[scene.id] ?? 0;
