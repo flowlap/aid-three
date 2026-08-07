@@ -10,6 +10,7 @@
 
 - 2026-07-29: v1 파이프라인(업로드 ~ 최종 스토리보드 뷰) 구현 완료, 13개 태스크 + 최종 전체 브랜치 리뷰 통과, 실제 DeepSeek API로 라이브 E2E 검증 완료, `master`에 병합 및 GitHub push 완료.
 - 2026-08-03: AI provider 추상화 도입 — DeepSeek(텍스트)/OpenAI(이미지) 전용 클라이언트를 `LlmClient`/`ImageClient` 인터페이스로 일반화하고, 사내 게이트웨이 H-CHAT(Claude/ChatGPT/Gemini/Gemini 이미지)을 `LLM_PROVIDER`/`IMAGE_PROVIDER` env var로 선택 가능하게 함. 기본값은 기존과 동일(`deepseek`/`openai`)해 하위호환 유지. 상세는 [`docs/superpowers/specs/2026-08-03-hchat-provider-abstraction-design.md`](docs/superpowers/specs/2026-08-03-hchat-provider-abstraction-design.md) 참고.
+- 2026-08-07: 씬·시퀀스 이중 제작 모드(dual production mode) 구현 완료 — 프로젝트 생성 시 선택하는 `productionMode`(`"scene"` 기본값/레거시 | `"sequence"` opt-in)에 따라 시퀀스 설계 단계(`sequences.json`), 시퀀스 마스터 비주얼, 시퀀스 인지 씬 이미지 생성, ffmpeg crop 기반 카메라 모션/오버레이 영상 렌더링이 추가됨. 생성 후 모드 전환은 지원하지 않음. 상세는 [`docs/PROJECT_OVERVIEW.md`](docs/PROJECT_OVERVIEW.md)의 "씬·시퀀스 이중 제작 모드" 섹션과 [`docs/superpowers/plans/2026-08-07-dual-production-mode-sequence-plan.md`](docs/superpowers/plans/2026-08-07-dual-production-mode-sequence-plan.md) 참고.
 - 다음 작업은 [`docs/ROADMAP.md`](docs/ROADMAP.md) 참고 (작은 개선 항목부터 pptx 내보내기 같은 큰 후속 기능까지 우선순위별로 정리됨).
 
 ## 기술 스택

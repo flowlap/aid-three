@@ -5,6 +5,7 @@
 - **2026-07-29 업데이트**: v2 전면 개편 요청이 들어와 [`docs/superpowers/plans/2026-07-29-v2-redesign-roadmap.md`](superpowers/plans/2026-07-29-v2-redesign-roadmap.md)로 별도 Phase 계획을 남겼고, 같은 세션에서 **Phase 0~7 전체를 완료**함. 아래 우선순위 B의 "화면 유형 드롭다운"과 우선순위 C의 "씬별 AI 이미지 생성"은 그 문서의 Phase 5/7로 대체되어 이미 구현됨.
 - **2026-07-29 추가 업데이트**: v2 완료 직후 전체 화면 디자인 평가를 진행해 [`docs/DESIGN_REVIEW.md`](DESIGN_REVIEW.md)에 발견 사항(모바일 레이아웃 버그 3건 포함)과 개선 계획(D1~D8)을 남김. D1~D8 전부 구현 완료.
 - **2026-07-29 세 번째 업데이트**: D1~D8이 색상 토큰 위주였다는 피드백에 따라 Notion `DESIGN.md` 레퍼런스를 기반으로 레이아웃/여백/정보 위계 중심의 전체 UI 재설계를 완료 — 홈, 새 프로젝트, 6단계 파이프라인, 미리보기까지 9개 화면 전부. 상세 내용은 `DESIGN_REVIEW.md`의 "전체 UI 재설계" 섹션 참고. 이 문서(ROADMAP)의 우선순위 A/B/C 항목은 이 재설계와 무관하게 그대로 유효함 — 다음 착수 시 참고.
+- **2026-08-07 업데이트**: 씬·시퀀스 이중 제작 모드(dual production mode) 기능을 브레인스토밍 → 계획(10개 태스크) → 구현까지 완료. 프로젝트 생성 시 선택하는 `productionMode`(`"scene"` 기본값 | `"sequence"` opt-in)에 따라 시퀀스 설계 단계, 시퀀스 마스터 비주얼, 시퀀스 인지 씬 이미지 생성, ffmpeg crop 기반 카메라 모션/오버레이 영상 렌더링이 추가된다. 레거시 프로젝트와 씬 모드의 기존 동작은 전부 하위호환 유지. 상세는 [`docs/superpowers/plans/2026-08-07-dual-production-mode-sequence-plan.md`](superpowers/plans/2026-08-07-dual-production-mode-sequence-plan.md), 아키텍처 요약은 [`docs/PROJECT_OVERVIEW.md`](PROJECT_OVERVIEW.md)의 "씬·시퀀스 이중 제작 모드" 섹션 참고.
 
 ## 우선순위 A — 다음에 바로 착수하기 좋은 작은 개선
 
