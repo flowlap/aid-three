@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { readProject, readProjectFile } from "@/lib/projects/store";
+import { getProductionMode } from "@/lib/projects/types";
 import { SceneListEditor } from "./SceneListEditor";
 import type { Scene } from "@/lib/pipeline/splitScenes";
 
@@ -19,6 +20,7 @@ export default async function ScenesPage({ params }: { params: Promise<{ project
         initialScenes={initialScenes}
         narrationLength={narration?.length ?? 0}
         scriptType={project.scriptType}
+        productionMode={getProductionMode(project)}
       />
     </>
   );

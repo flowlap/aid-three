@@ -10,7 +10,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { AiJobStatus } from "@/components/AiJobStatus";
 import type { Scene } from "@/lib/pipeline/splitScenes";
 import { buildSceneHierarchy } from "@/lib/pipeline/sceneHierarchy";
-import type { ScriptType } from "@/lib/projects/types";
+import type { ProductionMode, ScriptType } from "@/lib/projects/types";
+import { getPipelineSteps } from "@/lib/projects/pipelineSteps";
 import { useAiJob } from "@/lib/client/useAiJob";
 import { useNextStepAction } from "@/lib/client/StepNavContext";
 import { useAutoProgressFlag, withAutoProgress } from "@/lib/client/useAutoProgress";
@@ -52,11 +53,13 @@ export function SceneListEditor({
   initialScenes,
   narrationLength,
   scriptType,
+  productionMode,
 }: {
   projectId: string;
   initialScenes: Scene[];
   narrationLength: number;
   scriptType: ScriptType;
+  productionMode: ProductionMode;
 }) {
   const router = useRouter();
   const auto = useAutoProgressFlag();
@@ -216,8 +219,19 @@ export function SceneListEditor({
     }
   }
 
+  // Mode-aware: sequence-mode projects insert a "sequences" step between
+  // "scenes" and "screen-design" (see lib/projects/pipelineSteps.ts), so the
+  // next-step destination must be derived from the ordered step list rather
+  // than hardcoded — a scene-mode project still lands on "screen-design"
+  // exactly as before.
+  const nextStepKey = useMemo(() => {
+    const steps = getPipelineSteps(productionMode);
+    const idx = steps.findIndex((step) => step.key === "scenes");
+    return idx >= 0 && idx + 1 < steps.length ? steps[idx + 1].key : "screen-design";
+  }, [productionMode]);
+
   async function handleNext() {
-    await saveAndGoTo(withAutoProgress(`/projects/${projectId}/screen-design`, auto));
+    await saveAndGoTo(withAutoProgress(`/projects/${projectId}/${nextStepKey}`, auto));
   }
 
   useNextStepAction(saving ? "저장 중..." : "다음 단계", scenes.length === 0 || saving || loading, handleNext);
