@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createReadStream } from "fs";
 import { Readable } from "stream";
+import { createHash } from "crypto";
 import {
   readProject,
   readProjectFile,
@@ -196,13 +197,20 @@ async function handleSequenceModeVideo(
     : {};
 
   let durations: number[];
-  const audioBuffersBySceneId: Record<string, Buffer> = {};
+  // Only a sha256 digest of each scene's narration WAV is retained here, not
+  // the buffer itself — every scene's audio has to be read in this one
+  // up-front pass to get its duration, and holding all of those buffers
+  // alive for the whole render (unlike imageBuffer, which is read fresh
+  // per-scene inside the concurrency-limited worker below) would mean a
+  // large project's entire audio/ directory sits in memory simultaneously.
+  // See sceneClipFingerprint.ts's audioDigest doc for the full rationale.
+  const audioDigestsBySceneId: Record<string, string> = {};
   try {
     durations = await Promise.all(
       scenes.map(async (scene) => {
         const audio = await readProjectAudio(projectId, scene.id);
         if (!audio) throw new Error(`씬 ${scene.order}의 내레이션 음성을 찾을 수 없습니다`);
-        audioBuffersBySceneId[scene.id] = audio;
+        audioDigestsBySceneId[scene.id] = createHash("sha256").update(audio).digest("hex");
         return getWavDurationSec(audio);
       })
     );
@@ -242,7 +250,7 @@ async function handleSequenceModeVideo(
         const imageBuffer = await readProjectImage(projectId, scene.id);
         const fingerprint = computeSceneClipFingerprint({
           imageBuffer,
-          audioBuffer: audioBuffersBySceneId[scene.id],
+          audioDigest: audioDigestsBySceneId[scene.id],
           motion: entry.motion,
           overlays: entry.overlays,
           masterVisualAssetId: sequence?.masterVisual.assetId ?? null,
@@ -265,7 +273,10 @@ async function handleSequenceModeVideo(
             framePath = projectVideoFramePath(projectId, scene.id);
             vf = buildStaticScaleFilter(frameDimensions);
 
-            if (!imageBuffer && scene.sceneType !== "title") {
+            // The outer condition is `sceneType === "title" || !imageBuffer`,
+            // so inside this branch a non-title scene can only have gotten
+            // here because imageBuffer was falsy — no need to re-check it.
+            if (scene.sceneType !== "title") {
               emit(
                 JSON.stringify({
                   type: "warning",
@@ -283,12 +294,17 @@ async function handleSequenceModeVideo(
             vf = motionVf ?? staticVf;
 
             if (motionVf === null && entry.motion !== "static") {
-              emit(
-                JSON.stringify({
-                  type: "warning",
-                  message: `${scene.id} 씬은 카메라 모션(${entry.motion})을 적용하기에 이미지 여백이 부족해 정지 화면으로 대체합니다.`,
-                }) + "\n"
-              );
+              // Two different reasons land here: the PNG couldn't be parsed
+              // at all (sourceDimensions null — corrupt/non-PNG file), vs.
+              // buildMotionFilter itself rejecting the motion for a
+              // perfectly readable image (e.g. not enough pan slack). These
+              // need distinct messages so a margin-insufficient warning
+              // doesn't get shown for an unrelated file-read failure.
+              const message =
+                sourceDimensions === null
+                  ? `${scene.id} 씬의 이미지 파일을 읽을 수 없어 정지 화면으로 대체합니다.`
+                  : `${scene.id} 씬은 카메라 모션(${entry.motion})을 적용하기에 이미지 여백이 부족해 정지 화면으로 대체합니다.`;
+              emit(JSON.stringify({ type: "warning", message }) + "\n");
             }
           }
 

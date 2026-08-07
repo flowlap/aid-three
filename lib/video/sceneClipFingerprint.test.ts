@@ -1,10 +1,15 @@
 import { describe, it, expect } from "vitest";
+import { createHash } from "crypto";
 import { computeSceneClipFingerprint, type SceneClipFingerprintInput } from "./sceneClipFingerprint";
+
+function digestOf(content: string): string {
+  return createHash("sha256").update(content).digest("hex");
+}
 
 function baseInput(): SceneClipFingerprintInput {
   return {
     imageBuffer: Buffer.from("image-bytes"),
-    audioBuffer: Buffer.from("audio-bytes"),
+    audioDigest: digestOf("audio-bytes"),
     motion: "static",
     overlays: [{ sceneId: "scene-001", type: "label", description: "라벨" }],
     masterVisualAssetId: "asset-1",
@@ -23,9 +28,9 @@ describe("computeSceneClipFingerprint", () => {
     expect(a).not.toBe(b);
   });
 
-  it("changes when the audio bytes change", () => {
+  it("changes when the audio digest changes", () => {
     const a = computeSceneClipFingerprint(baseInput());
-    const b = computeSceneClipFingerprint({ ...baseInput(), audioBuffer: Buffer.from("different-audio") });
+    const b = computeSceneClipFingerprint({ ...baseInput(), audioDigest: digestOf("different-audio") });
     expect(a).not.toBe(b);
   });
 

@@ -3,7 +3,20 @@ import type { CameraMotion, SequenceOverlayEntry } from "@/lib/pipeline/sequence
 
 export interface SceneClipFingerprintInput {
   imageBuffer: Buffer | null;
-  audioBuffer: Buffer;
+  /**
+   * sha256 hex digest of the scene's narration WAV bytes, NOT the raw
+   * buffer. Unlike imageBuffer (read fresh per-scene inside the
+   * concurrency-limited render worker, so at most VIDEO_RENDER_CONCURRENCY
+   * copies are ever resident), every scene's audio duration has to be read
+   * up front in one pass before rendering starts — holding all of those
+   * buffers alive for the whole render would mean a large project's entire
+   * audio/ directory (hundreds of MB) sits in memory simultaneously, which
+   * is exactly the memory-pressure failure mode lib/media/ffmpeg.ts's
+   * RESOURCE_EXHAUSTION_PATTERNS and concatClips.ts's MAX_CROSSFADE_BATCH
+   * comments describe. Callers hash each buffer immediately after reading
+   * it and discard the buffer, passing only this digest here.
+   */
+  audioDigest: string;
   motion: CameraMotion;
   overlays: SequenceOverlayEntry[];
   masterVisualAssetId: string | null;
@@ -25,7 +38,7 @@ export interface SceneClipFingerprintInput {
 export function computeSceneClipFingerprint(input: SceneClipFingerprintInput): string {
   const hash = createHash("sha256");
   hash.update(input.imageBuffer ?? Buffer.alloc(0));
-  hash.update(input.audioBuffer);
+  hash.update(input.audioDigest);
   hash.update(
     JSON.stringify({
       motion: input.motion,
