@@ -108,9 +108,9 @@ interface Clip {
  * MAX_CROSSFADE_BATCH for why larger batches aren't.
  *
  * `transitionDurations`, when given, is a per-pair array aligned to this
- * batch's own clips (length `clips.length - 1`) — see concatClips for why
- * only the leaf level over the original clip list ever passes one through.
- * Omitted, it falls back to buildTransitionFilter's own uniform default.
+ * batch's own clips (length `clips.length - 1`) — see concatClips for how
+ * it's threaded level by level. Omitted, it falls back to
+ * buildTransitionFilter's own uniform default.
  */
 async function mergeBatch(
   clips: Clip[],
@@ -160,14 +160,25 @@ async function mergeBatch(
  * `transitionDurations`, when given, is a per-pair array aligned to the
  * original `clipPaths`/`durations` (length `clipPaths.length - 1`) — e.g.
  * sequence-mode video uses this to fade only at real sequence boundaries and
- * hard-cut everywhere else. It only ever reaches the LEAF level: the level-0
- * batches sliced directly out of the original clip list, in lockstep with
- * each batch's own clip range. Any transition between two batch-OUTPUT
- * clips at a deeper recursive re-merge level is an artificial split point
- * introduced purely for ffmpeg stability (see MAX_CROSSFADE_BATCH), not a
- * real content boundary — deriving a "real" per-pair value for it would need
- * extra plumbing for no user-visible benefit, so those merges always keep
- * using the plain uniform default fade instead (mergeBatch's own default).
+ * hard-cut everywhere else.
+ *
+ * Batching never reorders or merges non-adjacent clips, so EVERY boundary at
+ * EVERY recursion level — including the boundary between two batch-OUTPUT
+ * clips — always corresponds to exactly one real original transition index;
+ * none of them are "artificial" in the sense of having no meaningful value.
+ * A batch's own internal merge only hides the transitions *strictly inside*
+ * it; the one boundary connecting it to the next batch is deferred, not
+ * discarded. So `transitionDurations` is threaded level by level: each
+ * level's per-pair array is sliced per-batch for that batch's own internal
+ * merge, and the single value at each inter-batch seam is carried forward
+ * as the corresponding entry of the NEXT level's per-pair array — all the
+ * way up to however many recursion levels MAX_CROSSFADE_BATCH ends up
+ * requiring for a given clip count, not just the first one. (An earlier
+ * version of this function only threaded level 0's values into level 1 and
+ * silently dropped every level's inter-batch seam value beyond that,
+ * injecting an unwanted default-duration fade in the middle of what should
+ * have been a hard cut for any sequence spanning more than
+ * MAX_CROSSFADE_BATCH scenes.)
  */
 export async function concatClips(
   clipPaths: string[],
@@ -187,6 +198,10 @@ export async function concatClips(
   await fs.mkdir(path.dirname(outputPath), { recursive: true });
 
   let clips: Clip[] = clipPaths.map((clipPath, index) => ({ path: clipPath, duration: durations[index] }));
+  // Per-boundary transition duration aligned with `clips` at the CURRENT
+  // recursion level (undefined when the caller didn't ask for per-pair
+  // control at all, preserving the plain-default behavior everywhere).
+  let seamDurations: number[] | undefined = transitionDurations;
   const tmpDir = `${outputPath}.batch-tmp`;
 
   try {
@@ -195,26 +210,29 @@ export async function concatClips(
       await fs.mkdir(tmpDir, { recursive: true });
       const batches = chunk(clips, MAX_CROSSFADE_BATCH);
       const nextClips: Clip[] = [];
+      const nextSeamDurations: number[] | undefined = seamDurations ? [] : undefined;
       let clipOffset = 0;
       for (let i = 0; i < batches.length; i++) {
         const batch = batches[i];
         const batchOutputPath = path.join(tmpDir, `level${level}-batch${i}.mp4`);
-        const batchTransitions =
-          level === 0 && transitionDurations
-            ? transitionDurations.slice(clipOffset, clipOffset + batch.length - 1)
-            : undefined;
+        const batchTransitions = seamDurations?.slice(clipOffset, clipOffset + batch.length - 1);
         await mergeBatch(batch, batchOutputPath, signal, batchTransitions);
         nextClips.push({ path: batchOutputPath, duration: batch.reduce((sum, clip) => sum + clip.duration, 0) });
+
+        // The boundary between this batch's output and the next batch's
+        // output is exactly the real original seam at this global index —
+        // carry it forward instead of letting it fall in the gap between
+        // batches and silently default.
+        if (nextSeamDurations && i < batches.length - 1) {
+          nextSeamDurations.push(seamDurations![clipOffset + batch.length - 1]);
+        }
         clipOffset += batch.length;
       }
       clips = nextClips;
+      seamDurations = nextSeamDurations;
       level += 1;
     }
-    // Only reached directly at level 0 (no batching was needed at all) does
-    // the original per-pair array apply to this final merge; once any
-    // batching happened, level > 0 here and this merge is over batch
-    // outputs, so it must use the default per the comment above.
-    await mergeBatch(clips, outputPath, signal, level === 0 ? transitionDurations : undefined);
+    await mergeBatch(clips, outputPath, signal, seamDurations);
   } finally {
     await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
   }
