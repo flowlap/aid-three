@@ -123,6 +123,8 @@ export function ImagesEditor({
         setImageIds((prev) => new Set(prev).add(event.sceneId));
         setVersions((prev) => ({ ...prev, [event.sceneId]: (prev[event.sceneId] ?? 0) + 1 }));
         setActivityLines((prev) => [...prev, `[${event.index + 1}/${event.total}] ${event.sceneId} 이미지 생성 완료`]);
+      } else if (event.type === "warning") {
+        setActivityLines((prev) => [...prev, `⚠️ ${event.message}`]);
       }
     },
     onSettled: () => router.refresh(),
