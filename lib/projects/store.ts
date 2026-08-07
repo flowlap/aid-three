@@ -78,6 +78,19 @@ export function projectSequenceAssetDir(id: string, sequenceId: string): string 
   return path.join(projectSequenceAssetsDir(id), sequenceId);
 }
 
+/**
+ * File path (not buffer) for one generated sequence master image — mirrors
+ * projectReferenceImagePath, for callers that need a path rather than
+ * contents (e.g. the local image engine, which reads reference images
+ * directly from disk by path — see images/route.ts). Matches the
+ * `{assetId}.png` naming writeSequenceMasterImage/readSequenceMasterImage
+ * already use internally.
+ */
+export function projectSequenceMasterImagePath(id: string, sequenceId: string, assetId: string): string {
+  assertSafeAssetId(assetId);
+  return path.join(projectSequenceAssetDir(id, sequenceId), `${assetId}.png`);
+}
+
 export function projectAudioDir(id: string): string {
   return path.join(projectDir(id), "audio");
 }

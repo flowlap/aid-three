@@ -7,10 +7,19 @@ import {
   projectReferenceImagePath,
   projectImagesDir,
   writeProjectImage,
+  readSequenceMasterImage,
+  projectSequenceMasterImagePath,
 } from "@/lib/projects/store";
+import { getProductionMode } from "@/lib/projects/types";
 import { createImageClient } from "@/lib/ai/image/factory";
 import { createLocalImageClient } from "@/lib/ai/localImageClient";
-import { generateSceneImageWithRetry, buildImagePrompt, buildRelatedScenesContext, describeImageError } from "@/lib/pipeline/generateSceneImage";
+import {
+  generateSceneImageWithRetry,
+  buildImagePrompt,
+  buildRelatedScenesContext,
+  describeImageError,
+  type SceneReferenceImages,
+} from "@/lib/pipeline/generateSceneImage";
 import { DEFAULT_IMAGE_COMMON_PROMPT } from "@/lib/pipeline/commonPromptDefaults";
 import {
   LOCAL_IMAGE_FINAL_WIDTH,
@@ -23,6 +32,8 @@ import type { Scene } from "@/lib/pipeline/splitScenes";
 import type { ScreenTypeAssignment } from "@/lib/pipeline/selectScreenTypes";
 import type { VisualDesign } from "@/lib/pipeline/designVisuals";
 import { withInFlightLock, AlreadyInFlightError } from "@/lib/jobs/inFlightLock";
+import { loadSequenceContextByScene } from "@/lib/pipeline/loadSequenceContext";
+import { findSequenceForScene } from "@/lib/pipeline/sequenceLookup";
 
 export async function GET(
   _req: NextRequest,
@@ -116,6 +127,32 @@ async function regenerateScene(projectId: string, sceneId: string, overrides: Re
     return NextResponse.json({ error: "제목 씬은 이미지를 생성하지 않습니다" }, { status: 400 });
   }
 
+  // Sequence mode: reuse the same shared prerequisite gate the screen-design
+  // routes use (loadSequenceContextByScene) rather than hand-rolling a
+  // narrower one just for this single scene. If the sequence plan is
+  // missing/broken, a single-scene regenerate is blocked the same way a full
+  // batch run would be — a broken plan genuinely blocks meaningful per-scene
+  // generation in this mode. When this scene's owning sequence has no
+  // generated master image yet, proceed without one (buildImagePrompt's
+  // textual continuity fallback handles it) — there's no stream here to emit
+  // a warning event on, so nothing further to do for that case.
+  let sequenceImageContext;
+  let sequenceMasterBuffer: Buffer | undefined;
+  let sequenceMasterPath: string | undefined;
+  if (getProductionMode(project) === "sequence") {
+    const contextResult = await loadSequenceContextByScene(projectId, scenes);
+    if ("errorResponse" in contextResult) return contextResult.errorResponse;
+    sequenceImageContext = contextResult.sequenceContextByScene[sceneId];
+    const owningSequence = findSequenceForScene(contextResult.plan, sceneId);
+    if (owningSequence?.masterVisual.status === "generated" && owningSequence.masterVisual.assetId) {
+      const found = await readSequenceMasterImage(projectId, owningSequence.id, owningSequence.masterVisual.assetId);
+      if (found) {
+        sequenceMasterBuffer = found;
+        sequenceMasterPath = projectSequenceMasterImagePath(projectId, owningSequence.id, owningSequence.masterVisual.assetId);
+      }
+    }
+  }
+
   if (engine === "local") {
     let localClient;
     try {
@@ -135,11 +172,13 @@ async function regenerateScene(projectId: string, sceneId: string, overrides: Re
       relatedScenes: buildRelatedScenesContext(scene, visualDesigns),
       allowTextInImage: false,
       extraPrompt,
+      sequenceImageContext,
     });
+    const itemReferenceImagePaths = sequenceMasterPath ? [...referenceImagePaths, sequenceMasterPath] : referenceImagePaths;
 
     try {
       let generatedImage: Buffer | undefined;
-      await localClient.generateBatch([{ sceneId, prompt, referenceImagePaths }], {
+      await localClient.generateBatch([{ sceneId, prompt, referenceImagePaths: itemReferenceImagePaths }], {
         modelSize: localModelSize,
         width: LOCAL_IMAGE_FINAL_WIDTH,
         height: LOCAL_IMAGE_FINAL_HEIGHT,
@@ -181,9 +220,10 @@ async function regenerateScene(projectId: string, sceneId: string, overrides: Re
         backgroundFixed,
         relatedScenes: buildRelatedScenesContext(scene, visualDesigns),
         extraPrompt,
+        sequenceImageContext,
       },
       undefined,
-      referenceImages
+      sequenceMasterBuffer ? ({ ...referenceImages, master: sequenceMasterBuffer } satisfies SceneReferenceImages) : referenceImages
     );
     await writeProjectImage(projectId, sceneId, buffer);
   } catch (err) {

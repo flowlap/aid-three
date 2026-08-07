@@ -1,4 +1,5 @@
 import type { Sequence, SequencePlan } from "./sequenceTypes";
+import type { Scene } from "./splitScenes";
 
 /**
  * Finds the sequence (if any) that owns a given scene id, by scanning each
@@ -8,4 +9,41 @@ import type { Sequence, SequencePlan } from "./sequenceTypes";
  */
 export function findSequenceForScene(plan: SequencePlan, sceneId: string): Sequence | undefined {
   return plan.sequences.find((seq) => seq.sceneIds.includes(sceneId));
+}
+
+export interface SequenceSceneGroup {
+  sequenceId: string;
+  scenes: Scene[];
+}
+
+/**
+ * Groups scenes by their owning sequence, in the sequences' plan order, for
+ * batching sequence-mode image generation one unit of work per sequence (so
+ * scenes generated within a sequence can share master-image/continuity
+ * context and be processed in narration order) — see Task 8's image
+ * generation routes.
+ *
+ * Callers must have already passed validateSequenceIntegrity's
+ * error-severity checks (see loadSequenceContextByScene) — a content scene
+ * with no owning sequence is a validation error, not a case this function
+ * needs to handle defensively.
+ *
+ * Scenes within a sequence are ordered to match the sequence's own
+ * `sceneIds` order (not necessarily `scenes`' array order), since that's the
+ * order validateSequenceIntegrity's scene-order-mismatch check treats as
+ * authoritative once the plan is valid. A scene id present in the plan but no
+ * longer in `scenes` (e.g. deleted after the plan was written but the plan
+ * not yet updated) is silently skipped rather than crashing, and a sequence
+ * left with zero remaining scenes is omitted from the result entirely.
+ */
+export function groupScenesBySequence(scenes: Scene[], plan: SequencePlan): SequenceSceneGroup[] {
+  const sceneById = new Map(scenes.map((s) => [s.id, s]));
+  return plan.sequences
+    .slice()
+    .sort((a, b) => a.order - b.order)
+    .map((seq) => ({
+      sequenceId: seq.id,
+      scenes: seq.sceneIds.map((id) => sceneById.get(id)).filter((s): s is Scene => s !== undefined),
+    }))
+    .filter((group) => group.scenes.length > 0);
 }

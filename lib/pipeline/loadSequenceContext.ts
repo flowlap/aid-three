@@ -3,24 +3,32 @@ import { readSequencePlan } from "@/lib/projects/store";
 import { validateSequenceIntegrity } from "./validateSequenceIntegrity";
 import { buildSequenceContextByScene, type SceneSequenceContext } from "./selectScreenTypes";
 import type { Scene } from "./splitScenes";
+import type { SequencePlan } from "./sequenceTypes";
 
 /**
- * Shared by both screen-design routes (route.ts and [sceneId]/route.ts):
- * the sequence-mode prerequisite gate — read sequences.json, fail with a
- * user-facing prerequisite error if it's missing or integrity-broken, then
- * build the per-scene context map. This was previously copy-pasted
- * (including the literal error strings) across both routes; kept here
- * rather than in selectScreenTypes.ts so that module can stay a plain
- * pipeline function without a next/server dependency.
+ * Shared by both screen-design routes (route.ts and [sceneId]/route.ts) and,
+ * since Task 8, the images routes: the sequence-mode prerequisite gate —
+ * read sequences.json, fail with a user-facing prerequisite error if it's
+ * missing or integrity-broken, then build the per-scene context map. This
+ * was previously copy-pasted (including the literal error strings) across
+ * both routes; kept here rather than in selectScreenTypes.ts so that module
+ * can stay a plain pipeline function without a next/server dependency.
+ *
+ * Also returns the already-loaded `plan` itself so callers that need it too
+ * (e.g. the images routes, for groupScenesBySequence and master-image
+ * lookups) don't have to re-read sequences.json a second time.
  *
  * Callers should only invoke this when `getProductionMode(project) ===
  * "sequence"`, and should run it before starting a job / creating an LLM
- * client, exactly as both routes already do.
+ * client, exactly as both screen-design routes already do.
  */
 export async function loadSequenceContextByScene(
   projectId: string,
   scenes: Scene[]
-): Promise<{ sequenceContextByScene: Record<string, SceneSequenceContext> } | { errorResponse: NextResponse }> {
+): Promise<
+  | { sequenceContextByScene: Record<string, SceneSequenceContext>; plan: SequencePlan }
+  | { errorResponse: NextResponse }
+> {
   const plan = await readSequencePlan(projectId);
   if (!plan) {
     return {
@@ -41,5 +49,5 @@ export async function loadSequenceContextByScene(
     };
   }
 
-  return { sequenceContextByScene: buildSequenceContextByScene(plan, scenes) };
+  return { sequenceContextByScene: buildSequenceContextByScene(plan, scenes), plan };
 }

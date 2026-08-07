@@ -8,7 +8,10 @@ import {
   writeProjectImage,
   updateProjectStep,
   listProjectImageIds,
+  readSequenceMasterImage,
+  projectSequenceMasterImagePath,
 } from "@/lib/projects/store";
+import { getProductionMode } from "@/lib/projects/types";
 import { createImageClient } from "@/lib/ai/image/factory";
 import type { ImageClient } from "@/lib/ai/image/types";
 import { createLocalImageClient, type LocalImageClient } from "@/lib/ai/localImageClient";
@@ -17,14 +20,18 @@ import {
   buildImagePrompt,
   buildRelatedScenesContext,
   describeImageError,
+  type SceneReferenceImages,
 } from "@/lib/pipeline/generateSceneImage";
 import type { Scene } from "@/lib/pipeline/splitScenes";
-import type { ScreenTypeAssignment } from "@/lib/pipeline/selectScreenTypes";
+import type { ScreenTypeAssignment, SceneSequenceContext } from "@/lib/pipeline/selectScreenTypes";
 import type { VisualDesign } from "@/lib/pipeline/designVisuals";
 import { createResilientStream } from "@/lib/http/resilientStream";
 import { startJob, finishJob, recordProgress, JobAlreadyRunningError } from "@/lib/jobs/registry";
 import { runWithConcurrencyLimit } from "@/lib/concurrency";
 import { groupContentScenesByParentTitle } from "@/lib/pipeline/sceneHierarchy";
+import { loadSequenceContextByScene } from "@/lib/pipeline/loadSequenceContext";
+import { groupScenesBySequence } from "@/lib/pipeline/sequenceLookup";
+import type { SequencePlan } from "@/lib/pipeline/sequenceTypes";
 import {
   IMAGE_GENERATION_CONCURRENCY,
   LOCAL_IMAGE_DRAFT_WIDTH,
@@ -34,6 +41,18 @@ import {
   type LocalImageModelSize,
 } from "@/lib/pipeline/imageGenerationConfig";
 import { DEFAULT_IMAGE_COMMON_PROMPT } from "@/lib/pipeline/commonPromptDefaults";
+
+/**
+ * A unit of work for image generation: either a sequence-mode group (all
+ * scenes belonging to one Sequence, sequenceId set) or a scene-mode group
+ * (a nearest-title cluster from groupContentScenesByParentTitle, sequenceId
+ * null). Downstream generation code only ever reads `.scenes`; `sequenceId`
+ * is consulted solely to look up that group's sequence master image.
+ */
+interface ImageSceneGroup {
+  sequenceId: string | null;
+  scenes: Scene[];
+}
 
 const STEP = "images" as const;
 
@@ -89,6 +108,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
     return NextResponse.json({ error: "씬 또는 화면 설계 데이터 형식이 올바르지 않습니다" }, { status: 400 });
   }
 
+  let sequenceContextByScene: Record<string, SceneSequenceContext> | undefined;
+  let sequencePlan: SequencePlan | undefined;
+  if (getProductionMode(project) === "sequence") {
+    const contextResult = await loadSequenceContextByScene(projectId, scenes);
+    if ("errorResponse" in contextResult) return contextResult.errorResponse;
+    sequenceContextByScene = contextResult.sequenceContextByScene;
+    sequencePlan = contextResult.plan;
+  }
+
   let job;
   try {
     job = startJob(projectId, STEP);
@@ -132,11 +160,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
       const eligibleScenes = scenes.filter((scene) => scene.sceneType !== "title" && visualDesigns[scene.id]);
       const total = eligibleScenes.length;
 
-      // Grouped the same way as screen design (see selectScreenTypes.ts /
-      // sceneHierarchy.ts): each nearest-title cluster of content scenes is
-      // one unit of work, so a chapter's images generate together instead of
+      // Grouped by owning sequence in sequence mode (see sequenceLookup.ts),
+      // or the same nearest-title clustering as screen design in scene mode
+      // (see selectScreenTypes.ts / sceneHierarchy.ts) — either way, one
+      // unit of work per group, so scenes that should stay visually
+      // consistent (a chapter, or a sequence) generate together instead of
       // being interleaved arbitrarily with unrelated scenes.
-      const pendingGroups = groupContentScenesByParentTitle(scenes)
+      const rawGroups: ImageSceneGroup[] = sequencePlan
+        ? groupScenesBySequence(scenes, sequencePlan).map((group) => ({ sequenceId: group.sequenceId, scenes: group.scenes }))
+        : groupContentScenesByParentTitle(scenes).map((group) => ({ sequenceId: null, scenes: group.scenes }));
+      const pendingGroups = rawGroups
         .map((group) => ({
           ...group,
           scenes: group.scenes.filter((scene) => visualDesigns[scene.id] && !alreadyGenerated.has(scene.id)),
@@ -144,14 +177,50 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
         .filter((group) => group.scenes.length > 0);
       let completedSoFar = eligibleScenes.filter((scene) => alreadyGenerated.has(scene.id)).length;
 
+      // Sequence mode only: load each affected sequence's generated master
+      // image (once per sequence, not per scene) so every scene in that
+      // sequence can be generated against the same background/continuity
+      // plate. A sequence with no generated master yet (or whose asset file
+      // is missing despite masterVisual.status saying "generated") falls
+      // back to the textual continuity instruction in buildImagePrompt —
+      // this must not abort the job, just warn once per affected sequence.
+      const sequenceMasterAssets = new Map<string, { buffer?: Buffer; path?: string }>();
+      if (sequencePlan) {
+        for (const group of pendingGroups) {
+          if (!group.sequenceId || sequenceMasterAssets.has(group.sequenceId)) continue;
+          const sequence = sequencePlan.sequences.find((seq) => seq.id === group.sequenceId);
+          let buffer: Buffer | undefined;
+          let assetPath: string | undefined;
+          if (sequence?.masterVisual.status === "generated" && sequence.masterVisual.assetId) {
+            const found = await readSequenceMasterImage(projectId, group.sequenceId, sequence.masterVisual.assetId);
+            if (found) {
+              buffer = found;
+              assetPath = projectSequenceMasterImagePath(projectId, group.sequenceId, sequence.masterVisual.assetId);
+            }
+          }
+          sequenceMasterAssets.set(group.sequenceId, { buffer, path: assetPath });
+          if (!buffer) {
+            emit(
+              JSON.stringify({
+                type: "warning",
+                message: `${sequence?.title ?? group.sequenceId} 시퀀스의 마스터 이미지가 없어 텍스트 설명만으로 씬 이미지를 생성합니다.`,
+              }) + "\n"
+            );
+          }
+        }
+      }
+
       if (localClient) {
         // Local generation runs one Python process that loads the model once and
         // generates strictly in order (LOCAL_IMAGE_CONCURRENCY=1) — no benefit to
         // OpenAI's uncapped-groups-behind-a-limit shape, so every pending scene is
         // flattened into a single ordered batch call instead.
-        const pendingScenes = pendingGroups.flatMap((group) => group.scenes);
-        const items = pendingScenes.map((scene) => {
+        const pendingSceneEntries = pendingGroups.flatMap((group) =>
+          group.scenes.map((scene) => ({ scene, sequenceId: group.sequenceId }))
+        );
+        const items = pendingSceneEntries.map(({ scene, sequenceId }) => {
           const design = visualDesigns[scene.id];
+          const masterPath = sequenceId ? sequenceMasterAssets.get(sequenceId)?.path : undefined;
           const prompt = buildImagePrompt(scene, design, {
             screenType: screenTypes[scene.id]?.screenType,
             commonPrompt,
@@ -161,8 +230,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
             backgroundFixed,
             relatedScenes: buildRelatedScenesContext(scene, visualDesigns),
             allowTextInImage: false,
+            sequenceImageContext: sequenceContextByScene?.[scene.id],
           });
-          return { sceneId: scene.id, prompt, referenceImagePaths };
+          const itemReferenceImagePaths = masterPath ? [...referenceImagePaths, masterPath] : referenceImagePaths;
+          return { sceneId: scene.id, prompt, referenceImagePaths: itemReferenceImagePaths };
         });
 
         await localClient.generateBatch(items, {
@@ -184,6 +255,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
         // concurrent *groups* — real image API calls are costlier and more
         // rate-limit-sensitive, so groups queue behind the cap.
         await runWithConcurrencyLimit(pendingGroups, IMAGE_GENERATION_CONCURRENCY, async (group) => {
+          const masterBuffer = group.sequenceId ? sequenceMasterAssets.get(group.sequenceId)?.buffer : undefined;
+          const groupReferenceImages: SceneReferenceImages = group.sequenceId
+            ? { ...referenceImages, master: masterBuffer }
+            : referenceImages;
+
           for (const scene of group.scenes) {
             if (job.controller.signal.aborted) throw new DOMException("Aborted", "AbortError");
 
@@ -200,9 +276,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
                 presenterGender,
                 backgroundFixed,
                 relatedScenes: buildRelatedScenesContext(scene, visualDesigns),
+                sequenceImageContext: sequenceContextByScene?.[scene.id],
               },
               job.controller.signal,
-              referenceImages
+              groupReferenceImages
             );
             await writeProjectImage(projectId, scene.id, buffer);
             completedSoFar += 1;

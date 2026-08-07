@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { findSequenceForScene } from "./sequenceLookup";
+import { findSequenceForScene, groupScenesBySequence } from "./sequenceLookup";
 import type { SequencePlan } from "./sequenceTypes";
+import type { Scene } from "./splitScenes";
 
 function makePlan(): SequencePlan {
   return {
@@ -56,5 +57,47 @@ describe("findSequenceForScene", () => {
     const plan = makePlan();
 
     expect(findSequenceForScene(plan, "scene-999")).toBeUndefined();
+  });
+});
+
+function makeScene(id: string, order: number): Scene {
+  return {
+    id,
+    order,
+    narrationText: `${id} 나레이션`,
+    estimatedDurationSec: 5,
+    splitReason: "테스트",
+  };
+}
+
+describe("groupScenesBySequence", () => {
+  it("groups scenes by owning sequence, in plan order, with scenes ordered by the sequence's own sceneIds", () => {
+    const plan = makePlan();
+    const scenes = [makeScene("scene-003", 3), makeScene("scene-002", 2), makeScene("scene-001", 1)];
+
+    const groups = groupScenesBySequence(scenes, plan);
+
+    expect(groups).toEqual([
+      { sequenceId: "sequence-001", scenes: [scenes[2], scenes[1]] },
+      { sequenceId: "sequence-002", scenes: [scenes[0]] },
+    ]);
+  });
+
+  it("silently skips a scene id present in the plan but missing from the scenes array", () => {
+    const plan = makePlan();
+    const scenes = [makeScene("scene-001", 1)]; // scene-002 and scene-003 missing
+
+    const groups = groupScenesBySequence(scenes, plan);
+
+    expect(groups).toEqual([{ sequenceId: "sequence-001", scenes: [scenes[0]] }]);
+  });
+
+  it("omits a sequence entirely when none of its scenes remain", () => {
+    const plan = makePlan();
+    const scenes = [makeScene("scene-001", 1), makeScene("scene-002", 2)]; // scene-003 (sequence-002's only scene) missing
+
+    const groups = groupScenesBySequence(scenes, plan);
+
+    expect(groups.map((g) => g.sequenceId)).toEqual(["sequence-001"]);
   });
 });

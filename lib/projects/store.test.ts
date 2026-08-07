@@ -19,6 +19,7 @@ import {
   writeSequenceMasterImage,
   readSequenceMasterImage,
   listSequenceMasterImageIds,
+  projectSequenceMasterImagePath,
 } from "./store";
 import { getProductionMode, type ProductionMode } from "./types";
 import type { SequencePlan } from "../pipeline/sequenceTypes";
@@ -323,5 +324,21 @@ describe("sequence master image storage", () => {
     await expect(
       writeSequenceMasterImage(project.id, "sequence-001", "../evil", Buffer.from([1]))
     ).rejects.toThrow();
+  });
+
+  it("builds the same file path that writeSequenceMasterImage/readSequenceMasterImage use internally", async () => {
+    const project = await createProject("마스터 이미지 경로", "script", "sequence");
+    const buffer = Buffer.from([7, 7]);
+    await writeSequenceMasterImage(project.id, "sequence-001", "asset-001", buffer);
+
+    const filePath = projectSequenceMasterImagePath(project.id, "sequence-001", "asset-001");
+    const { promises: fs } = await import("fs");
+
+    await expect(fs.readFile(filePath)).resolves.toEqual(buffer);
+  });
+
+  it("rejects an unsafe asset id when building the path", async () => {
+    const project = await createProject("마스터 이미지 경로 검증", "script", "sequence");
+    expect(() => projectSequenceMasterImagePath(project.id, "sequence-001", "../evil")).toThrow();
   });
 });

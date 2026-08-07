@@ -8,6 +8,7 @@ import {
   describeImageError,
   buildImagePrompt,
   buildRelatedScenesContext,
+  NO_TEXT_INSTRUCTION,
 } from "./generateSceneImage";
 import {
   IMAGE_GENERATION_RETRY_DELAY_MS,
@@ -16,6 +17,7 @@ import {
 } from "./imageGenerationConfig";
 import type { Scene } from "./splitScenes";
 import type { VisualDesign } from "./designVisuals";
+import type { SceneSequenceContext } from "./selectScreenTypes";
 
 /** A stub image client whose successive calls fail/succeed per a fixed script — lets retry tests control exactly when a call succeeds without real network calls. */
 class ScriptedImageClient implements ImageClient {
@@ -242,6 +244,97 @@ describe("generateSceneImage", () => {
   it("does not include the accessory/likeness lock when no presenter reference image is attached", () => {
     const prompt = buildImagePrompt(scene, design, { presenterEnabled: true, presenterGender: "female" });
     expect(prompt).not.toContain("안경, 마이크, 액세서리");
+  });
+});
+
+describe("sequence mode", () => {
+  const sequenceContext: SceneSequenceContext = {
+    purpose: "개념 도입",
+    continuity: {
+      location: "사무실",
+      visualStyle: "플랫 일러스트",
+      fixedElements: ["책상", "창문"],
+      doNotChange: ["벽 색상"],
+    },
+    masterVisualDescription: "사무실 배경의 인물",
+    overlays: [],
+  };
+
+  it("forces the no-text instruction for a text-forward screen type, ignoring the caption-baking logic", () => {
+    const prompt = buildImagePrompt(scene, design, {
+      screenType: "간지/타이틀형",
+      sequenceImageContext: sequenceContext,
+    });
+    expect(prompt).toContain(NO_TEXT_INSTRUCTION);
+    expect(prompt).not.toContain("명사형");
+  });
+
+  it("includes the master-continuity-lock instruction when a master reference image is attached", () => {
+    const prompt = buildImagePrompt(scene, design, {
+      sequenceImageContext: sequenceContext,
+      hasMasterReferenceImage: true,
+    });
+    expect(prompt).toContain("시퀀스 마스터 배경 참고 이미지");
+    expect(prompt).toContain("배경 자체를 새로 그리거나 다른 배경으로 바꾸지 마세요");
+  });
+
+  it("falls back to the textual continuity instruction when no master reference image is attached yet", () => {
+    const prompt = buildImagePrompt(scene, design, { sequenceImageContext: sequenceContext });
+    expect(prompt).toContain("마스터 참고 이미지가 생성되지 않았습니다");
+    expect(prompt).toContain(sequenceContext.continuity.location);
+    expect(prompt).toContain(sequenceContext.masterVisualDescription);
+  });
+
+  it("reflects the planned camera shot and pan direction margin instruction", () => {
+    const prompt = buildImagePrompt(scene, design, {
+      sequenceImageContext: {
+        ...sequenceContext,
+        camera: { sceneId: scene.id, shot: "close-up", motion: "pan-left" },
+      },
+    });
+    expect(prompt).toContain("클로즈업");
+    expect(prompt).toContain("왼쪽 방향에 여백");
+  });
+
+  it("skips the camera framing block with no crash when no camera entry is planned for this scene", () => {
+    expect(() => buildImagePrompt(scene, design, { sequenceImageContext: sequenceContext })).not.toThrow();
+    const prompt = buildImagePrompt(scene, design, { sequenceImageContext: sequenceContext });
+    expect(prompt).not.toContain("클로즈업");
+  });
+
+  it("includes the overlay-exclusion instruction even when this scene has no planned overlays", () => {
+    const prompt = buildImagePrompt(scene, design, { sequenceImageContext: { ...sequenceContext, overlays: [] } });
+    expect(prompt).toContain("결정론적 렌더러");
+  });
+
+  it("keeps scene-mode output free of every sequence-mode-only instruction phrase", () => {
+    const withOptions = buildImagePrompt(scene, design, {
+      screenType: "간지/타이틀형",
+      presenterEnabled: true,
+      backgroundFixed: true,
+      hasStyleReferenceImage: true,
+    });
+    const plain = buildImagePrompt(scene, design);
+    for (const prompt of [withOptions, plain]) {
+      expect(prompt).not.toContain("마스터");
+      expect(prompt).not.toContain("카메라가 이동해 갈");
+      expect(prompt).not.toContain("결정론적 렌더러");
+    }
+  });
+
+  it("forwards referenceImages.master into hasMasterReferenceImage and as the first reference buffer", async () => {
+    const client = new MockImageClient();
+    const master = Buffer.from("master-plate");
+    const style = Buffer.from("style-guide");
+
+    await generateSceneImage(client, scene, design, { sequenceImageContext: sequenceContext }, undefined, {
+      master,
+      style,
+    });
+
+    expect(client.calls).toHaveLength(1);
+    expect(client.calls[0].options?.referenceImages).toEqual([master, style]);
+    expect(client.calls[0].prompt).toContain("시퀀스 마스터 배경 참고 이미지");
   });
 });
 

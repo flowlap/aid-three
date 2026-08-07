@@ -37,7 +37,9 @@ type ImageStreamEvent =
   | { type: "scene"; sceneId: string; index: number; total: number }
   | { type: "result" }
   | { type: "error"; message: string }
-  | { type: "cancelled" };
+  | { type: "cancelled" }
+  /** Sequence mode only — a non-fatal notice (e.g. a sequence has no generated master image yet) that doesn't stop generation. See ImagesEditor's onEvent. */
+  | { type: "warning"; message: string };
 
 export function ImagesEditor({
   projectId,
