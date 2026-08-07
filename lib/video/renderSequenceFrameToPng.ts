@@ -1,6 +1,5 @@
-import { ImageResponse } from "next/og";
 import { buildSequenceOverlayLayout } from "./renderSequenceFrame";
-import { loadPretendardFonts } from "@/lib/satoriFonts";
+import { rasterizeToPng } from "./rasterizeToPng";
 import type { SequenceOverlayEntry } from "@/lib/pipeline/sequenceTypes";
 import type { FrameDimensions } from "./frameDimensions";
 
@@ -20,11 +19,10 @@ import type { FrameDimensions } from "./frameDimensions";
  */
 export async function renderSequenceOverlayToPng(
   overlays: SequenceOverlayEntry[],
-  { width, height }: FrameDimensions
+  dimensions: FrameDimensions
 ): Promise<Buffer | null> {
   if (overlays.length === 0) return null;
 
-  const fonts = await loadPretendardFonts();
-  const response = new ImageResponse(buildSequenceOverlayLayout(overlays, width, height), { width, height, fonts });
-  return Buffer.from(await response.arrayBuffer());
+  const layout = buildSequenceOverlayLayout(overlays, dimensions.width, dimensions.height);
+  return rasterizeToPng(layout, dimensions);
 }
