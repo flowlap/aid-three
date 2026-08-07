@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { MockLlmClient } from "../ai/llm/mockLlmClient";
-import { selectScreenTypes } from "./selectScreenTypes";
+import { selectScreenTypes, type SceneSequenceContext } from "./selectScreenTypes";
 import type { Scene } from "./splitScenes";
 
 function content(id: string, narrationText: string, order: number, extra: Partial<Scene> = {}): Scene {
@@ -379,5 +379,83 @@ describe("selectScreenTypes", () => {
     const prompt = client.calls[0].messages[1].content;
     expect(prompt).toContain("관련 씬");
     expect(prompt).toContain("정의를 설명합니다.");
+  });
+
+  describe("sequenceContextByScene (sequence mode)", () => {
+    function makeSequenceContext(overrides: Partial<SceneSequenceContext> = {}): SceneSequenceContext {
+      return {
+        purpose: "탄소배출권 개념을 사무실 배경에서 소개",
+        continuity: {
+          location: "현대적 사무실",
+          timeOfDay: "낮",
+          visualStyle: "플랫 일러스트, 파스텔톤",
+          fixedElements: ["주인공 캐릭터", "창가 화분"],
+          doNotChange: ["캐릭터 의상 색상"],
+        },
+        masterVisualDescription: "파스텔톤 사무실에서 캐릭터가 창밖을 바라보는 마스터 비주얼",
+        overlays: [],
+        ...overrides,
+      };
+    }
+
+    it("includes the sequence's purpose/continuity/master-visual and this scene's camera/overlay plan when context is provided", async () => {
+      const client = new MockLlmClient([batchResponse([scenes[0]])]);
+      const sequenceContext = makeSequenceContext({
+        camera: { sceneId: "scene-001", shot: "wide", motion: "slow-push-in" },
+        overlays: [{ sceneId: "scene-001", type: "chart", description: "배출권 가격 추이 그래프" }],
+      });
+
+      await selectScreenTypes(client, [scenes[0]], {
+        sequenceContextByScene: { "scene-001": sequenceContext },
+      });
+
+      const prompt = client.calls[0].messages[1].content;
+      expect(prompt).toContain("탄소배출권 개념을 사무실 배경에서 소개");
+      expect(prompt).toContain("현대적 사무실");
+      expect(prompt).toContain("플랫 일러스트, 파스텔톤");
+      expect(prompt).toContain("주인공 캐릭터");
+      expect(prompt).toContain("캐릭터 의상 색상");
+      expect(prompt).toContain("파스텔톤 사무실에서 캐릭터가 창밖을 바라보는 마스터 비주얼");
+      expect(prompt).toContain("wide");
+      expect(prompt).toContain("slow-push-in");
+      expect(prompt).toContain("배출권 가격 추이 그래프");
+    });
+
+    it("does not append any sequence-context block when sequenceContextByScene is omitted (scene mode)", async () => {
+      const client = new MockLlmClient([batchResponse(scenes)]);
+
+      await selectScreenTypes(client, scenes);
+
+      const prompt = client.calls[0].messages[1].content;
+      expect(prompt).not.toContain("시퀀스 공유 맥락");
+    });
+
+    it("does not append a sequence-context block for a scene absent from sequenceContextByScene", async () => {
+      const client = new MockLlmClient([batchResponse(scenes)]);
+
+      await selectScreenTypes(client, scenes, {
+        sequenceContextByScene: { "scene-002": makeSequenceContext() },
+      });
+
+      const prompt = client.calls[0].messages[1].content;
+      // Only scene-002's block should appear; scene-001 gets none.
+      const scene1Block = prompt.slice(prompt.indexOf("[order=1]"), prompt.indexOf("[order=2]"));
+      expect(scene1Block).not.toContain("시퀀스 공유 맥락");
+      expect(prompt).toContain("시퀀스 공유 맥락");
+    });
+
+    it("does not append a sequence-context block for a title scene even when scenes has other context entries", async () => {
+      const withTitle = [title("scene-000", "1장 소개", 1, 0), ...scenes];
+      const client = new MockLlmClient([batchResponse(scenes)]);
+
+      const result = await selectScreenTypes(client, withTitle, {
+        sequenceContextByScene: { "scene-001": makeSequenceContext() },
+      });
+
+      // Title scenes never hit the AI at all, so there's no prompt to check —
+      // just confirm the fixed local title design is untouched by the option.
+      expect(result["scene-000"]).toMatchObject({ screenType: "간지/타이틀형", caption: "1장 소개" });
+      expect(client.calls[0].messages[1].content).toContain("시퀀스 공유 맥락");
+    });
   });
 });

@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { readProject, readProjectFile, mergeProjectJsonMap } from "@/lib/projects/store";
+import { readProject, readProjectFile, mergeProjectJsonMap, readSequencePlan } from "@/lib/projects/store";
+import { getProductionMode } from "@/lib/projects/types";
 import { createLlmClient } from "@/lib/ai/llm/factory";
-import { selectScreenTypes } from "@/lib/pipeline/selectScreenTypes";
+import { selectScreenTypes, buildSequenceContextByScene, type SceneSequenceContext } from "@/lib/pipeline/selectScreenTypes";
 import { computeVisualDesign } from "@/lib/visual-templates";
+import { validateSequenceIntegrity } from "@/lib/pipeline/validateSequenceIntegrity";
 import { DEFAULT_SCREEN_DESIGN_COMMON_PROMPT } from "@/lib/pipeline/commonPromptDefaults";
 import type { Scene } from "@/lib/pipeline/splitScenes";
 
@@ -31,6 +33,20 @@ export async function POST(
   const scene = scenes.find((s) => s.id === sceneId);
   if (!scene) return NextResponse.json({ error: "씬을 찾을 수 없습니다" }, { status: 404 });
 
+  const productionMode = getProductionMode(project);
+  let sequenceContextByScene: Record<string, SceneSequenceContext> | undefined;
+  if (productionMode === "sequence") {
+    const sequencePlan = await readSequencePlan(projectId);
+    if (!sequencePlan) {
+      return NextResponse.json({ error: "시퀀스 계획이 없습니다. 먼저 시퀀스 단계를 완료해주세요." }, { status: 400 });
+    }
+    const issues = validateSequenceIntegrity(scenes, sequencePlan);
+    if (issues.some((issue) => issue.severity === "error")) {
+      return NextResponse.json({ error: "시퀀스 계획에 오류가 있습니다. 시퀀스 단계에서 먼저 수정해주세요." }, { status: 400 });
+    }
+    sequenceContextByScene = buildSequenceContextByScene(sequencePlan, scenes);
+  }
+
   const documentSummary = (await readProjectFile(projectId, "document-summary.txt"))?.trim() || undefined;
   const commonPrompt =
     (await readProjectFile(projectId, "screen-design-common-prompt.txt"))?.trim() || DEFAULT_SCREEN_DESIGN_COMMON_PROMPT;
@@ -45,7 +61,12 @@ export async function POST(
 
   let screenTypes;
   try {
-    screenTypes = await selectScreenTypes(client, [scene], { documentSummary, commonPrompt, allScenesForContext: scenes });
+    screenTypes = await selectScreenTypes(client, [scene], {
+      documentSummary,
+      commonPrompt,
+      allScenesForContext: scenes,
+      sequenceContextByScene,
+    });
   } catch (err) {
     console.error("씬 재생성 실패:", err);
     return NextResponse.json({ error: "AI 화면 설계에 실패했습니다. 잠시 후 다시 시도해주세요." }, { status: 502 });
