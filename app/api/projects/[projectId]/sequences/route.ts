@@ -8,6 +8,7 @@ import type { Scene } from "@/lib/pipeline/splitScenes";
 import type { Sequence, SequencePlan } from "@/lib/pipeline/sequenceTypes";
 import { createResilientStream } from "@/lib/http/resilientStream";
 import { startJob, finishJob, recordChunk, getJob, JobAlreadyRunningError } from "@/lib/jobs/registry";
+import { withInFlightLock, AlreadyInFlightError } from "@/lib/jobs/inFlightLock";
 
 const STEP = "sequences" as const;
 
@@ -215,6 +216,16 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ proj
     return NextResponse.json({ error: "시퀀스 계획이 씬 데이터와 맞지 않습니다", issues }, { status: 400 });
   }
 
-  await writeSequencePlan(projectId, body);
+  try {
+    await withInFlightLock(`sequence-master:${projectId}`, () => writeSequencePlan(projectId, body));
+  } catch (err) {
+    if (err instanceof AlreadyInFlightError) {
+      return NextResponse.json(
+        { error: "마스터 비주얼 생성이 진행 중입니다. 완료 후 다시 저장해주세요" },
+        { status: 409 }
+      );
+    }
+    throw err;
+  }
   return NextResponse.json({ ok: true, issues });
 }

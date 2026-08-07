@@ -18,12 +18,26 @@ import {
 } from "@/lib/pipeline/generateSequenceMasterImage";
 import { describeImageError } from "@/lib/pipeline/generateSceneImage";
 import { withInFlightLock, AlreadyInFlightError } from "@/lib/jobs/inFlightLock";
+import type { Sequence, SequenceContinuity } from "@/lib/pipeline/sequenceTypes";
 
 /**
  * Mode gate mirroring app/api/projects/[projectId]/sequences/route.ts —
  * master-visual generation only makes sense for sequence-mode projects.
  */
 const NOT_SEQUENCE_MODE_ERROR = "시퀀스 제작 모드 프로젝트가 아닙니다";
+
+/**
+ * One-off overrides for a single generation call, mirroring
+ * images/[sceneId]/route.ts's RegenerateSceneOverrides pattern: these apply
+ * only to this generation's prompt-building and are never persisted back to
+ * sequences.json. This lets the editor UI generate from unsaved in-memory
+ * edits (description/continuity) instead of silently falling back to
+ * possibly-stale on-disk data.
+ */
+interface GenerateSequenceMasterImageOverrides {
+  description?: string;
+  continuity?: Partial<SequenceContinuity>;
+}
 
 /**
  * Serves the sequence's current master-visual image bytes, mirroring
@@ -53,10 +67,11 @@ export async function GET(
 
 /** Triggers one explicit master-visual generation for a sequence — never run automatically (see plan doc Task 7). */
 export async function POST(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ projectId: string; sequenceId: string }> }
 ) {
   const { projectId, sequenceId } = await params;
+  const overrides: GenerateSequenceMasterImageOverrides = await req.json().catch(() => ({}));
 
   const project = await readProject(projectId);
   if (!project) return NextResponse.json({ error: "프로젝트를 찾을 수 없습니다" }, { status: 404 });
@@ -65,8 +80,8 @@ export async function POST(
   }
 
   try {
-    return await withInFlightLock(`sequence-master:${projectId}:${sequenceId}`, () =>
-      generateMasterVisual(projectId, sequenceId)
+    return await withInFlightLock(`sequence-master:${projectId}`, () =>
+      generateMasterVisual(projectId, sequenceId, overrides)
     );
   } catch (err) {
     if (err instanceof AlreadyInFlightError) {
@@ -79,12 +94,23 @@ export async function POST(
   }
 }
 
-async function generateMasterVisual(projectId: string, sequenceId: string): Promise<NextResponse> {
+async function generateMasterVisual(
+  projectId: string,
+  sequenceId: string,
+  overrides: GenerateSequenceMasterImageOverrides
+): Promise<NextResponse> {
   const plan = await readSequencePlan(projectId);
   if (!plan) return NextResponse.json({ error: "시퀀스 계획이 없습니다" }, { status: 404 });
 
   const sequence = plan.sequences.find((seq) => seq.id === sequenceId);
   if (!sequence) return NextResponse.json({ error: "시퀀스를 찾을 수 없습니다" }, { status: 404 });
+
+  // Prompt-building only — never persisted. See GenerateSequenceMasterImageOverrides.
+  const effectiveSequence: Sequence = {
+    ...sequence,
+    masterVisual: { ...sequence.masterVisual, description: overrides.description ?? sequence.masterVisual.description },
+    continuity: { ...sequence.continuity, ...overrides.continuity },
+  };
 
   const backgroundFixed = (await readProjectFile(projectId, "background-fixed-enabled.txt"))?.trim() === "true";
   const styleReferenceEnabled = true;
@@ -101,11 +127,11 @@ async function generateMasterVisual(projectId: string, sequenceId: string): Prom
     return NextResponse.json({ error: "AI 이미지 생성에 실패했습니다" }, { status: 502 });
   }
 
-  const prompt = buildSequenceMasterImagePrompt(sequence);
+  const prompt = buildSequenceMasterImagePrompt(effectiveSequence);
 
   let buffer: Buffer;
   try {
-    buffer = await generateSequenceMasterImage(client, sequence, referenceImages);
+    buffer = await generateSequenceMasterImage(client, effectiveSequence, referenceImages);
   } catch (err) {
     console.error("시퀀스 마스터 비주얼 생성 실패:", err);
     return NextResponse.json({ error: describeImageError(err) }, { status: 502 });

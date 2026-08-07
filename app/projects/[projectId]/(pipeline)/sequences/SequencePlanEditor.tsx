@@ -173,7 +173,12 @@ export function SequencePlanEditor({
     setGeneratingMasterFor((prev) => new Set(prev).add(sequenceId));
     setMasterImageError((prev) => ({ ...prev, [sequenceId]: "" }));
     try {
-      const res = await fetch(`/api/projects/${projectId}/sequences/${sequenceId}/master-image`, { method: "POST" });
+      const seq = plan?.sequences.find((s) => s.id === sequenceId);
+      const res = await fetch(`/api/projects/${projectId}/sequences/${sequenceId}/master-image`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ description: seq?.masterVisual.description, continuity: seq?.continuity }),
+      });
       const data = await res.json();
       if (!res.ok) {
         setMasterImageError((prev) => ({ ...prev, [sequenceId]: data.error ?? "마스터 비주얼 생성에 실패했습니다" }));

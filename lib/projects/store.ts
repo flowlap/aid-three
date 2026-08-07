@@ -254,11 +254,13 @@ export async function writeSequencePlan(id: string, plan: SequencePlan): Promise
 }
 
 /**
- * Atomically patches one sequence's masterVisual field and persists the whole
- * plan. Returns the updated Sequence, or null if the plan or the sequence
- * doesn't exist. Caller is responsible for concurrency control (e.g.
- * withInFlightLock) around this — this function itself does a plain
- * read-modify-write.
+ * Patches one sequence's masterVisual field and persists the whole plan via a
+ * plain read-modify-write. NOT atomic on its own — callers MUST serialize all
+ * writers of sequences.json for a given project (see the
+ * `sequence-master:${projectId}` lock used by both the master-image POST
+ * route and the plan-save PUT route) or concurrent calls can silently
+ * clobber each other. Returns the updated Sequence, or null if the plan or
+ * the sequence doesn't exist.
  */
 export async function updateSequenceMasterVisual(
   id: string,
