@@ -307,6 +307,54 @@ describe("sequence mode", () => {
     expect(prompt).toContain("결정론적 렌더러");
   });
 
+  it("bake mode: includes the overlay-bake instruction with each overlay's type label and description instead of the exclusion instruction", () => {
+    const prompt = buildImagePrompt(scene, design, {
+      sequenceImageContext: {
+        ...sequenceContext,
+        overlays: [
+          { sceneId: scene.id, type: "label", description: "매출 30% 증가" },
+          { sceneId: scene.id, type: "chart", description: "분기별 매출 그래프" },
+        ],
+      },
+      sequenceOverlayRenderMode: "bake",
+    });
+    expect(prompt).toContain("라벨(짧은 텍스트 태그)");
+    expect(prompt).toContain("매출 30% 증가");
+    expect(prompt).toContain("차트/그래프(실제 수치 포함)");
+    expect(prompt).toContain("분기별 매출 그래프");
+    expect(prompt).not.toContain("결정론적 렌더러");
+  });
+
+  it("bake mode: omits both the bake and exclusion instructions when this scene has no planned overlays", () => {
+    const prompt = buildImagePrompt(scene, design, {
+      sequenceImageContext: { ...sequenceContext, overlays: [] },
+      sequenceOverlayRenderMode: "bake",
+    });
+    expect(prompt).not.toContain("결정론적 렌더러");
+    expect(prompt).not.toContain("별도로 합성하는 렌더러가 없습니다");
+  });
+
+  it("bake mode: keeps the shot framing label but drops the pan/zoom margin instruction since AI-mode scenes render as a static frame", () => {
+    const prompt = buildImagePrompt(scene, design, {
+      sequenceImageContext: {
+        ...sequenceContext,
+        camera: { sceneId: scene.id, shot: "close-up", motion: "pan-left" },
+      },
+      sequenceOverlayRenderMode: "bake",
+    });
+    expect(prompt).toContain("클로즈업");
+    expect(prompt).not.toContain("왼쪽 방향에 여백");
+  });
+
+  it("omitting sequenceOverlayRenderMode reproduces the exact same output as before that option existed (regression)", () => {
+    const withoutMode = buildImagePrompt(scene, design, { sequenceImageContext: sequenceContext });
+    const withExcludeMode = buildImagePrompt(scene, design, {
+      sequenceImageContext: sequenceContext,
+      sequenceOverlayRenderMode: "exclude",
+    });
+    expect(withExcludeMode).toBe(withoutMode);
+  });
+
   it("keeps scene-mode output free of every sequence-mode-only instruction phrase", () => {
     const withOptions = buildImagePrompt(scene, design, {
       screenType: "간지/타이틀형",

@@ -15,6 +15,7 @@ import {
   type ImageProviderType,
   type HChatGeminiModel,
 } from "@/components/ImageEngineSelector";
+import { SequenceImageModeSelector, type SequenceImageMode } from "@/components/SequenceImageModeSelector";
 import { computeMockupVariantIndexes } from "@/lib/visual-templates";
 import type { Scene } from "@/lib/pipeline/splitScenes";
 import type { ScreenTypeAssignment } from "@/lib/pipeline/selectScreenTypes";
@@ -64,6 +65,7 @@ export function ImagesEditor({
   imageProviderType,
   initialHchatGeminiModel,
   imageAspectRatio,
+  initialSequenceImageMode,
 }: {
   projectId: string;
   productionMode: ProductionMode;
@@ -87,13 +89,19 @@ export function ImagesEditor({
   initialHchatGeminiModel: HChatGeminiModel;
   /** Actual generated-image pixel ratio (see lib/pipeline/imageAspectRatio.ts) — OpenAI defaults to 3:2, Gemini to 16:9, so the thumbnail/mockup aspect follows whatever this project actually generated instead of a hardcoded 3:2. */
   imageAspectRatio: { width: number; height: number };
+  /** Sequence mode only — ignored in scene mode. See SequenceImageModeSelector. */
+  initialSequenceImageMode: SequenceImageMode;
 }) {
   const router = useRouter();
-  // Sequence mode composites each scene from the sequence master + overlay
-  // (no image model, no per-scene prompts/references) — so the engine picker,
-  // common prompt, and background/presenter/style reference controls below are
-  // scene-mode-only. See the dual-production-mode plan.
+  // Sequence + composite mode composites each scene from the sequence master +
+  // overlay (no image model, no per-scene prompts/references) — so the engine
+  // picker, common prompt, and background/presenter/style reference controls
+  // below are hidden. Sequence + AI mode uses those exact same controls as
+  // scene mode (a real per-scene AI generation call), so it shows them too.
+  // See the dual-production-mode plan and its AI-image-mode follow-up.
   const isSequence = productionMode === "sequence";
+  const [sequenceImageMode, setSequenceImageMode] = useState<SequenceImageMode>(initialSequenceImageMode);
+  const isSequenceComposite = isSequence && sequenceImageMode === "composite";
   const [localScreenTypes, setLocalScreenTypes] = useState(screenTypes);
   const [localVisualDesigns, setLocalVisualDesigns] = useState(visualDesigns);
   const mockupVariants = useMemo(
@@ -278,7 +286,10 @@ export function ImagesEditor({
 
   return (
     <div className="space-y-4">
-      {!isSequence && (
+      {isSequence && (
+        <SequenceImageModeSelector projectId={projectId} initialMode={initialSequenceImageMode} onModeChange={setSequenceImageMode} />
+      )}
+      {!isSequenceComposite && (
         <>
           <ImageEngineSelector
             projectId={projectId}
@@ -379,7 +390,7 @@ export function ImagesEditor({
                 ? `이어서 생성 (${remainingCount}개 남음)`
                 : imageIds.size
                   ? "전체 다시 생성"
-                  : isSequence
+                  : isSequenceComposite
                     ? "마스터+오버레이 합성"
                     : "AI로 이미지 생성"}
           </Button>
@@ -402,7 +413,7 @@ export function ImagesEditor({
           label={
             discoveredRunning
               ? "다른 곳에서 시작된 이미지 생성이 진행 중입니다"
-              : isSequence
+              : isSequenceComposite
                 ? "마스터 비주얼에 오버레이를 합성하는 중입니다"
                 : "AI가 씬별 이미지를 생성하는 중입니다"
           }
@@ -488,14 +499,16 @@ export function ImagesEditor({
                       type="button"
                       variant="outline"
                       size="sm"
-                      // Sequence mode re-bakes the master+overlay composite directly
-                      // (no prompt/reference overrides), so skip the options panel.
-                      onClick={() => (isSequence ? void regenerateScene(scene.id) : toggleOptionsPanel(scene.id))}
+                      // Sequence + composite mode re-bakes the master+overlay
+                      // composite directly (no prompt/reference overrides), so
+                      // skip the options panel. Sequence + AI mode uses the
+                      // same options panel as scene mode (a real AI call).
+                      onClick={() => (isSequenceComposite ? void regenerateScene(scene.id) : toggleOptionsPanel(scene.id))}
                       disabled={regenerating || loading || !design}
                     >
                       {regenerating
                         ? "생성 중..."
-                        : isSequence
+                        : isSequenceComposite
                           ? hasImage
                             ? "합성 다시 생성"
                             : "합성 생성"
