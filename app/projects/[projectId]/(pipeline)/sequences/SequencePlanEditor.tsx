@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -98,6 +98,13 @@ export function SequencePlanEditor({
   const [generatingMasterFor, setGeneratingMasterFor] = useState<Set<string>>(new Set());
   const [masterImageError, setMasterImageError] = useState<Record<string, string>>({});
   const [masterImageVersion, setMasterImageVersion] = useState<Record<string, number>>({});
+  // Batch ("일괄 생성") state: the per-sequence master-image endpoint holds a
+  // project-wide in-flight lock, so masters must be generated one at a time —
+  // this drives a sequential loop over the sequences still needing one.
+  const [batchRunning, setBatchRunning] = useState(false);
+  const [batchProgress, setBatchProgress] = useState<{ done: number; total: number } | null>(null);
+  const [batchSummary, setBatchSummary] = useState<string | null>(null);
+  const batchCancelRef = useRef(false);
 
   const { loading, discoveredRunning, error, startedAt, start, cancel } = useAiJob<SequenceStreamEvent>({
     projectId,
@@ -130,6 +137,8 @@ export function SequencePlanEditor({
   );
   const hasBlockingIssues = integrityIssues.some((issue) => issue.severity === "error");
   const sequences = plan ? sortedSequences(plan) : [];
+  // Sequences still needing a master (not-generated or stale) — the batch target set.
+  const pendingMasterCount = sequences.filter((seq) => seq.masterVisual.status !== "generated").length;
 
   async function handleGenerate() {
     setOpError(null);
@@ -168,8 +177,16 @@ export function SequencePlanEditor({
     applyOp(updateMasterVisualDescription(plan, sequenceId, description));
   }
 
-  /** Triggers one explicit master-visual generation for a sequence (Task 7) — patches `plan` in place on success rather than a full router.refresh(), mirroring ImagesEditor.tsx's per-scene regenerate pattern. */
-  async function handleGenerateMasterVisual(sequenceId: string) {
+  /**
+   * Triggers one explicit master-visual generation for a sequence (Task 7) —
+   * patches `plan` in place on success rather than a full router.refresh(),
+   * mirroring ImagesEditor.tsx's per-scene regenerate pattern. Returns whether
+   * it succeeded so the batch runner ("일괄 생성") can tally failures. Reads the
+   * sequence's current description/continuity from `plan` at call time and
+   * sends them so unsaved in-memory edits are honored (see the route's
+   * GenerateSequenceMasterImageOverrides).
+   */
+  async function handleGenerateMasterVisual(sequenceId: string): Promise<boolean> {
     setGeneratingMasterFor((prev) => new Set(prev).add(sequenceId));
     setMasterImageError((prev) => ({ ...prev, [sequenceId]: "" }));
     try {
@@ -182,7 +199,7 @@ export function SequencePlanEditor({
       const data = await res.json();
       if (!res.ok) {
         setMasterImageError((prev) => ({ ...prev, [sequenceId]: data.error ?? "마스터 비주얼 생성에 실패했습니다" }));
-        return;
+        return false;
       }
       setPlan((prev) =>
         prev
@@ -195,8 +212,10 @@ export function SequencePlanEditor({
           : prev
       );
       setMasterImageVersion((prev) => ({ ...prev, [sequenceId]: (prev[sequenceId] ?? 0) + 1 }));
+      return true;
     } catch {
       setMasterImageError((prev) => ({ ...prev, [sequenceId]: "요청 중 오류가 발생했습니다" }));
+      return false;
     } finally {
       setGeneratingMasterFor((prev) => {
         const next = new Set(prev);
@@ -204,6 +223,48 @@ export function SequencePlanEditor({
         return next;
       });
     }
+  }
+
+  /**
+   * Sequentially generates the master visual for every sequence that doesn't
+   * have one yet (status "not-generated") or whose master is "stale" (plan
+   * edited since it was generated). Already-"generated" sequences are skipped
+   * so re-running never re-bills them. Serial by necessity — the endpoint's
+   * project-wide in-flight lock rejects concurrent calls. Stoppable between
+   * sequences via batchCancelRef.
+   */
+  async function handleGenerateAllMasters() {
+    if (!plan || batchRunning) return;
+    const targets = sortedSequences(plan).filter((seq) => seq.masterVisual.status !== "generated");
+    if (targets.length === 0) return;
+
+    setBatchRunning(true);
+    setBatchSummary(null);
+    batchCancelRef.current = false;
+    let done = 0;
+    let failures = 0;
+    setBatchProgress({ done: 0, total: targets.length });
+
+    for (const target of targets) {
+      if (batchCancelRef.current) break;
+      const ok = await handleGenerateMasterVisual(target.id);
+      if (!ok) failures++;
+      done++;
+      setBatchProgress({ done, total: targets.length });
+    }
+
+    const cancelled = batchCancelRef.current;
+    const succeeded = done - failures;
+    setBatchProgress(null);
+    setBatchRunning(false);
+    setBatchSummary(
+      `${cancelled ? "중지됨 — " : ""}${succeeded}개 생성 완료${failures > 0 ? `, ${failures}개 실패` : ""}` +
+        (cancelled ? ` (${targets.length - done}개 남음)` : "")
+    );
+  }
+
+  function cancelBatch() {
+    batchCancelRef.current = true;
   }
 
   function handleMoveScene(sceneId: string, direction: "prev" | "next") {
@@ -290,10 +351,34 @@ export function SequencePlanEditor({
           <Button variant="outline" onClick={() => void saveAndGoTo()} disabled={saveDisabled}>
             {saving ? "저장 중..." : "저장"}
           </Button>
+          {plan && (
+            batchRunning ? (
+              <Button variant="outline" onClick={cancelBatch}>
+                중지
+              </Button>
+            ) : (
+              <Button
+                variant="outline"
+                onClick={() => void handleGenerateAllMasters()}
+                disabled={loading || saving || pendingMasterCount === 0}
+                title="마스터 비주얼이 없는(또는 재생성이 필요한) 시퀀스를 순서대로 모두 생성합니다"
+              >
+                {pendingMasterCount === 0 ? "마스터 비주얼 모두 생성됨" : `마스터 비주얼 일괄 생성 (${pendingMasterCount}개)`}
+              </Button>
+            )
+          )}
           <span className="ml-auto text-xs font-medium text-muted-foreground">
             {plan ? `총 ${plan.sequences.length}개 시퀀스` : "아직 시퀀스 계획이 없습니다"}
           </span>
         </div>
+        {batchRunning && batchProgress && (
+          <p className="text-xs font-medium text-muted-foreground">
+            마스터 비주얼 생성 중… ({batchProgress.done}/{batchProgress.total}) — 이미지 모델을 호출하므로 시퀀스당 수십 초가 걸릴 수 있습니다.
+          </p>
+        )}
+        {!batchRunning && batchSummary && (
+          <p className="text-xs font-medium text-muted-foreground">{batchSummary}</p>
+        )}
         <AiJobStatus
           loading={loading}
           label={discoveredRunning ? "다른 곳에서 시작된 시퀀스 설계가 진행 중입니다" : "AI가 씬을 시퀀스로 묶는 중입니다"}
@@ -452,7 +537,7 @@ export function SequencePlanEditor({
                       <Button
                         variant="outline"
                         size="sm"
-                        disabled={generatingMasterFor.has(seq.id)}
+                        disabled={generatingMasterFor.has(seq.id) || batchRunning}
                         onClick={() => void handleGenerateMasterVisual(seq.id)}
                       >
                         {generatingMasterFor.has(seq.id)
