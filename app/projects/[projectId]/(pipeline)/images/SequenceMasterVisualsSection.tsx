@@ -15,11 +15,11 @@ const MASTER_VISUAL_STATUS_LABEL: Record<Sequence["masterVisual"]["status"], str
 
 /**
  * Sequence-mode-only master-visual generation, moved here from
- * SequencePlanEditor.tsx so it reuses the images step's engine selection,
- * common prompt, and background/style reference settings (see the
- * screen-design-merge plan doc). The description text itself remains
- * editable only in the sequence-design step — this section links there
- * instead of duplicating that editing UI.
+ * SequencePlanEditor.tsx and rendered after the images step's engine
+ * selection, common prompt, and background/style reference settings so
+ * generation reuses whatever the user just configured above. The
+ * description text itself remains editable only in the sequence-design
+ * step — this section links there instead of duplicating that editing UI.
  */
 export function SequenceMasterVisualsSection({
   projectId,
@@ -119,7 +119,7 @@ export function SequenceMasterVisualsSection({
         <div>
           <span className="text-sm font-medium">시퀀스 마스터 비주얼</span>
           <p className="text-xs text-muted-foreground">
-            아래 엔진/공통 프롬프트/배경·스타일 참조 설정을 사용해 시퀀스별 배경 마스터 이미지를 생성합니다. 설명 문구 수정은{" "}
+            위 엔진/공통 프롬프트/배경·스타일 참조 설정을 사용해 시퀀스별 배경 마스터 이미지를 생성합니다. 설명 문구 수정은{" "}
             <Link href={`/projects/${projectId}/sequences`} className="underline">
               시퀀스 설계
             </Link>{" "}

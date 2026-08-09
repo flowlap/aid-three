@@ -80,6 +80,34 @@ describe("RealHChatClaudeClient", () => {
     expect(requestBody.system).toContain("JSON");
   });
 
+  it("sends tools/tool_choice and skips the JSON-mode instruction when jsonSchema is set", async () => {
+    vi.stubEnv("HCHAT_KEY", "test-hchat-key");
+    const fetchMock = mockFetchOk({ content: [{ type: "tool_use", id: "toolu_1", name: "emit_plan", input: { ok: true } }] });
+    const client = new RealHChatClaudeClient();
+
+    await client.complete([{ role: "user", content: "질문" }], {
+      jsonMode: true,
+      jsonSchema: { name: "emit_plan", description: "설명", schema: { type: "object" } },
+    });
+
+    const requestBody = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(requestBody.tools).toEqual([{ name: "emit_plan", description: "설명", input_schema: { type: "object" } }]);
+    expect(requestBody.tool_choice).toEqual({ type: "tool", name: "emit_plan" });
+    expect(requestBody.system).toBeUndefined();
+  });
+
+  it("returns the tool_use block's input as a JSON string from complete()", async () => {
+    vi.stubEnv("HCHAT_KEY", "test-hchat-key");
+    mockFetchOk({ content: [{ type: "tool_use", id: "toolu_1", name: "emit_plan", input: { sequences: [] } }] });
+    const client = new RealHChatClaudeClient();
+
+    const result = await client.complete([{ role: "user", content: "질문" }], {
+      jsonSchema: { name: "emit_plan", schema: { type: "object" } },
+    });
+
+    expect(JSON.parse(result)).toEqual({ sequences: [] });
+  });
+
   it("throws a clear truncation error when stop_reason is max_tokens", async () => {
     vi.stubEnv("HCHAT_KEY", "test-hchat-key");
     mockFetchOk({ content: [{ text: "잘린 응답" }], stop_reason: "max_tokens" });
@@ -120,6 +148,34 @@ describe("RealHChatClaudeClient", () => {
     for await (const chunk of iterable) chunks.push(chunk);
 
     expect(chunks.join("")).toBe("안녕하세요");
+  });
+
+  it("streams input_json_delta chunks (tool-use) and concatenates them into valid JSON", async () => {
+    vi.stubEnv("HCHAT_KEY", "test-hchat-key");
+    const sseBody =
+      `data: ${JSON.stringify({ type: "content_block_start", content_block: { type: "tool_use", id: "toolu_1", name: "emit_plan" } })}\n\n` +
+      `data: ${JSON.stringify({ type: "content_block_delta", delta: { type: "input_json_delta", partial_json: '{"sequences"' } })}\n\n` +
+      `data: ${JSON.stringify({ type: "content_block_delta", delta: { type: "input_json_delta", partial_json: ":[]}" } })}\n\n` +
+      `data: ${JSON.stringify({ type: "message_stop" })}\n\n`;
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(sseBody));
+          controller.close();
+        },
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new RealHChatClaudeClient();
+
+    const iterable = await client.completeStream([{ role: "user", content: "질문" }], {
+      jsonSchema: { name: "emit_plan", schema: { type: "object" } },
+    });
+    const chunks: string[] = [];
+    for await (const chunk of iterable) chunks.push(chunk);
+
+    expect(JSON.parse(chunks.join(""))).toEqual({ sequences: [] });
   });
 
   it("yields chunks before throwing when message_delta reports max_tokens mid-stream", async () => {

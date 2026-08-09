@@ -24,6 +24,14 @@ export interface LlmCompleteOptions {
    */
   maxTokens?: number;
   signal?: AbortSignal;
+  /**
+   * When set, asks the provider to force its output through a JSON-Schema-
+   * constrained mechanism instead of relying on jsonMode's prompt-instruction
+   * request (see hchatClaudeClient.ts's tool-use handling — the only current
+   * consumer). Providers with no such mechanism ignore this field; jsonMode
+   * still governs their own JSON-mode behavior.
+   */
+  jsonSchema?: { name: string; description?: string; schema: Record<string, unknown> };
 }
 
 export interface LlmClient {

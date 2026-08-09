@@ -7,20 +7,70 @@ const DEFAULT_MODELS = {
   fast: "claude-haiku-4-5",
 } as const;
 
-const JSON_MODE_INSTRUCTION = "반드시 유효한 JSON 객체로만 응답하세요. JSON 앞뒤로 다른 텍스트를 포함하지 마세요.";
+/**
+ * Anthropic's API has no OpenAI/Gemini-style enforced JSON response mode
+ * (see deepseekClient.ts's response_format/hchatGeminiClient.ts's
+ * responseMimeType) — jsonMode here is a system-prompt request only, which
+ * Claude does not always follow, most often by forgetting to escape a
+ * double quote inside a string value (breaking JSON.parse mid-object even
+ * though the model's own stop_reason is a normal "end_turn"). The standard
+ * mitigation — prefilling the assistant turn with "{" — is NOT available
+ * here: this gateway's Claude models are Vertex-hosted and reject it
+ * outright ("This model does not support assistant message prefill. The
+ * conversation must end with a user message.", 400 invalid_request_error).
+ *
+ * The actual fix is options.jsonSchema (see toAnthropicPayload below), which
+ * forces the response through Anthropic tool-use (tools + tool_choice)
+ * instead — constrained decoding guarantees syntactically valid JSON at the
+ * API level, unlike this instruction. jsonMode without jsonSchema still only
+ * gets this soft instruction, so it reduces but does not eliminate the
+ * failure; planSequences.ts (the one call site that hit this in production)
+ * has since moved to jsonSchema. Other jsonMode call sites on this client
+ * remain instruction-only and additionally rely on their own retry-on-
+ * invalid-JSON logic rather than assuming the instruction is enough.
+ */
+const JSON_MODE_INSTRUCTION =
+  "반드시 유효한 JSON 객체로만 응답하세요. JSON 앞뒤로 다른 텍스트를 포함하지 마세요. 문자열 값 안에 큰따옴표(\")가 포함되어야 한다면 반드시 \\\" 로 이스케이프하세요. 문자열 값 안에서 줄바꿈이 필요하면 실제 줄바꿈 대신 \\n을 사용하세요.";
 
 interface AnthropicPayload {
   system?: string;
   messages: Array<{ role: "user" | "assistant"; content: string }>;
+  tools?: Array<{ name: string; description?: string; input_schema: Record<string, unknown> }>;
+  tool_choice?: { type: "tool"; name: string };
 }
 
-function toAnthropicPayload(messages: ChatMessage[], jsonMode: boolean | undefined): AnthropicPayload {
+/**
+ * When options.jsonSchema is set, forces the response through Anthropic
+ * tool-use (tools + tool_choice) instead of the prompt-instruction-based
+ * jsonMode — see the module doc comment above JSON_MODE_INSTRUCTION. Tool-use
+ * input is constrained decoding on Anthropic's side, so it structurally
+ * cannot produce syntactically invalid JSON the way jsonMode's soft
+ * instruction can.
+ */
+function toAnthropicPayload(messages: ChatMessage[], options: LlmCompleteOptions | undefined): AnthropicPayload {
   const systemParts = messages.filter((m) => m.role === "system").map((m) => m.content);
-  if (jsonMode) systemParts.push(JSON_MODE_INSTRUCTION);
+  if (options?.jsonMode && !options?.jsonSchema) systemParts.push(JSON_MODE_INSTRUCTION);
   const rest = messages
     .filter((m) => m.role !== "system")
     .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
-  return { system: systemParts.length > 0 ? systemParts.join("\n\n") : undefined, messages: rest };
+
+  const payload: AnthropicPayload = {
+    system: systemParts.length > 0 ? systemParts.join("\n\n") : undefined,
+    messages: rest,
+  };
+
+  if (options?.jsonSchema) {
+    payload.tools = [
+      {
+        name: options.jsonSchema.name,
+        description: options.jsonSchema.description,
+        input_schema: options.jsonSchema.schema,
+      },
+    ];
+    payload.tool_choice = { type: "tool", name: options.jsonSchema.name };
+  }
+
+  return payload;
 }
 
 function logStart(label: string, model: string, messages: ChatMessage[]): number {
@@ -39,7 +89,7 @@ function logError(label: string, model: string, startedAt: number, err: unknown)
 
 interface ClaudeStreamEvent {
   type?: string;
-  delta?: { type?: string; text?: string; stop_reason?: string | null };
+  delta?: { type?: string; text?: string; partial_json?: string; stop_reason?: string | null };
   error?: { type?: string; message?: string };
 }
 
@@ -77,9 +127,18 @@ async function* parseClaudeSSEStream(
         continue;
       }
 
-      if (event.type === "content_block_delta" && event.delta?.type === "text_delta" && event.delta.text) {
-        totalChars += event.delta.text.length;
-        yield event.delta.text;
+      const deltaText =
+        event.type === "content_block_delta"
+          ? event.delta?.type === "text_delta"
+            ? event.delta.text
+            : event.delta?.type === "input_json_delta"
+              ? event.delta.partial_json
+              : undefined
+          : undefined;
+
+      if (deltaText) {
+        totalChars += deltaText.length;
+        yield deltaText;
 
         const now = Date.now();
         if (now - lastHeartbeat >= HEARTBEAT_INTERVAL_MS) {
@@ -119,7 +178,7 @@ export class RealHChatClaudeClient implements LlmClient {
   async complete(messages: ChatMessage[], options?: LlmCompleteOptions): Promise<string> {
     const model = this.modelFor(options?.tier);
     const startedAt = logStart("complete()", model, messages);
-    const { system, messages: anthropicMessages } = toAnthropicPayload(messages, options?.jsonMode);
+    const { system, messages: anthropicMessages, tools, tool_choice } = toAnthropicPayload(messages, options);
 
     let response: Response;
     try {
@@ -131,6 +190,7 @@ export class RealHChatClaudeClient implements LlmClient {
           max_tokens: options?.maxTokens ?? DEFAULT_MAX_TOKENS,
           stream: false,
           ...(system ? { system } : {}),
+          ...(tools ? { tools, tool_choice } : {}),
           messages: anthropicMessages,
         }),
         signal: options?.signal,
@@ -148,7 +208,7 @@ export class RealHChatClaudeClient implements LlmClient {
     }
 
     const data = (await response.json()) as {
-      content?: Array<{ text?: string }>;
+      content?: Array<{ type?: string; text?: string; input?: unknown }>;
       stop_reason?: string | null;
     };
 
@@ -158,7 +218,8 @@ export class RealHChatClaudeClient implements LlmClient {
       throw err;
     }
 
-    const text = data.content?.[0]?.text ?? "";
+    const toolUseBlock = data.content?.find((block) => block.type === "tool_use");
+    const text = toolUseBlock ? JSON.stringify(toolUseBlock.input) : (data.content?.[0]?.text ?? "");
     logDone("complete()", model, startedAt, text.length, data.stop_reason);
     return text;
   }
@@ -166,7 +227,7 @@ export class RealHChatClaudeClient implements LlmClient {
   async completeStream(messages: ChatMessage[], options?: LlmCompleteOptions): Promise<AsyncIterable<string>> {
     const model = this.modelFor(options?.tier);
     const startedAt = logStart("completeStream()", model, messages);
-    const { system, messages: anthropicMessages } = toAnthropicPayload(messages, options?.jsonMode);
+    const { system, messages: anthropicMessages, tools, tool_choice } = toAnthropicPayload(messages, options);
 
     let response: Response;
     try {
@@ -178,6 +239,7 @@ export class RealHChatClaudeClient implements LlmClient {
           max_tokens: options?.maxTokens ?? DEFAULT_MAX_TOKENS,
           stream: true,
           ...(system ? { system } : {}),
+          ...(tools ? { tools, tool_choice } : {}),
           messages: anthropicMessages,
         }),
         signal: options?.signal,

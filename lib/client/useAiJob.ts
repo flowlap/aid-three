@@ -160,7 +160,18 @@ export function useAiJob<TEvent>(opts: UseAiJobOptions<TEvent>): UseAiJobResult 
         }
       });
     } catch {
-      setError("요청 중 오류가 발생했습니다");
+      // The stream connection itself broke before a clean terminal event
+      // arrived (e.g. a very long-running request cut off mid-flight) — the
+      // server-side job may still have recorded a specific failure reason,
+      // so check status before giving up on a generic message.
+      try {
+        const status = await checkStatus();
+        if (!(status.status === "error" && status.error)) {
+          setError("요청 중 오류가 발생했습니다");
+        }
+      } catch {
+        setError("요청 중 오류가 발생했습니다");
+      }
     } finally {
       streamingLocally.current = false;
       if (!joinedRunningJob) {

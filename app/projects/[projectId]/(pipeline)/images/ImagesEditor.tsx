@@ -294,7 +294,6 @@ export function ImagesEditor({
       {isSequence && (
         <SequenceImageModeSelector projectId={projectId} initialMode={initialSequenceImageMode} onModeChange={setSequenceImageMode} />
       )}
-      {isSequence && sequencePlan && <SequenceMasterVisualsSection projectId={projectId} initialPlan={sequencePlan} />}
       <ImageEngineSelector
         projectId={projectId}
         initialEngine={initialEngine}
@@ -381,6 +380,7 @@ export function ImagesEditor({
           initialHasImage={initialHasStyleImage}
         />
       </Card>
+      {isSequence && sequencePlan && <SequenceMasterVisualsSection projectId={projectId} initialPlan={sequencePlan} />}
       <Card className="gap-3 p-4">
         <div className="flex flex-wrap items-center gap-2">
           <Button onClick={() => handleGenerate(isPartial ? "resume" : "full")} disabled={loading}>
