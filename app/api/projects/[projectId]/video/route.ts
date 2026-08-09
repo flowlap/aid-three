@@ -45,6 +45,26 @@ import { startJob, finishJob, recordProgress, JobAlreadyRunningError } from "@/l
 
 const STEP = "video" as const;
 
+/** Renders a scene's still frame (or caption-card fallback when imageBuffer is undefined) and encodes it into a fixed-duration clip with no camera motion — scene mode's only render path, and sequence mode's AI-image-mode path (a full AI-regenerated still, so no separate overlay/motion pass is needed). */
+async function renderStaticSceneClip(
+  projectId: string,
+  scene: Scene,
+  design: VisualDesign | undefined,
+  imageBuffer: Buffer | undefined,
+  frameDimensions: ReturnType<typeof computeFrameDimensions>,
+  signal: AbortSignal
+): Promise<void> {
+  const framePng = await renderSceneFrameToPng(scene, design, imageBuffer, frameDimensions);
+  await writeProjectVideoFrame(projectId, scene.id, framePng);
+  await buildVideoClip(
+    projectVideoFramePath(projectId, scene.id),
+    projectAudioPath(projectId, scene.id),
+    projectVideoClipPath(projectId, scene.id),
+    frameDimensions,
+    signal
+  );
+}
+
 export async function POST(req: NextRequest, { params }: { params: Promise<{ projectId: string }> }) {
   const { projectId } = await params;
   const project = await readProject(projectId);
@@ -133,16 +153,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
 
         const design = visualDesigns[scene.id];
         const imageBuffer = await readProjectImage(projectId, scene.id);
-        const framePng = await renderSceneFrameToPng(scene, design, imageBuffer ?? undefined, frameDimensions);
-        await writeProjectVideoFrame(projectId, scene.id, framePng);
-
-        await buildVideoClip(
-          projectVideoFramePath(projectId, scene.id),
-          projectAudioPath(projectId, scene.id),
-          projectVideoClipPath(projectId, scene.id),
-          frameDimensions,
-          job.controller.signal
-        );
+        await renderStaticSceneClip(projectId, scene, design, imageBuffer ?? undefined, frameDimensions, job.controller.signal);
 
         completedSoFar += 1;
         recordProgress(projectId, STEP, completedSoFar - 1, scenes.length);
@@ -195,6 +206,8 @@ async function handleSequenceModeVideo(
   const visualDesigns: Record<string, VisualDesign> = screenDesignRaw
     ? (JSON.parse(screenDesignRaw).visualDesigns ?? {})
     : {};
+  const sequenceImageModeRaw = (await readProjectFile(projectId, "sequence-image-mode.txt"))?.trim();
+  const sequenceImageMode: "composite" | "ai" = sequenceImageModeRaw === "ai" ? "ai" : "composite";
 
   let durations: number[];
   // Only a sha256 digest of each scene's narration WAV is retained here, not
@@ -246,6 +259,42 @@ async function handleSequenceModeVideo(
         if (job.controller.signal.aborted) throw new DOMException("Aborted", "AbortError");
 
         const entry = timeline.entries[index];
+
+        // Sequence + AI mode: the scene's still (images/{sceneId}.png) is
+        // already a full AI-regenerated image with any overlays baked
+        // directly into it (see generateSceneImage.ts's bake mode), so this
+        // renders exactly like a scene-mode clip — a static frame, no
+        // camera crop/motion and no separate overlay layer. Title scenes
+        // fall through to the branch below unchanged (no owning sequence,
+        // renders as a caption card either way) and never need the sequence
+        // master image loaded here.
+        if (scene.sceneType !== "title" && sequenceImageMode === "ai") {
+          const design = visualDesigns[scene.id];
+          const imageBuffer = await readProjectImage(projectId, scene.id);
+          const fingerprint = computeSceneClipFingerprint({
+            imageBuffer: imageBuffer ?? null,
+            audioDigest: audioDigestsBySceneId[scene.id],
+            motion: "static",
+            overlays: [],
+            masterVisualAssetId: null,
+            masterVisualStatus: null,
+          });
+          const canSkip =
+            resume &&
+            existingClipIds.has(scene.id) &&
+            (await readProjectVideoClipFingerprint(projectId, scene.id)) === fingerprint;
+
+          if (!canSkip) {
+            await renderStaticSceneClip(projectId, scene, design, imageBuffer ?? undefined, frameDimensions, job.controller.signal);
+            await writeProjectVideoClipFingerprint(projectId, scene.id, fingerprint);
+          }
+
+          completedSoFar += 1;
+          recordProgress(projectId, STEP, completedSoFar - 1, scenes.length);
+          emit(JSON.stringify({ type: "scene", sceneId: scene.id, index: completedSoFar - 1, total: scenes.length }) + "\n");
+          return;
+        }
+
         const sequence = entry.sequenceId ? plan.sequences.find((seq) => seq.id === entry.sequenceId) : undefined;
         // The base frame for a content scene is its sequence's MASTER image
         // (animated by the camera crop below + a fixed overlay layer), NOT a

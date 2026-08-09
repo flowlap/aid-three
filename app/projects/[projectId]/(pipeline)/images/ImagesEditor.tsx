@@ -15,10 +15,13 @@ import {
   type ImageProviderType,
   type HChatGeminiModel,
 } from "@/components/ImageEngineSelector";
+import { SequenceImageModeSelector, type SequenceImageMode } from "@/components/SequenceImageModeSelector";
+import { SequenceMasterVisualsSection } from "./SequenceMasterVisualsSection";
 import { computeMockupVariantIndexes } from "@/lib/visual-templates";
 import type { Scene } from "@/lib/pipeline/splitScenes";
 import type { ScreenTypeAssignment } from "@/lib/pipeline/selectScreenTypes";
 import type { VisualDesign } from "@/lib/pipeline/designVisuals";
+import type { SequencePlan } from "@/lib/pipeline/sequenceTypes";
 import type { ProductionMode } from "@/lib/projects/types";
 import { buildSceneHierarchy } from "@/lib/pipeline/sceneHierarchy";
 import { useAiJob } from "@/lib/client/useAiJob";
@@ -64,6 +67,8 @@ export function ImagesEditor({
   imageProviderType,
   initialHchatGeminiModel,
   imageAspectRatio,
+  initialSequenceImageMode,
+  sequencePlan,
 }: {
   projectId: string;
   productionMode: ProductionMode;
@@ -87,13 +92,21 @@ export function ImagesEditor({
   initialHchatGeminiModel: HChatGeminiModel;
   /** Actual generated-image pixel ratio (see lib/pipeline/imageAspectRatio.ts) — OpenAI defaults to 3:2, Gemini to 16:9, so the thumbnail/mockup aspect follows whatever this project actually generated instead of a hardcoded 3:2. */
   imageAspectRatio: { width: number; height: number };
+  /** Sequence mode only — ignored in scene mode. See SequenceImageModeSelector. */
+  initialSequenceImageMode: SequenceImageMode;
+  /** Sequence mode only — null in scene mode. Drives the master-visual generation section. */
+  sequencePlan: SequencePlan | null;
 }) {
   const router = useRouter();
-  // Sequence mode composites each scene from the sequence master + overlay
-  // (no image model, no per-scene prompts/references) — so the engine picker,
-  // common prompt, and background/presenter/style reference controls below are
-  // scene-mode-only. See the dual-production-mode plan.
+  // Sequence + composite mode composites each scene from the sequence master +
+  // overlay (no image model, no per-scene prompts/references) — so the engine
+  // picker, common prompt, and background/presenter/style reference controls
+  // below are hidden. Sequence + AI mode uses those exact same controls as
+  // scene mode (a real per-scene AI generation call), so it shows them too.
+  // See the dual-production-mode plan and its AI-image-mode follow-up.
   const isSequence = productionMode === "sequence";
+  const [sequenceImageMode, setSequenceImageMode] = useState<SequenceImageMode>(initialSequenceImageMode);
+  const isSequenceComposite = isSequence && sequenceImageMode === "composite";
   const [localScreenTypes, setLocalScreenTypes] = useState(screenTypes);
   const [localVisualDesigns, setLocalVisualDesigns] = useState(visualDesigns);
   const mockupVariants = useMemo(
@@ -278,94 +291,96 @@ export function ImagesEditor({
 
   return (
     <div className="space-y-4">
-      {!isSequence && (
-        <>
-          <ImageEngineSelector
+      {isSequence && (
+        <SequenceImageModeSelector projectId={projectId} initialMode={initialSequenceImageMode} onModeChange={setSequenceImageMode} />
+      )}
+      {isSequence && sequencePlan && <SequenceMasterVisualsSection projectId={projectId} initialPlan={sequencePlan} />}
+      <ImageEngineSelector
+        projectId={projectId}
+        initialEngine={initialEngine}
+        initialModelSize={initialModelSize}
+        imageProviderType={imageProviderType}
+        initialHchatGeminiModel={initialHchatGeminiModel}
+        onEngineChange={setEngine}
+      />
+      <CommonPromptField
+        saveUrl={`/api/projects/${projectId}/images/common-prompt`}
+        initialValue={initialCommonPrompt}
+        label="공통 프롬프트 (모든 씬에 적용)"
+        helperText="캐릭터, 색상, 배경색, 폰트, 컨셉 등 모든 이미지에 공통으로 반영할 톤앤매너를 적어두면 씬마다 반복 입력 없이 일관된 스타일로 생성됩니다."
+        placeholder={DEFAULT_IMAGE_COMMON_PROMPT}
+      />
+      <Card className="gap-3 p-4">
+        <label className="flex cursor-pointer items-start gap-2.5">
+          <input
+            type="checkbox"
+            checked={backgroundFixed}
+            onChange={(e) => toggleBackgroundFixed(e.target.checked)}
+            disabled={backgroundFixedSaving}
+            className="mt-0.5 size-4 shrink-0 accent-primary"
+          />
+          <span>
+            <span className="text-sm font-medium">배경 고정</span>
+            <p className="text-xs text-muted-foreground">
+              모든 씬 이미지가 같은 배경을 사용하도록 고정합니다. 아래에서 배경 이미지를 생성하거나 직접 업로드하세요.
+            </p>
+          </span>
+        </label>
+        {backgroundFixed && (
+          <ReferenceImageSection
             projectId={projectId}
-            initialEngine={initialEngine}
-            initialModelSize={initialModelSize}
-            imageProviderType={imageProviderType}
-            initialHchatGeminiModel={initialHchatGeminiModel}
-            onEngineChange={setEngine}
+            kind="background"
+            initialPrompt={initialBackgroundPrompt}
+            defaultPrompt={DEFAULT_BACKGROUND_IMAGE_PROMPT}
+            initialHasImage={initialHasBackgroundImage}
           />
-          <CommonPromptField
-            saveUrl={`/api/projects/${projectId}/images/common-prompt`}
-            initialValue={initialCommonPrompt}
-            label="공통 프롬프트 (모든 씬에 적용)"
-            helperText="캐릭터, 색상, 배경색, 폰트, 컨셉 등 모든 이미지에 공통으로 반영할 톤앤매너를 적어두면 씬마다 반복 입력 없이 일관된 스타일로 생성됩니다."
-            placeholder={DEFAULT_IMAGE_COMMON_PROMPT}
-          />
-          <Card className="gap-3 p-4">
-            <label className="flex cursor-pointer items-start gap-2.5">
-              <input
-                type="checkbox"
-                checked={backgroundFixed}
-                onChange={(e) => toggleBackgroundFixed(e.target.checked)}
-                disabled={backgroundFixedSaving}
-                className="mt-0.5 size-4 shrink-0 accent-primary"
-              />
-              <span>
-                <span className="text-sm font-medium">배경 고정</span>
-                <p className="text-xs text-muted-foreground">
-                  모든 씬 이미지가 같은 배경을 사용하도록 고정합니다. 아래에서 배경 이미지를 생성하거나 직접 업로드하세요.
-                </p>
-              </span>
-            </label>
-            {backgroundFixed && (
-              <ReferenceImageSection
-                projectId={projectId}
-                kind="background"
-                initialPrompt={initialBackgroundPrompt}
-                defaultPrompt={DEFAULT_BACKGROUND_IMAGE_PROMPT}
-                initialHasImage={initialHasBackgroundImage}
-              />
-            )}
-          </Card>
-          <Card className="gap-3 p-4">
-            <label className="flex cursor-pointer items-start gap-2.5">
-              <input
-                type="checkbox"
-                checked={presenterEnabled}
-                onChange={(e) => togglePresenter(e.target.checked)}
-                disabled={presenterSaving}
-                className="mt-0.5 size-4 shrink-0 accent-primary"
-              />
-              <span>
-                <span className="text-sm font-medium">강사 표시</span>
-                <p className="text-xs text-muted-foreground">
-                  씬 이미지에 강사(발표자)를 등장시킵니다. 좌측/우측/중앙/풀샷 중 화면에 맞는 형태를 AI가 씬마다 선택합니다. 간지/타이틀형처럼 전환 효과에 해당하는 화면에는 적용되지 않습니다.
-                </p>
-              </span>
-            </label>
-            {presenterEnabled && (
-              <ReferenceImageSection
-                projectId={projectId}
-                kind="presenter"
-                initialPrompt={initialPresenterPrompt}
-                defaultPrompt={DEFAULT_PRESENTER_IMAGE_PROMPT}
-                initialHasImage={initialHasPresenterImage}
-                showGenderSelect
-                initialGender={initialPresenterGender}
-              />
-            )}
-          </Card>
-          <Card className="gap-3 p-4">
-            <div>
-              <span className="text-sm font-medium">톤앤매너 기준 이미지</span>
+        )}
+      </Card>
+      {!isSequenceComposite && (
+        <Card className="gap-3 p-4">
+          <label className="flex cursor-pointer items-start gap-2.5">
+            <input
+              type="checkbox"
+              checked={presenterEnabled}
+              onChange={(e) => togglePresenter(e.target.checked)}
+              disabled={presenterSaving}
+              className="mt-0.5 size-4 shrink-0 accent-primary"
+            />
+            <span>
+              <span className="text-sm font-medium">강사 표시</span>
               <p className="text-xs text-muted-foreground">
-                모든 씬 이미지 생성 시 이 이미지의 색감·일러스트 스타일·분위기를 참고해 톤앤매너를 통일합니다. 아래에서 생성하거나 직접 업로드하세요.
+                씬 이미지에 강사(발표자)를 등장시킵니다. 좌측/우측/중앙/풀샷 중 화면에 맞는 형태를 AI가 씬마다 선택합니다. 간지/타이틀형처럼 전환 효과에 해당하는 화면에는 적용되지 않습니다.
               </p>
-            </div>
+            </span>
+          </label>
+          {presenterEnabled && (
             <ReferenceImageSection
               projectId={projectId}
-              kind="style"
-              initialPrompt={initialStylePrompt}
-              defaultPrompt={DEFAULT_STYLE_IMAGE_PROMPT}
-              initialHasImage={initialHasStyleImage}
+              kind="presenter"
+              initialPrompt={initialPresenterPrompt}
+              defaultPrompt={DEFAULT_PRESENTER_IMAGE_PROMPT}
+              initialHasImage={initialHasPresenterImage}
+              showGenderSelect
+              initialGender={initialPresenterGender}
             />
-          </Card>
-        </>
+          )}
+        </Card>
       )}
+      <Card className="gap-3 p-4">
+        <div>
+          <span className="text-sm font-medium">톤앤매너 기준 이미지</span>
+          <p className="text-xs text-muted-foreground">
+            모든 씬 이미지 생성 시 이 이미지의 색감·일러스트 스타일·분위기를 참고해 톤앤매너를 통일합니다. 아래에서 생성하거나 직접 업로드하세요.
+          </p>
+        </div>
+        <ReferenceImageSection
+          projectId={projectId}
+          kind="style"
+          initialPrompt={initialStylePrompt}
+          defaultPrompt={DEFAULT_STYLE_IMAGE_PROMPT}
+          initialHasImage={initialHasStyleImage}
+        />
+      </Card>
       <Card className="gap-3 p-4">
         <div className="flex flex-wrap items-center gap-2">
           <Button onClick={() => handleGenerate(isPartial ? "resume" : "full")} disabled={loading}>
@@ -379,7 +394,7 @@ export function ImagesEditor({
                 ? `이어서 생성 (${remainingCount}개 남음)`
                 : imageIds.size
                   ? "전체 다시 생성"
-                  : isSequence
+                  : isSequenceComposite
                     ? "마스터+오버레이 합성"
                     : "AI로 이미지 생성"}
           </Button>
@@ -402,7 +417,7 @@ export function ImagesEditor({
           label={
             discoveredRunning
               ? "다른 곳에서 시작된 이미지 생성이 진행 중입니다"
-              : isSequence
+              : isSequenceComposite
                 ? "마스터 비주얼에 오버레이를 합성하는 중입니다"
                 : "AI가 씬별 이미지를 생성하는 중입니다"
           }
@@ -488,14 +503,16 @@ export function ImagesEditor({
                       type="button"
                       variant="outline"
                       size="sm"
-                      // Sequence mode re-bakes the master+overlay composite directly
-                      // (no prompt/reference overrides), so skip the options panel.
-                      onClick={() => (isSequence ? void regenerateScene(scene.id) : toggleOptionsPanel(scene.id))}
+                      // Sequence + composite mode re-bakes the master+overlay
+                      // composite directly (no prompt/reference overrides), so
+                      // skip the options panel. Sequence + AI mode uses the
+                      // same options panel as scene mode (a real AI call).
+                      onClick={() => (isSequenceComposite ? void regenerateScene(scene.id) : toggleOptionsPanel(scene.id))}
                       disabled={regenerating || loading || !design}
                     >
                       {regenerating
                         ? "생성 중..."
-                        : isSequence
+                        : isSequenceComposite
                           ? hasImage
                             ? "합성 다시 생성"
                             : "합성 생성"

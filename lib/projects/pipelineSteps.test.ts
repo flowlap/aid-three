@@ -15,13 +15,12 @@ describe("getPipelineSteps", () => {
     ]);
   });
 
-  it("returns the sequence-mode step list in order, with sequences between scenes and screen-design", () => {
+  it("returns the sequence-mode step list in order, without a separate screen-design step (absorbed into sequences)", () => {
     const steps = getPipelineSteps("sequence");
     expect(steps.map((s) => s.key)).toEqual([
       "markdown",
       "scenes",
       "sequences",
-      "screen-design",
       "review",
       "images",
       "storyboard",

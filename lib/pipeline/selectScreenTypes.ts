@@ -4,6 +4,7 @@ import { SCREEN_TYPE_OPTIONS, SCREEN_TYPE_INFO, PRESENTER_EXCLUDED_SCREEN_TYPES 
 import { LAYOUT_POSITIONS, PRESENTER_POSITIONS, type LayoutElement, type LayoutPosition, type PresenterPosition } from "./designVisuals";
 import type { Scene } from "./splitScenes";
 import { groupContentScenesByParentTitle } from "./sceneHierarchy";
+import { groupScenesBySequence } from "./sequenceLookup";
 import type { Sequence, SequenceCameraPlanEntry, SequenceContinuity, SequenceOverlayEntry, SequencePlan } from "./sequenceTypes";
 
 export interface ScreenTypeAssignment {
@@ -206,6 +207,16 @@ export interface SelectScreenTypesOptions {
    * is emitted exactly as it is today with no added section at all.
    */
   sequenceContextByScene?: Record<string, SceneSequenceContext>;
+  /**
+   * Sequence-mode-only grouping input. When present, content scenes are
+   * batched by their owning sequence (via groupScenesBySequence) instead of
+   * by title-heading ancestry (groupContentScenesByParentTitle) — so every
+   * scene that belongs to the same AI-planned sequence is designed together
+   * in one AI call and can see each other's screens, instead of being split
+   * across whichever title sections they happen to fall under. Absent for
+   * scene-mode callers, which keep the title-grouping path unchanged.
+   */
+  sequencePlan?: SequencePlan;
 }
 
 const SCREEN_TYPE_GUIDE = SCREEN_TYPE_OPTIONS.map((type) => `- ${type}: ${SCREEN_TYPE_INFO[type]}`).join("\n");
@@ -241,18 +252,16 @@ function buildRelatedSceneContext(
 }
 
 /**
- * Builds the sequence-mode-only "시퀀스 공유 맥락" block appended after a
- * scene's narration line, when the caller supplied a SceneSequenceContext
- * for it (see SelectScreenTypesOptions.sequenceContextByScene). Framed
- * explicitly as shared-visual-world background rather than content to
- * restate: the scene's own narration stays the authoritative source for
- * what this specific screen teaches, and anything already planned as an
- * overlay (caption/label/number/chart) must not be requested again as
- * on-image typography in imageOrDiagramDescription/objectPlacement, since
- * the renderer composites overlays separately from the generated image.
+ * Builds the sequence-mode-only "시퀀스 공유 맥락" block placed ONCE above a
+ * whole group's scene list (see designSceneGroup), rather than repeated per
+ * scene — every scene in a sequence-grouped batch shares the same owning
+ * sequence, so its purpose/continuity/master-visual description only needs
+ * to be stated once. Framed explicitly as shared-visual-world background
+ * rather than content to restate: each scene's own narration stays the
+ * authoritative source for what that specific screen teaches.
  */
-function buildSequenceContextBlock(context: SceneSequenceContext): string {
-  const { purpose, continuity, masterVisualDescription, camera, overlays } = context;
+function buildSequenceSharedContextBlock(context: SceneSequenceContext): string {
+  const { purpose, continuity, masterVisualDescription } = context;
 
   const continuityParts = [
     `장소 ${continuity.location}`,
@@ -263,16 +272,35 @@ function buildSequenceContextBlock(context: SceneSequenceContext): string {
   ].filter((part): part is string => Boolean(part));
 
   const lines = [
-    `\n시퀀스 공유 맥락(이 씬이 속한 시퀀스 전체의 비주얼 세계관입니다 — 여러 씬에 걸친 배경/스타일 일관성 참고용이며, 이 씬에서 실제로 가르치는 내용을 대신하거나 화면에 그대로 옮겨 적을 대상이 아닙니다):`,
+    `\n시퀀스 공유 맥락(이 그룹의 모든 씬이 속한 하나의 시퀀스 전체 비주얼 세계관입니다 — 여러 씬에 걸친 배경/스타일 일관성 참고용이며, 각 씬에서 실제로 가르치는 내용을 대신하거나 화면에 그대로 옮겨 적을 대상이 아닙니다):`,
     `- 시퀀스 목적: ${purpose}`,
     `- 연속성: ${continuityParts.join(" / ")}`,
     `- 마스터 비주얼 설명: ${masterVisualDescription}`,
+    "각 씬에서 실제로 가르치는 내용은 항상 그 씬의 나레이션 원문을 기준으로 삼으세요 — 시퀀스 공유 맥락은 배경/스타일 일관성을 위한 것일 뿐, 학습 내용을 바꾸거나 대신하지 않습니다.",
   ];
 
+  return `\n${lines.join("\n")}\n`;
+}
+
+/**
+ * Per-scene camera-shot/overlay block appended after a scene's narration
+ * line, when the caller supplied a SceneSequenceContext for it (see
+ * SelectScreenTypesOptions.sequenceContextByScene). Only the fields that
+ * genuinely differ scene-by-scene — purpose/continuity/master-visual are
+ * hoisted once per group by buildSequenceSharedContextBlock instead.
+ * Anything already planned as an overlay (caption/label/number/chart) must
+ * not be requested again as on-image typography in
+ * imageOrDiagramDescription/objectPlacement, since the renderer composites
+ * overlays separately from the generated image.
+ */
+function buildSequenceOverlayContextBlock(context: SceneSequenceContext): string {
+  const { camera, overlays } = context;
+  if (!camera && overlays.length === 0) return "";
+
+  const lines: string[] = [];
   if (camera) {
     lines.push(`- 이 씬의 카메라 계획: 샷 ${camera.shot}, 움직임 ${camera.motion}`);
   }
-
   if (overlays.length > 0) {
     lines.push(
       "- 이 씬에 계획된 오버레이(자막/숫자/라벨/차트 등은 렌더러가 이미지 위에 별도로 합성합니다 — imageOrDiagramDescription과 objectPlacement에는 아래 항목을 글자·숫자로 다시 그려 넣도록 요청하지 마세요):"
@@ -281,10 +309,6 @@ function buildSequenceContextBlock(context: SceneSequenceContext): string {
       lines.push(`  - (${overlay.type}) ${overlay.description}`);
     }
   }
-
-  lines.push(
-    "이 씬에서 실제로 가르치는 내용은 항상 이 씬의 나레이션 원문을 기준으로 삼으세요 — 시퀀스 공유 맥락은 배경/스타일 일관성을 위한 것일 뿐, 이 씬의 학습 내용을 바꾸거나 대신하지 않습니다."
-  );
 
   return `\n${lines.join("\n")}\n`;
 }
@@ -342,19 +366,24 @@ function buildDesignGroupMessages(
   documentContext: string,
   commonPromptContext: string,
   relatedContextByOrder: Map<number, string>,
-  sequenceContextByOrder: Map<number, string>
+  sequenceOverlayContextByOrder: Map<number, string>,
+  sharedSequenceContext: string
 ): ChatMessage[] {
   const sceneBlocks = groupScenes
     .map(
       (scene) =>
         `[order=${scene.order}] ${scene.narrationText}${relatedContextByOrder.get(scene.order) ?? ""}${
-          sequenceContextByOrder.get(scene.order) ?? ""
+          sequenceOverlayContextByOrder.get(scene.order) ?? ""
         }`
     )
     .join("\n\n");
 
-  const prompt = `다음은 같은 소제목 아래 묶인 연속된 씬들입니다. 각 씬에 어울리는 화면 유형을 선택하고, 화면을 상세히 설계하세요.
-${documentContext}${commonPromptContext}
+  const introText = sharedSequenceContext
+    ? "다음은 같은 시퀀스에 속한 연속된 씬들입니다. 이 시퀀스에 속한 모든 씬을 함께 보고 있으니, 서로 자연스럽게 이어지고 시각적으로 일관된 화면 구성이 되도록 각 씬의 화면 유형을 선택하고 상세히 설계하세요."
+    : "다음은 같은 소제목 아래 묶인 연속된 씬들입니다. 각 씬에 어울리는 화면 유형을 선택하고, 화면을 상세히 설계하세요.";
+
+  const prompt = `${introText}
+${documentContext}${commonPromptContext}${sharedSequenceContext}
 사용 가능한 화면 유형과 설명(반드시 이 중 하나를 이름 그대로 정확히 선택):
 ${SCREEN_TYPE_GUIDE}
 
@@ -396,11 +425,19 @@ async function requestSceneGroupAssignments(
   documentContext: string,
   commonPromptContext: string,
   relatedContextByOrder: Map<number, string>,
-  sequenceContextByOrder: Map<number, string>,
+  sequenceOverlayContextByOrder: Map<number, string>,
+  sharedSequenceContext: string,
   signal: AbortSignal
 ): Promise<Map<number, ScreenTypeAssignment>> {
   const raw = await client.complete(
-    buildDesignGroupMessages(groupScenes, documentContext, commonPromptContext, relatedContextByOrder, sequenceContextByOrder),
+    buildDesignGroupMessages(
+      groupScenes,
+      documentContext,
+      commonPromptContext,
+      relatedContextByOrder,
+      sequenceOverlayContextByOrder,
+      sharedSequenceContext
+    ),
     { jsonMode: true, tier: "fast", maxTokens: LARGE_OUTPUT_MAX_TOKENS, signal }
   );
 
@@ -457,12 +494,22 @@ async function designSceneGroup(
   const relatedContextByOrder = new Map(
     groupScenes.map((scene) => [scene.order, buildRelatedSceneContext(scene, context.sceneById, context.result)])
   );
-  const sequenceContextByOrder = new Map(
+  const sequenceOverlayContextByOrder = new Map(
     groupScenes.map((scene) => {
       const sceneContext = context.sequenceContextByScene?.[scene.id];
-      return [scene.order, sceneContext ? buildSequenceContextBlock(sceneContext) : ""];
+      return [scene.order, sceneContext ? buildSequenceOverlayContextBlock(sceneContext) : ""];
     })
   );
+  // Every scene in a sequence-grouped batch shares the same owning sequence
+  // (see groupScenesBySequence), so the first scene with a context entry is
+  // representative of the whole group's purpose/continuity/master-visual.
+  const sharedSequenceContext = (() => {
+    for (const scene of groupScenes) {
+      const sceneContext = context.sequenceContextByScene?.[scene.id];
+      if (sceneContext) return buildSequenceSharedContextBlock(sceneContext);
+    }
+    return "";
+  })();
 
   let missing: Scene[] = groupScenes;
   let byOrder = new Map<number, ScreenTypeAssignment>();
@@ -474,7 +521,8 @@ async function designSceneGroup(
       context.documentContext,
       context.commonPromptContext,
       relatedContextByOrder,
-      sequenceContextByOrder,
+      sequenceOverlayContextByOrder,
+      sharedSequenceContext,
       context.signal
     );
     missing = groupScenes.filter((scene) => !byOrder.has(scene.order));
@@ -495,8 +543,16 @@ export async function selectScreenTypes(
   scenes: Scene[],
   options: SelectScreenTypesOptions = {}
 ): Promise<Record<string, ScreenTypeAssignment>> {
-  const { onProgress, signal, documentSummary, commonPrompt, existingAssignments, allScenesForContext, sequenceContextByScene } =
-    options;
+  const {
+    onProgress,
+    signal,
+    documentSummary,
+    commonPrompt,
+    existingAssignments,
+    allScenesForContext,
+    sequenceContextByScene,
+    sequencePlan,
+  } = options;
   const result: Record<string, ScreenTypeAssignment> = {};
   const sceneById = new Map((allScenesForContext ?? scenes).map((s) => [s.id, s]));
   const indexById = new Map(scenes.map((s, i) => [s.id, i]));
@@ -537,8 +593,11 @@ export async function selectScreenTypes(
   const documentContext = documentSummary ? `\n문서 전체 개요(맥락 참고용): ${documentSummary}\n` : "";
   const commonPromptContext = commonPrompt?.trim() ? `\n공통 지침(모든 씬에 적용): ${commonPrompt.trim()}\n` : "";
 
-  const pendingGroups = groupContentScenesByParentTitle(scenes)
-    .map((group) => group.scenes.filter((scene) => !result[scene.id]))
+  const rawGroups = sequencePlan
+    ? groupScenesBySequence(scenes, sequencePlan).map((group) => group.scenes)
+    : groupContentScenesByParentTitle(scenes).map((group) => group.scenes);
+  const pendingGroups = rawGroups
+    .map((group) => group.filter((scene) => !result[scene.id]))
     .filter((group) => group.length > 0)
     .flatMap((group) => chunkContiguous(group, MAX_GROUP_SIZE));
 

@@ -26,7 +26,7 @@ import {
   type LocalImageModelSize,
 } from "@/lib/pipeline/imageGenerationConfig";
 import type { Scene } from "@/lib/pipeline/splitScenes";
-import type { ScreenTypeAssignment } from "@/lib/pipeline/selectScreenTypes";
+import type { ScreenTypeAssignment, SceneSequenceContext } from "@/lib/pipeline/selectScreenTypes";
 import type { VisualDesign } from "@/lib/pipeline/designVisuals";
 import { withInFlightLock, AlreadyInFlightError } from "@/lib/jobs/inFlightLock";
 import { loadSequenceContextByScene } from "@/lib/pipeline/loadSequenceContext";
@@ -91,6 +91,8 @@ async function regenerateScene(projectId: string, sceneId: string, overrides: Re
   const modelSizeRaw = (await readProjectFile(projectId, "image-local-model-size.txt"))?.trim();
   const localModelSize: LocalImageModelSize = modelSizeRaw === "9b" ? "9b" : "4b";
   const hchatGeminiModel = (await readProjectFile(projectId, "image-hchat-gemini-model.txt"))?.trim() || undefined;
+  const sequenceImageModeRaw = (await readProjectFile(projectId, "sequence-image-mode.txt"))?.trim();
+  const sequenceImageMode: "composite" | "ai" = sequenceImageModeRaw === "ai" ? "ai" : "composite";
 
   const presenterEnabled = overrides.presenterEnabled ?? projectPresenterEnabled;
   const backgroundFixed = overrides.backgroundFixed ?? projectBackgroundFixed;
@@ -127,44 +129,61 @@ async function regenerateScene(projectId: string, sceneId: string, overrides: Re
     return NextResponse.json({ error: "제목 씬은 이미지를 생성하지 않습니다" }, { status: 400 });
   }
 
-  // Sequence mode: reuse the same shared prerequisite gate the screen-design
-  // routes use (loadSequenceContextByScene) rather than hand-rolling a
-  // narrower one just for this single scene. If the sequence plan is
-  // missing/broken, a single-scene regenerate is blocked the same way a full
-  // batch run would be — a broken plan genuinely blocks meaningful per-scene
-  // generation in this mode. When this scene's owning sequence has no
-  // readable master image (not-generated, or a missing asset file), proceed
-  // without one (buildImagePrompt's textual continuity fallback handles it)
-  // — there's no stream here to emit a warning event on, so nothing further
-  // to do for that case. "stale" masters are still real, readable files and
-  // are reused just like "generated" ones — see loadSequenceMasterAsset.
-  // Sequence mode: a scene's still is a deterministic composite of its
-  // sequence's master image (cropped to the camera motion's first frame) +
-  // its overlay layer — not an AI image. So "regenerate" here re-bakes that
-  // composite; the AI engine paths below are never reached in sequence mode.
+  // Sequence + composite mode: reuse the same shared prerequisite gate the
+  // screen-design routes use (loadSequenceContextByScene) rather than
+  // hand-rolling a narrower one just for this single scene. If the sequence
+  // plan is missing/broken, a single-scene regenerate is blocked the same way
+  // a full batch run would be — a broken plan genuinely blocks meaningful
+  // per-scene generation in this mode. When this scene's owning sequence has
+  // no readable master image (not-generated, or a missing asset file),
+  // proceed without one (buildImagePrompt's textual continuity fallback
+  // handles it) — there's no stream here to emit a warning event on, so
+  // nothing further to do for that case. "stale" masters are still real,
+  // readable files and are reused just like "generated" ones — see
+  // loadSequenceMasterAsset.
+  // Sequence + composite mode: a scene's still is a deterministic composite
+  // of its sequence's master image (cropped to the camera motion's first
+  // frame) + its overlay layer — not an AI image. So "regenerate" here
+  // re-bakes that composite; the AI engine paths below are never reached.
+  // Sequence + AI mode falls through to the AI engine paths below instead,
+  // with the sequence context/master image threaded in so overlays get baked
+  // into the prompt the same way the batch route does.
+  let sequenceImageContext: SceneSequenceContext | undefined;
+  let sequenceMasterBuffer: Buffer | undefined;
+  let sequenceMasterPath: string | undefined;
   if (getProductionMode(project) === "sequence") {
+    if (sequenceImageMode === "composite") {
+      const contextResult = await loadSequenceContextByScene(projectId, scenes);
+      if ("errorResponse" in contextResult) return contextResult.errorResponse;
+      const owningSequence = findSequenceForScene(contextResult.plan, sceneId);
+      const masterAsset = await loadSequenceMasterAsset(projectId, owningSequence);
+      const frameDimensions = computeFrameDimensions(await getProjectImageAspectRatio(projectId));
+      const result = await bakeSequenceSceneStill({
+        projectId,
+        sceneId,
+        sequence: owningSequence,
+        masterAsset,
+        frameDimensions,
+      });
+      if (!result.baked) {
+        return NextResponse.json(
+          {
+            error:
+              "이 씬이 속한 시퀀스의 마스터 이미지가 아직 없습니다. ‘시퀀스 설계’ 단계에서 마스터 비주얼을 먼저 생성해주세요.",
+          },
+          { status: 400 }
+        );
+      }
+      return NextResponse.json({ ok: true });
+    }
+
     const contextResult = await loadSequenceContextByScene(projectId, scenes);
     if ("errorResponse" in contextResult) return contextResult.errorResponse;
+    sequenceImageContext = contextResult.sequenceContextByScene[sceneId];
     const owningSequence = findSequenceForScene(contextResult.plan, sceneId);
     const masterAsset = await loadSequenceMasterAsset(projectId, owningSequence);
-    const frameDimensions = computeFrameDimensions(await getProjectImageAspectRatio(projectId));
-    const result = await bakeSequenceSceneStill({
-      projectId,
-      sceneId,
-      sequence: owningSequence,
-      masterAsset,
-      frameDimensions,
-    });
-    if (!result.baked) {
-      return NextResponse.json(
-        {
-          error:
-            "이 씬이 속한 시퀀스의 마스터 이미지가 아직 없습니다. ‘시퀀스 설계’ 단계에서 마스터 비주얼을 먼저 생성해주세요.",
-        },
-        { status: 400 }
-      );
-    }
-    return NextResponse.json({ ok: true });
+    sequenceMasterBuffer = masterAsset.buffer;
+    sequenceMasterPath = masterAsset.path;
   }
 
   if (engine === "local") {
@@ -186,8 +205,11 @@ async function regenerateScene(projectId: string, sceneId: string, overrides: Re
       relatedScenes: buildRelatedScenesContext(scene, visualDesigns),
       allowTextInImage: false,
       extraPrompt,
+      sequenceImageContext,
+      sequenceOverlayRenderMode: sequenceImageContext ? "bake" : undefined,
+      hasMasterReferenceImage: Boolean(sequenceMasterPath),
     });
-    const itemReferenceImagePaths = referenceImagePaths;
+    const itemReferenceImagePaths = sequenceMasterPath ? [...referenceImagePaths, sequenceMasterPath] : referenceImagePaths;
 
     try {
       let generatedImage: Buffer | undefined;
@@ -233,9 +255,11 @@ async function regenerateScene(projectId: string, sceneId: string, overrides: Re
         backgroundFixed,
         relatedScenes: buildRelatedScenesContext(scene, visualDesigns),
         extraPrompt,
+        sequenceImageContext,
+        sequenceOverlayRenderMode: sequenceImageContext ? "bake" : undefined,
       },
       undefined,
-      referenceImages
+      sequenceMasterBuffer ? { ...referenceImages, master: sequenceMasterBuffer } : referenceImages
     );
     await writeProjectImage(projectId, sceneId, buffer);
   } catch (err) {

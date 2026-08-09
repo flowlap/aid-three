@@ -81,6 +81,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
   const modelSizeRaw = (await readProjectFile(projectId, "image-local-model-size.txt"))?.trim();
   const localModelSize: LocalImageModelSize = modelSizeRaw === "9b" ? "9b" : "4b";
   const hchatGeminiModel = (await readProjectFile(projectId, "image-hchat-gemini-model.txt"))?.trim() || undefined;
+  const sequenceImageModeRaw = (await readProjectFile(projectId, "sequence-image-mode.txt"))?.trim();
+  const sequenceImageMode: "composite" | "ai" = sequenceImageModeRaw === "ai" ? "ai" : "composite";
   const referenceImages = {
     background: backgroundFixed ? (await readProjectReferenceImage(projectId, "background")) ?? undefined : undefined,
     presenter: presenterEnabled ? (await readProjectReferenceImage(projectId, "presenter")) ?? undefined : undefined,
@@ -128,17 +130,18 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
     throw err;
   }
 
-  // Sequence mode composites each scene from the sequence master + overlays
-  // (no image model per scene — see bakeSequenceSceneStill), so no image
-  // client is created; only scene-mode's per-scene generation needs one.
+  // Sequence + composite mode composites each scene from the sequence master
+  // + overlays (no image model per scene — see bakeSequenceSceneStill), so no
+  // image client is created there. Sequence + AI mode and scene mode both
+  // need one, same as scene mode's per-scene generation.
   const frameDimensions = sequencePlan
     ? computeFrameDimensions(await getProjectImageAspectRatio(projectId))
     : undefined;
 
   let client: ImageClient | undefined;
   let localClient: LocalImageClient | undefined;
-  if (sequencePlan) {
-    // no-op: no AI image client needed in sequence mode
+  if (sequencePlan && sequenceImageMode === "composite") {
+    // no-op: no AI image client needed in sequence + composite mode
   } else if (engine === "local") {
     try {
       localClient = createLocalImageClient(projectImagesDir(projectId));
@@ -215,7 +218,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
         }
       }
 
-      if (sequencePlan && frameDimensions) {
+      if (sequencePlan && frameDimensions && sequenceImageMode === "composite") {
         // Sequence mode: each content scene's still is a deterministic composite
         // of its sequence's master image (cropped to the camera motion's first
         // frame) + its overlay layer — no image-model call per scene. Baked to
@@ -265,6 +268,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
             relatedScenes: buildRelatedScenesContext(scene, visualDesigns),
             allowTextInImage: false,
             sequenceImageContext: sequenceContextByScene?.[scene.id],
+            sequenceOverlayRenderMode: sequencePlan ? "bake" : undefined,
             hasMasterReferenceImage: Boolean(masterPath),
           });
           const itemReferenceImagePaths = masterPath ? [...referenceImagePaths, masterPath] : referenceImagePaths;
@@ -312,6 +316,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
                 backgroundFixed,
                 relatedScenes: buildRelatedScenesContext(scene, visualDesigns),
                 sequenceImageContext: sequenceContextByScene?.[scene.id],
+                sequenceOverlayRenderMode: sequencePlan ? "bake" : undefined,
               },
               job.controller.signal,
               groupReferenceImages

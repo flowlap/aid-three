@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { MockLlmClient } from "../ai/llm/mockLlmClient";
 import { selectScreenTypes, type SceneSequenceContext } from "./selectScreenTypes";
 import type { Scene } from "./splitScenes";
+import type { Sequence, SequencePlan } from "./sequenceTypes";
 
 function content(id: string, narrationText: string, order: number, extra: Partial<Scene> = {}): Scene {
   return { id, order, narrationText, estimatedDurationSec: 5, splitReason: "-", sceneType: "content", ...extra };
@@ -511,6 +512,110 @@ describe("selectScreenTypes", () => {
       const blockStart = prompt.indexOf("시퀀스 공유 맥락");
       expect(blockStart).toBeGreaterThanOrEqual(0);
       expect(prompt.slice(blockStart)).not.toContain("undefined");
+    });
+  });
+
+  describe("sequencePlan (grouping by sequence)", () => {
+    function makeSequence(overrides: Partial<Sequence> = {}): Sequence {
+      return {
+        id: "sequence-001",
+        order: 1,
+        title: "시퀀스 1",
+        sceneIds: [],
+        estimatedDurationSec: 10,
+        purpose: "탄소배출권 개념을 사무실 배경에서 소개",
+        continuity: {
+          location: "현대적 사무실",
+          visualStyle: "플랫 일러스트",
+          fixedElements: [],
+          doNotChange: [],
+        },
+        masterVisual: { description: "사무실 마스터 비주얼", status: "not-generated" },
+        cameraPlan: [],
+        overlays: [],
+        ...overrides,
+      };
+    }
+
+    it("groups scenes from different title sections into one call when they share a sequence", async () => {
+      const s = [
+        title("t1", "1장", 1, 1),
+        content("c1", "내용 A", 2),
+        title("t2", "2장", 1, 3),
+        content("c2", "내용 B", 4),
+      ];
+      const plan: SequencePlan = { version: 1, sequences: [makeSequence({ sceneIds: ["c1", "c2"] })] };
+      const client = new MockLlmClient([batchResponse([s[1], s[3]])]);
+
+      await selectScreenTypes(client, s, { sequencePlan: plan });
+
+      expect(client.calls).toHaveLength(1);
+      const prompt = client.calls[0].messages[1].content;
+      expect(prompt).toContain("내용 A");
+      expect(prompt).toContain("내용 B");
+    });
+
+    it("orders scenes within a group by the sequence's sceneIds order, not the input scenes array order", async () => {
+      const s = [content("c1", "내용 A", 1), content("c2", "내용 B", 2)];
+      const plan: SequencePlan = { version: 1, sequences: [makeSequence({ sceneIds: ["c2", "c1"] })] };
+      const client = new MockLlmClient([batchResponse([s[1], s[0]])]);
+
+      await selectScreenTypes(client, s, { sequencePlan: plan });
+
+      const prompt = client.calls[0].messages[1].content;
+      expect(prompt.indexOf("내용 B")).toBeLessThan(prompt.indexOf("내용 A"));
+    });
+
+    it("splits a sequence larger than the max batch size into sub-batches", async () => {
+      const contentScenes = Array.from({ length: 10 }, (_, i) => content(`c${i + 1}`, `내용 ${i + 1}`, i + 1));
+      const plan: SequencePlan = {
+        version: 1,
+        sequences: [makeSequence({ sceneIds: contentScenes.map((s) => s.id) })],
+      };
+      const client = new MockLlmClient([batchResponse(contentScenes.slice(0, 8)), batchResponse(contentScenes.slice(8, 10))]);
+
+      const result = await selectScreenTypes(client, contentScenes, { sequencePlan: plan });
+
+      expect(client.calls).toHaveLength(2);
+      expect(Object.keys(result)).toHaveLength(10);
+    });
+
+    it("hoists shared sequence context to appear once per group instead of once per scene", async () => {
+      const s = [content("c1", "내용 A", 1), content("c2", "내용 B", 2)];
+      const plan: SequencePlan = { version: 1, sequences: [makeSequence({ sceneIds: ["c1", "c2"] })] };
+      const sharedContext: SceneSequenceContext = {
+        purpose: "탄소배출권 개념을 사무실 배경에서 소개",
+        continuity: { location: "현대적 사무실", visualStyle: "플랫 일러스트", fixedElements: [], doNotChange: [] },
+        masterVisualDescription: "사무실 마스터 비주얼",
+        overlays: [],
+      };
+      const client = new MockLlmClient([batchResponse(s)]);
+
+      await selectScreenTypes(client, s, {
+        sequencePlan: plan,
+        sequenceContextByScene: { c1: sharedContext, c2: sharedContext },
+      });
+
+      const prompt = client.calls[0].messages[1].content;
+      // "시퀀스 목적:" only appears in the header line of the shared block, so
+      // this proves the block was hoisted once per group rather than emitted
+      // once per scene (which would produce two occurrences here).
+      const occurrences = prompt.split("시퀀스 목적:").length - 1;
+      expect(occurrences).toBe(1);
+    });
+
+    it("falls back to title-based grouping when sequencePlan is not provided (scene mode unaffected)", async () => {
+      const s = [
+        title("t1", "1장", 1, 1),
+        content("c1", "내용 A", 2),
+        title("t2", "2장", 1, 3),
+        content("c2", "내용 B", 4),
+      ];
+      const client = new MockLlmClient([batchResponse([s[1]]), batchResponse([s[3]])]);
+
+      await selectScreenTypes(client, s);
+
+      expect(client.calls).toHaveLength(2);
     });
   });
 });

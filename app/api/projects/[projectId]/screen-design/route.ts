@@ -7,6 +7,7 @@ import { computeVisualDesign } from "@/lib/visual-templates";
 import type { VisualDesign } from "@/lib/pipeline/designVisuals";
 import type { Scene } from "@/lib/pipeline/splitScenes";
 import { loadSequenceContextByScene } from "@/lib/pipeline/loadSequenceContext";
+import type { SequencePlan } from "@/lib/pipeline/sequenceTypes";
 import { createResilientStream } from "@/lib/http/resilientStream";
 import { startJob, finishJob, recordProgress, getJob, JobAlreadyRunningError } from "@/lib/jobs/registry";
 import { DEFAULT_SCREEN_DESIGN_COMMON_PROMPT } from "@/lib/pipeline/commonPromptDefaults";
@@ -56,10 +57,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
   }
 
   let sequenceContextByScene: Record<string, SceneSequenceContext> | undefined;
+  let sequencePlan: SequencePlan | undefined;
   if (getProductionMode(project) === "sequence") {
     const contextResult = await loadSequenceContextByScene(projectId, scenes);
     if ("errorResponse" in contextResult) return contextResult.errorResponse;
     sequenceContextByScene = contextResult.sequenceContextByScene;
+    sequencePlan = contextResult.plan;
   }
 
   let job;
@@ -100,6 +103,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
         commonPrompt,
         existingAssignments: resume ? existingScreenTypes : undefined,
         sequenceContextByScene,
+        sequencePlan,
         onProgress: async (sceneId, index, total, screenType) => {
           const scene = scenes.find((s) => s.id === sceneId);
           const visualDesign = computeVisualDesign(scene!, screenType);

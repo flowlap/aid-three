@@ -63,4 +63,26 @@ describe("computeSceneClipFingerprint", () => {
     const withBuffer = computeSceneClipFingerprint(baseInput());
     expect(withNull).not.toBe(withBuffer);
   });
+
+  /** Sequence + AI mode (see video/route.ts's handleSequenceModeVideo): no master visual/overlay/camera-motion inputs exist for an AI-regenerated static frame, so the fixed shape below is what that branch always passes. */
+  function aiModeInput(): SceneClipFingerprintInput {
+    return {
+      imageBuffer: Buffer.from("ai-generated-image"),
+      audioDigest: digestOf("audio-bytes"),
+      motion: "static",
+      overlays: [],
+      masterVisualAssetId: null,
+      masterVisualStatus: null,
+    };
+  }
+
+  it("AI mode: still changes fingerprint when only the image bytes change, so a regenerated scene image invalidates the cached clip", () => {
+    const a = computeSceneClipFingerprint(aiModeInput());
+    const b = computeSceneClipFingerprint({ ...aiModeInput(), imageBuffer: Buffer.from("different-ai-image") });
+    expect(a).not.toBe(b);
+  });
+
+  it("AI mode: produces the same fingerprint across calls for the same unchanged image/audio", () => {
+    expect(computeSceneClipFingerprint(aiModeInput())).toBe(computeSceneClipFingerprint(aiModeInput()));
+  });
 });

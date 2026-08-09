@@ -9,7 +9,7 @@ import {
 import type { Scene } from "./splitScenes";
 import type { VisualDesign, PresenterPosition } from "./designVisuals";
 import type { SceneSequenceContext } from "./selectScreenTypes";
-import type { ShotType, SequenceCameraPlanEntry } from "./sequenceTypes";
+import type { ShotType, SequenceCameraPlanEntry, OverlayType, SequenceOverlayEntry } from "./sequenceTypes";
 
 /** Reference info from another scene in the same story arc — see BuildImagePromptOptions.relatedScenes. */
 export interface RelatedSceneImageContext {
@@ -110,6 +110,18 @@ export interface BuildImagePromptOptions {
    * to before this field existed.
    */
   sequenceImageContext?: SceneSequenceContext;
+  /**
+   * Sequence mode only — how this scene's planned overlays (labels, arrows,
+   * highlights, diagrams, charts) should be handled in the prompt. "exclude"
+   * (the default when omitted) keeps the existing behavior: the model is told
+   * not to draw any of them, because a separate deterministic renderer
+   * composites them afterward (bakeSequenceSceneStill). "bake" is for AI-mode
+   * sequence projects with no post-hoc renderer at all — the overlay content
+   * is folded directly into the prompt so the model draws it into the image,
+   * and the camera-framing pan/zoom margin instruction is suppressed since
+   * AI-mode scenes always render as a static video frame.
+   */
+  sequenceOverlayRenderMode?: "exclude" | "bake";
 }
 
 /** Reference images attached to a single generateSceneImage(WithRetry) call — forwarded to the client as multi-image /images/edits input. */
@@ -265,6 +277,30 @@ function buildCameraFramingInstruction(camera: SequenceCameraPlanEntry): string 
 const SEQUENCE_OVERLAY_EXCLUSION_INSTRUCTION =
   "이 이미지에는 자막, 라벨, 화살표, 실제 숫자가 들어간 차트/그래프, 캡션 등 어떠한 텍스트나 그래픽 오버레이도 직접 그려 넣지 마세요. 이러한 요소는 이미지 생성 이후 별도의 결정론적 렌더러가 합성하며, 이미지 모델이 텍스트나 오버레이를 시도해서는 안 됩니다.";
 
+/** Translates a sequence's overlay entry type into a Korean label — see OverlayType (sequenceTypes.ts). */
+const OVERLAY_TYPE_LABEL: Record<OverlayType, string> = {
+  label: "라벨(짧은 텍스트 태그)",
+  "arrow-flow": "화살표/흐름 표시",
+  highlight: "강조(원, 사각형 등으로 특정 부분 부각)",
+  diagram: "도식(구조/관계를 보여주는 다이어그램)",
+  chart: "차트/그래프(실제 수치 포함)",
+};
+
+/**
+ * AI-mode sequence projects only (sequenceOverlayRenderMode === "bake") — there
+ * is no post-hoc compositing renderer in this mode, so unlike
+ * SEQUENCE_OVERLAY_EXCLUSION_INSTRUCTION, this tells the model to draw the
+ * scene's planned overlays directly into the image as real broadcast
+ * graphics. Explicitly carves out an exception to NO_TEXT_INSTRUCTION (which
+ * buildImagePrompt still applies unconditionally above) for just these
+ * elements, and warns about the objectFit:"cover" crop the final video frame
+ * applies so labels/callouts aren't placed too close to the frame edges.
+ */
+function buildSequenceOverlayBakeInstruction(overlays: SequenceOverlayEntry[]): string {
+  const list = overlays.map((overlay) => `- ${OVERLAY_TYPE_LABEL[overlay.type]}: ${overlay.description}`).join("\n");
+  return `위에서 텍스트나 사람 얼굴을 렌더링하지 말라고 안내했지만, 다음 오버레이 요소들만은 예외로 이 이미지 안에 실제 방송 그래픽처럼 직접 그려 넣어야 합니다(별도로 합성하는 렌더러가 없습니다):\n${list}\n각 요소는 실제 유튜브 강의나 TV 교육 프로그램에서 볼 수 있는 자막바(로어써드)/인포그래픽 오버레이처럼 자연스럽게 배치하세요. 이후 화면 출력 시 이미지 가장자리가 살짝 잘릴 수 있으니, 라벨이나 콜아웃을 이미지 맨 가장자리에 붙여 배치하지 말고 안쪽 여백을 두세요.`;
+}
+
 /**
  * Applies to every scene regardless of screen type — the overall "shot"
  * should read as a frame from a real YouTube/TV-style educational video
@@ -317,10 +353,19 @@ export function buildImagePrompt(scene: Scene, design: VisualDesign, promptOptio
           : buildMasterContinuityFallbackInstruction(sequenceImageContext)
       }`
     : "";
+  const isOverlayBakeMode = promptOptions?.sequenceOverlayRenderMode === "bake";
   const sequenceCameraInstruction = sequenceImageContext?.camera
-    ? `\n\n${buildCameraFramingInstruction(sequenceImageContext.camera)}`
+    ? `\n\n${buildCameraFramingInstruction(
+        isOverlayBakeMode ? { ...sequenceImageContext.camera, motion: "static" } : sequenceImageContext.camera
+      )}`
     : "";
-  const sequenceOverlayInstruction = sequenceImageContext ? `\n\n${SEQUENCE_OVERLAY_EXCLUSION_INSTRUCTION}` : "";
+  const sequenceOverlayInstruction = !sequenceImageContext
+    ? ""
+    : isOverlayBakeMode
+      ? sequenceImageContext.overlays.length > 0
+        ? `\n\n${buildSequenceOverlayBakeInstruction(sequenceImageContext.overlays)}`
+        : ""
+      : `\n\n${SEQUENCE_OVERLAY_EXCLUSION_INSTRUCTION}`;
 
   return `이러닝 교육용 스토리보드 화면 이미지를 생성하세요.
 

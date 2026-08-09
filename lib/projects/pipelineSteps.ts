@@ -28,11 +28,17 @@ const SCENE_MODE_STEPS: readonly PipelineStepDef[] = [
   { key: "storyboard", label: "최종 뷰" },
 ];
 
+/**
+ * "screen-design" is intentionally absent here — sequence mode's sequence-
+ * design step absorbs screen design inline (see SequencePlanEditor.tsx and
+ * the screen-design-merge plan doc). screen-design.json is still written and
+ * consumed by review/images downstream; it's just not a separate step-bar
+ * entry for this mode.
+ */
 const SEQUENCE_MODE_STEPS: readonly PipelineStepDef[] = [
   { key: "markdown", label: "원고 변환" },
   { key: "scenes", label: "씬 분할" },
   { key: "sequences", label: "시퀀스 설계" },
-  { key: "screen-design", label: "화면 설계" },
   { key: "review", label: "일관성 검수" },
   { key: "images", label: "이미지/목업 생성" },
   { key: "storyboard", label: "최종 뷰" },
