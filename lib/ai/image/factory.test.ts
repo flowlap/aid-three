@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach, vi } from "vitest";
 import { createImageClient, getImageProviderType } from "./factory";
 import { RealOpenAiImageClient } from "./openaiImageClient";
 import { RealHChatGeminiImageClient } from "./hchatGeminiImageClient";
+import { RealFalImageClient } from "./falImageClient";
 
 describe("getImageProviderType", () => {
   afterEach(() => {
@@ -34,6 +35,19 @@ describe("createImageClient", () => {
     vi.stubEnv("HCHAT_KEY", "test-key");
 
     expect(createImageClient()).toBeInstanceOf(RealHChatGeminiImageClient);
+  });
+
+  it("returns a fal image client for fal", () => {
+    vi.stubEnv("IMAGE_PROVIDER", "fal");
+    vi.stubEnv("FAL_KEY", "test-key");
+
+    expect(createImageClient()).toBeInstanceOf(RealFalImageClient);
+  });
+
+  it("throws when fal is selected but FAL_KEY is missing", () => {
+    vi.stubEnv("IMAGE_PROVIDER", "fal");
+
+    expect(() => createImageClient()).toThrow(/FAL_KEY/);
   });
 
   it("throws for an unknown provider", () => {

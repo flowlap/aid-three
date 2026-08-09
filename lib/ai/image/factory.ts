@@ -1,8 +1,9 @@
 import type { ImageClient } from "./types";
 import { createOpenAiImageClient } from "./openaiImageClient";
 import { createHChatGeminiImageClient } from "./hchatGeminiImageClient";
+import { createFalImageClient } from "./falImageClient";
 
-export type ImageProviderType = "openai" | "hchat-gemini";
+export type ImageProviderType = "openai" | "hchat-gemini" | "fal";
 
 export function getImageProviderType(): ImageProviderType {
   return (process.env.IMAGE_PROVIDER || "openai") as ImageProviderType;
@@ -15,6 +16,8 @@ export function createImageClient(options?: { hchatGeminiModel?: string }): Imag
       return createOpenAiImageClient();
     case "hchat-gemini":
       return createHChatGeminiImageClient(options?.hchatGeminiModel);
+    case "fal":
+      return createFalImageClient();
     default:
       throw new Error(`알 수 없는 IMAGE_PROVIDER 값입니다: ${provider}`);
   }

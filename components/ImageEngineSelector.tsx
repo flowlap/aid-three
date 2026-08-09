@@ -6,7 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 
 export type ImageEngine = "openai" | "local";
 export type LocalModelSize = "4b" | "9b";
-export type ImageProviderType = "openai" | "hchat-gemini";
+export type ImageProviderType = "openai" | "hchat-gemini" | "fal";
 /** Mirrors HCHAT_GEMINI_IMAGE_MODELS in lib/ai/image/hchatGeminiImageClient.ts — kept as a local literal so this client component doesn't import that server-side module. */
 export type HChatGeminiModel = "gemini-3.1-flash-image" | "gemini-3-pro-image";
 

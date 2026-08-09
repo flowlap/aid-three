@@ -17,13 +17,14 @@ http://localhost:9625 접속.
 텍스트(LLM)와 이미지 생성은 각각 provider를 독립적으로 선택할 수 있다(`LlmClient`/`ImageClient` 인터페이스, `lib/ai/llm/`·`lib/ai/image/`). 기본값은 기존과 동일한 DeepSeek(텍스트)/OpenAI(이미지)라서, `.env.local`에 해당 키만 넣으면 추가 설정 없이 그대로 동작한다.
 
 - `LLM_PROVIDER` (기본값 `deepseek`): `deepseek` | `hchat-claude` | `hchat-chatgpt` | `hchat-gemini`
-- `IMAGE_PROVIDER` (기본값 `openai`): `openai` | `hchat-gemini`
+- `IMAGE_PROVIDER` (기본값 `openai`): `openai` | `hchat-gemini` | `fal`
 
 | Provider | 필요한 키 | 비고 |
 |---|---|---|
 | `deepseek` | `DEEPSEEK_API_KEY` | 원고 변환/씬 분할/화면 유형 선정/일관성 검수 등 텍스트 단계 |
 | `openai` | `OPENAI_API_KEY` | 5단계 이미지 생성(선택 사항, 실제 과금). 이미지 생성을 안 쓸 거면 생략해도 나머지 단계는 정상 동작하고, 5단계에서 로컬 모델(FLUX.2 Klein, Mac 전용, 아래 참고)로 전환하면 이 키 없이도 이미지를 생성할 수 있다. |
 | `hchat-claude` / `hchat-chatgpt` / `hchat-gemini` / (이미지) `hchat-gemini` | `HCHAT_KEY` | 사내 H-CHAT 게이트웨이 — 4개 provider가 키를 공유 |
+| (이미지) `fal` | `FAL_KEY` | fal.ai 이미지 생성(큐 REST API). 기본 모델 `fal-ai/flux/schnell`(텍스트→이미지), `FAL_IMAGE_MODEL`로 변경 |
 
 Provider별 모델명은 `.env.example`에 나열된 `*_MODEL_ACCURATE`/`*_MODEL_FAST`(또는 `HCHAT_GEMINI_IMAGE_MODEL`) 변수로 오버라이드할 수 있고, 생략 시 기본 모델을 쓴다. 아키텍처 상세는 [H-CHAT provider 추상화 설계 문서](docs/superpowers/specs/2026-08-03-hchat-provider-abstraction-design.md) 참고.
 
