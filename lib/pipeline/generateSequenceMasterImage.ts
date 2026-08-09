@@ -38,11 +38,13 @@ const BACKGROUND_ONLY_INSTRUCTION =
 
 /**
  * Pure prompt builder for a sequence's master visual. Uses only
- * sequence.continuity and sequence.masterVisual.description — deliberately no
- * per-project style/presenter reference text (see this file's header
- * comment).
+ * sequence.continuity and sequence.masterVisual.description, plus the
+ * images step's project-wide "공통 프롬프트" (commonPrompt) so the master
+ * plate shares the same tone-and-manner as every scene image generated
+ * against it — deliberately no per-project presenter reference text (see
+ * this file's header comment).
  */
-export function buildSequenceMasterImagePrompt(sequence: Sequence): string {
+export function buildSequenceMasterImagePrompt(sequence: Sequence, commonPrompt?: string): string {
   const { continuity, masterVisual } = sequence;
 
   const continuityParts = [
@@ -53,6 +55,8 @@ export function buildSequenceMasterImagePrompt(sequence: Sequence): string {
     continuity.doNotChange.length > 0 ? `절대 변경 금지: ${continuity.doNotChange.join(", ")}` : null,
   ].filter((part): part is string => part !== null);
 
+  const styleGuide = commonPrompt?.trim() ? `\n\n공통 스타일 가이드(모든 화면에 일관되게 적용):\n${commonPrompt.trim()}` : "";
+
   return `이러닝 교육용 스토리보드 시퀀스가 공유할 배경/장소 마스터 비주얼 이미지를 생성하세요.
 
 무엇을 그릴지(마스터 비주얼 설명): ${masterVisual.description}
@@ -60,7 +64,7 @@ export function buildSequenceMasterImagePrompt(sequence: Sequence): string {
 이 시퀀스의 연속성 정보(모든 씬에 걸쳐 일관되게 유지되어야 할 배경 조건):
 ${continuityParts.map((part) => `- ${part}`).join("\n")}
 
-${PRODUCTION_STYLE_INSTRUCTION} ${NO_TEXT_INSTRUCTION}
+${PRODUCTION_STYLE_INSTRUCTION} ${NO_TEXT_INSTRUCTION}${styleGuide}
 
 ${WIDE_COMPOSITION_INSTRUCTION}
 
@@ -90,9 +94,10 @@ function callGenerateImage(
   client: ImageClient,
   sequence: Sequence,
   referenceImages: SequenceMasterReferenceImages | undefined,
+  commonPrompt: string | undefined,
   clientOptions?: ImageGenerateOptions
 ): Promise<Buffer> {
-  const prompt = buildSequenceMasterImagePrompt(sequence);
+  const prompt = buildSequenceMasterImagePrompt(sequence, commonPrompt);
   const referenceBuffers = [referenceImages?.style, referenceImages?.background].filter(
     (buf): buf is Buffer => buf !== undefined
   );
@@ -112,12 +117,13 @@ export async function generateSequenceMasterImage(
   client: ImageClient,
   sequence: Sequence,
   referenceImages?: SequenceMasterReferenceImages,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  commonPrompt?: string
 ): Promise<Buffer> {
   const effectiveSignal = signal ?? new AbortController().signal;
 
   try {
-    return await callGenerateImage(client, sequence, referenceImages, { signal: effectiveSignal });
+    return await callGenerateImage(client, sequence, referenceImages, commonPrompt, { signal: effectiveSignal });
   } catch (err) {
     if (effectiveSignal.aborted) throw err;
 
@@ -133,7 +139,7 @@ export async function generateSequenceMasterImage(
       );
       await sleep(delayMs, effectiveSignal);
       try {
-        return await callGenerateImage(client, sequence, referenceImages, { signal: effectiveSignal });
+        return await callGenerateImage(client, sequence, referenceImages, commonPrompt, { signal: effectiveSignal });
       } catch (retryErr) {
         if (effectiveSignal.aborted) throw retryErr;
         lastErr = retryErr;

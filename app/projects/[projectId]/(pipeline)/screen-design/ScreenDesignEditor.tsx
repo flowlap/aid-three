@@ -4,8 +4,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { AiJobStatus } from "@/components/AiJobStatus";
 import { CommonPromptField } from "@/components/CommonPromptField";
 import type { Scene } from "@/lib/pipeline/splitScenes";
@@ -17,8 +15,7 @@ import { useNextStepAction } from "@/lib/client/StepNavContext";
 import { useAutoProgressFlag, withAutoProgress } from "@/lib/client/useAutoProgress";
 import { estimateSecondsForScenes } from "@/lib/client/estimateAiDuration";
 import { DEFAULT_SCREEN_DESIGN_COMMON_PROMPT } from "@/lib/pipeline/commonPromptDefaults";
-import { cn } from "@/lib/utils";
-import { getDepthBorderClass } from "@/lib/depthColors";
+import { ScreenDesignSceneCard } from "./ScreenDesignFields";
 
 type ScreenDesignStreamEvent =
   | { type: "scene"; sceneId: string; index: number; total: number; screenType: ScreenTypeAssignment; visualDesign: VisualDesign }
@@ -116,13 +113,6 @@ export function ScreenDesignEditor({
       };
       return { ...prev, [sceneId]: { ...(prev[sceneId] ?? defaults), ...patch } };
     });
-  }
-
-  function parseCommaList(value: string): string[] {
-    return value
-      .split(",")
-      .map((item) => item.trim())
-      .filter((item) => item.length > 0);
   }
 
   async function regenerateScene(sceneId: string) {
@@ -271,141 +261,21 @@ export function ScreenDesignEditor({
 
       <div className="space-y-4">
         {scenes.map((scene, index) => {
-          const assignment = screenTypes[scene.id];
-          const design = designs[scene.id];
-          const regenerating = regeneratingIds.has(scene.id);
           const entry = hierarchy[scene.id];
-          const indentDepth = entry?.indentDepth ?? 0;
-
-          if (scene.sceneType === "title") {
-            return (
-              <Card
-                key={scene.id}
-                id={scene.id}
-                className={cn("flex-row items-center gap-3 border-l-4 bg-muted/30 p-3.5", getDepthBorderClass(scene.depth ?? 1))}
-                style={{ marginLeft: `${indentDepth * 24}px` }}
-              >
-                <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
-                  {index + 1}
-                </span>
-                <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
-                  제목 · {scene.depth ?? 1}뎁스
-                </span>
-                <p className="min-w-0 flex-1 truncate text-sm font-semibold">{scene.narrationText}</p>
-                <span className="shrink-0 text-xs text-muted-foreground">간지/타이틀형 (자동)</span>
-              </Card>
-            );
-          }
-
           return (
-            <Card
+            <ScreenDesignSceneCard
               key={scene.id}
-              id={scene.id}
-              className="gap-5 p-5"
-              style={{ marginLeft: `${indentDepth * 24}px` }}
-            >
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex min-w-0 items-center gap-2">
-                  <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-muted-foreground">
-                    {index + 1}
-                  </span>
-                  <span className="text-xs font-medium text-muted-foreground">{scene.id}</span>
-                </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => regenerateScene(scene.id)}
-                  disabled={regenerating || loading}
-                >
-                  {regenerating ? "재생성 중..." : "이 씬만 재생성"}
-                </Button>
-              </div>
-
-              <p className="rounded-lg border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
-                {scene.narrationText}
-              </p>
-
-              <div className="rounded-lg border bg-muted/50 p-3.5">
-                <p className="mb-2.5 text-xs font-medium tracking-wide text-muted-foreground uppercase">AI 선택</p>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <label className="block">
-                    <span className="mb-1 block text-xs text-muted-foreground">화면 유형</span>
-                    <Input
-                      value={assignment?.screenType ?? ""}
-                      onChange={(e) => updateScreenType(scene.id, { screenType: e.target.value })}
-                      placeholder="화면 유형"
-                    />
-                  </label>
-                  <label className="block">
-                    <span className="mb-1 block text-xs text-muted-foreground">추천 레이아웃</span>
-                    <Input
-                      value={assignment?.recommendedLayout ?? ""}
-                      onChange={(e) => updateScreenType(scene.id, { recommendedLayout: e.target.value })}
-                      placeholder="추천 레이아웃"
-                    />
-                  </label>
-                </div>
-                {assignment?.rationale && (
-                  <p className="mt-2.5 text-xs text-muted-foreground italic">근거: {assignment.rationale}</p>
-                )}
-              </div>
-
-              <div className="space-y-4">
-                <label className="block">
-                  <span className="mb-1.5 block text-sm font-medium">화면 자막</span>
-                  <Input
-                    value={design?.caption ?? ""}
-                    onChange={(e) => updateDesign(scene.id, { caption: e.target.value })}
-                    placeholder="화면 자막"
-                  />
-                </label>
-                <label className="block">
-                  <span className="mb-1.5 block text-xs text-muted-foreground">이미지/도식 설명</span>
-                  <Textarea
-                    value={design?.imageOrDiagramDescription ?? ""}
-                    onChange={(e) => updateDesign(scene.id, { imageOrDiagramDescription: e.target.value })}
-                    placeholder="이미지 또는 도식에 대한 설명"
-                  />
-                </label>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <label className="block">
-                    <span className="mb-1.5 block text-xs text-muted-foreground">핵심 키워드 (쉼표로 구분)</span>
-                    <Input
-                      value={design?.keywords?.join(", ") ?? ""}
-                      onChange={(e) => updateDesign(scene.id, { keywords: parseCommaList(e.target.value) })}
-                      placeholder="핵심 키워드1, 핵심 키워드2"
-                    />
-                  </label>
-                  <label className="block">
-                    <span className="mb-1.5 block text-xs text-muted-foreground">객체 배치</span>
-                    <Input
-                      value={design?.objectPlacement ?? ""}
-                      onChange={(e) => updateDesign(scene.id, { objectPlacement: e.target.value })}
-                      placeholder="객체 배치"
-                    />
-                  </label>
-                </div>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <label className="block">
-                    <span className="mb-1.5 block text-xs text-muted-foreground">등장 순서 (쉼표로 구분)</span>
-                    <Input
-                      value={design?.appearanceOrder?.join(", ") ?? ""}
-                      onChange={(e) => updateDesign(scene.id, { appearanceOrder: parseCommaList(e.target.value) })}
-                      placeholder="제목, 본문 텍스트, 아이콘"
-                    />
-                  </label>
-                  <label className="block">
-                    <span className="mb-1.5 block text-xs text-muted-foreground">제작 지시</span>
-                    <Input
-                      value={design?.productionNotes ?? ""}
-                      onChange={(e) => updateDesign(scene.id, { productionNotes: e.target.value })}
-                      placeholder="제작 지시"
-                    />
-                  </label>
-                </div>
-              </div>
-            </Card>
+              scene={scene}
+              displayIndex={index + 1}
+              indentDepth={entry?.indentDepth ?? 0}
+              assignment={screenTypes[scene.id]}
+              design={designs[scene.id]}
+              regenerating={regeneratingIds.has(scene.id)}
+              regenerateDisabled={regeneratingIds.has(scene.id) || loading}
+              onRegenerate={() => regenerateScene(scene.id)}
+              onUpdateScreenType={(patch) => updateScreenType(scene.id, patch)}
+              onUpdateDesign={(patch) => updateDesign(scene.id, patch)}
+            />
           );
         })}
       </div>

@@ -1,4 +1,4 @@
-import { readProject, readProjectFile, readProjectReferenceImage, listProjectImageIds } from "@/lib/projects/store";
+import { readProject, readProjectFile, readProjectReferenceImage, listProjectImageIds, readSequencePlan } from "@/lib/projects/store";
 import { getProductionMode } from "@/lib/projects/types";
 import { getProjectImageAspectRatio } from "@/lib/pipeline/imageAspectRatio";
 import { ImagesEditor } from "./ImagesEditor";
@@ -55,15 +55,16 @@ export default async function ImagesPage({ params }: { params: Promise<{ project
   const isSequence = productionMode === "sequence";
   const sequenceImageModeRaw = (await readProjectFile(projectId, "sequence-image-mode.txt"))?.trim();
   const initialSequenceImageMode: SequenceImageMode = sequenceImageModeRaw === "ai" ? "ai" : "composite";
+  const sequencePlan = isSequence ? await readSequencePlan(projectId) : null;
 
   return (
     <>
       <h1 className="mb-1 text-3xl font-semibold tracking-tight">이미지/목업 생성</h1>
       <p className="mb-6 text-sm text-muted-foreground">
         {isSequence && initialSequenceImageMode === "composite"
-          ? "각 씬을 시퀀스 마스터 비주얼(카메라 시작 프레임) + 오버레이 레이어로 합성합니다. 이미지 모델을 씬마다 호출하지 않으며(비용 없음), 마스터 비주얼은 ‘시퀀스 설계’ 단계에서 먼저 생성하세요."
+          ? "각 씬을 시퀀스 마스터 비주얼(카메라 시작 프레임) + 오버레이 레이어로 합성합니다. 이미지 모델을 씬마다 호출하지 않으며(비용 없음), 아래에서 시퀀스별 마스터 비주얼을 먼저 생성하세요."
           : isSequence
-            ? "각 씬마다 AI 이미지 생성을 호출해 오버레이 내용까지 이미지에 직접 그리도록 요청합니다. 씬 모드와 동일하게 호출마다 비용이 발생하며, 마스터 비주얼은 ‘시퀀스 설계’ 단계에서 먼저 생성하세요."
+            ? "각 씬마다 AI 이미지 생성을 호출해 오버레이 내용까지 이미지에 직접 그리도록 요청합니다. 씬 모드와 동일하게 호출마다 비용이 발생하며, 아래에서 시퀀스별 마스터 비주얼을 먼저 생성하세요."
             : "선택 사항입니다. 이미지 없이 다음 단계로 넘어가도 됩니다 — 외부 API(OpenAI, Gemini) 호출은 비용이 발생합니다."}
       </p>
       <ImagesEditor
@@ -89,6 +90,7 @@ export default async function ImagesPage({ params }: { params: Promise<{ project
         imageProviderType={imageProviderType}
         initialHchatGeminiModel={initialHchatGeminiModel}
         imageAspectRatio={imageAspectRatio}
+        sequencePlan={sequencePlan}
       />
     </>
   );
