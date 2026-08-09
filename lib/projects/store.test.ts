@@ -120,11 +120,11 @@ describe("project store", () => {
 });
 
 describe("project production mode", () => {
-  it("defaults new projects to scene mode", async () => {
+  it("defaults new projects to sequence mode", async () => {
     const project = await createProject("기본 모드", "script");
 
-    expect(project.productionMode).toBe("scene");
-    expect(getProductionMode(project)).toBe("scene");
+    expect(project.productionMode).toBe("sequence");
+    expect(getProductionMode(project)).toBe("sequence");
   });
 
   it("creates a project explicitly in sequence mode", async () => {

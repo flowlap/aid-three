@@ -23,14 +23,15 @@ const SCRIPT_TYPE_LABELS: Record<ScriptType, string> = {
 
 const PRODUCTION_MODE_OPTIONS: { value: ProductionMode; label: string; description: string }[] = [
   {
-    value: "scene",
-    label: "씬 기반 과정 제작",
-    description: "씬 단위로 화면을 설계하고 이미지를 개별 생성합니다. 대부분의 이러닝 과정에 적합한 기본 방식입니다.",
+    value: "sequence",
+    label: "시퀀스 기반 과정 제작 (기본)",
+    description:
+      "연속된 비주얼 영상 제작에 최적화된 기본 방식입니다. 씬들을 하나의 흐름(시퀀스)으로 묶어 시퀀스당 마스터 비주얼 1장 + 씬별 오버레이로 화면을 구성하고, 카메라 모션이 있는 영상으로 렌더링합니다.",
   },
   {
-    value: "sequence",
-    label: "시퀀스 기반 과정 제작",
-    description: "연속된 비주얼 영상 제작에 최적화된 방식입니다. 씬들을 하나의 흐름으로 묶어 시퀀스 단위로 기획합니다.",
+    value: "scene",
+    label: "씬 기반 과정 제작",
+    description: "씬 단위로 화면을 설계하고 이미지를 개별 생성하는 방식입니다. 정적인 슬라이드형 과정에 적합합니다.",
   },
 ];
 
@@ -38,7 +39,7 @@ export default function NewProjectPage() {
   const router = useRouter();
   const [title, setTitle] = useState("");
   const [scriptType, setScriptType] = useState<ScriptType>("script");
-  const [productionMode, setProductionMode] = useState<ProductionMode>("scene");
+  const [productionMode, setProductionMode] = useState<ProductionMode>("sequence");
   const [sourceMode, setSourceMode] = useState<SourceMode>("file");
   const [file, setFile] = useState<File | null>(null);
   const [text, setText] = useState("");

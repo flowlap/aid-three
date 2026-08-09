@@ -32,7 +32,10 @@ export async function POST(req: NextRequest) {
   const title = rawTitle?.trim() ?? "";
   const scriptType = formData.get("scriptType") as ScriptType | null;
   const rawProductionMode = formData.get("productionMode") as string | null;
-  const productionMode = (rawProductionMode ?? "scene") as ProductionMode;
+  // New projects default to sequence mode. (Legacy project.json files with no
+  // productionMode field stay scene mode via getProductionMode's fallback —
+  // that's a separate, backward-compat concern and must not change.)
+  const productionMode = (rawProductionMode ?? "sequence") as ProductionMode;
 
   if ((!file && !text) || !title || !scriptType) {
     return NextResponse.json({ error: "file 또는 text, title, scriptType는 필수입니다" }, { status: 400 });

@@ -125,7 +125,9 @@ export function projectAudioPath(id: string, sceneId: string): string {
 export async function createProject(
   title: string,
   scriptType: ScriptType,
-  productionMode: ProductionMode = "scene"
+  // New projects default to sequence mode. getProductionMode()'s "scene"
+  // fallback is only for legacy project.json files that predate this field.
+  productionMode: ProductionMode = "sequence"
 ): Promise<ProjectMeta> {
   assertValidProductionMode(productionMode);
   const id = randomUUID();
