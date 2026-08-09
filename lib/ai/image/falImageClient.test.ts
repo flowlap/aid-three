@@ -55,6 +55,49 @@ describe("RealFalImageClient", () => {
     expect(fetchMock.mock.calls.at(-1)?.[0]).toBe("https://fal.media/out.png");
   });
 
+  it("sends aspect_ratio (not image_size) for nano-banana models, mapped from the size", async () => {
+    const fetchMock = mockFalFlow([4, 5]);
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new RealFalImageClient("k", "google/nano-banana-2-lite");
+
+    await client.generateImage("p", { size: "1536x1024" });
+
+    const [submitUrl, submitInit] = fetchMock.mock.calls[0];
+    expect(submitUrl).toBe("https://queue.fal.run/google/nano-banana-2-lite");
+    const body = JSON.parse(submitInit.body);
+    expect(body.aspect_ratio).toBe("3:2");
+    expect(body.image_size).toBeUndefined();
+  });
+
+  it("hits the /edit endpoint with image_urls when references are passed to a nano-banana model", async () => {
+    const fetchMock = mockFalFlow([6]);
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new RealFalImageClient("k", "google/nano-banana-2-lite");
+
+    await client.generateImage("edit please", {
+      size: "1536x1024",
+      referenceImages: [Buffer.from([0xaa, 0xbb])],
+    });
+
+    const [submitUrl, submitInit] = fetchMock.mock.calls[0];
+    expect(submitUrl).toBe("https://queue.fal.run/google/nano-banana-2-lite/edit");
+    const body = JSON.parse(submitInit.body);
+    expect(body.image_urls).toEqual([`data:image/png;base64,${Buffer.from([0xaa, 0xbb]).toString("base64")}`]);
+    expect(body.aspect_ratio).toBe("3:2");
+  });
+
+  it("ignores references for non-nano models (stays on the base text→image endpoint)", async () => {
+    const fetchMock = mockFalFlow([8]);
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new RealFalImageClient("k", "fal-ai/flux/schnell");
+
+    await client.generateImage("p", { referenceImages: [Buffer.from([1])] });
+
+    const [submitUrl, submitInit] = fetchMock.mock.calls[0];
+    expect(submitUrl).toBe("https://queue.fal.run/fal-ai/flux/schnell");
+    expect(JSON.parse(submitInit.body).image_urls).toBeUndefined();
+  });
+
   it("honors a custom model", async () => {
     const fetchMock = mockFalFlow([9]);
     vi.stubGlobal("fetch", fetchMock);
