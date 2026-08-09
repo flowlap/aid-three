@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { RealDeepSeekClient } from "./deepseekClient";
+import { RealDeepSeekClient, StreamIdleTimeoutError } from "./deepseekClient";
 
 describe("RealDeepSeekClient", () => {
   afterEach(() => {
@@ -152,5 +152,63 @@ describe("RealDeepSeekClient", () => {
     ).rejects.toThrow();
 
     expect(received.join("")).toBe("받은 부분");
+  });
+
+  it("aborts a stream that goes silent past the idle timeout instead of hanging forever", async () => {
+    let cancelled = false;
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      // A body that opens but never enqueues and never closes — this is the
+      // real bug's shape: the connection is alive but no bytes ever arrive.
+      body: new ReadableStream({
+        start() {
+          /* deliberately never enqueue, never close */
+        },
+        cancel() {
+          cancelled = true;
+        },
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    // 20ms idle window so the test resolves quickly.
+    const client = new RealDeepSeekClient("test-key", undefined, 20);
+
+    const iterable = await client.completeStream([{ role: "user", content: "a" }]);
+    await expect(
+      (async () => {
+        for await (const _chunk of iterable) void _chunk;
+      })()
+    ).rejects.toBeInstanceOf(StreamIdleTimeoutError);
+    // The hung upstream connection must actually be released, not leaked.
+    expect(cancelled).toBe(true);
+  });
+
+  it("does not time out while bytes keep arriving within the idle window", async () => {
+    const encoder = new TextEncoder();
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      body: new ReadableStream({
+        async start(controller) {
+          // Two chunks ~10ms apart, comfortably inside a 200ms idle window,
+          // then close cleanly — must complete without a timeout.
+          controller.enqueue(
+            encoder.encode(`data: ${JSON.stringify({ choices: [{ delta: { content: "가" } }] })}\n\n`)
+          );
+          await new Promise((r) => setTimeout(r, 10));
+          controller.enqueue(
+            encoder.encode(`data: ${JSON.stringify({ choices: [{ delta: { content: "나" } }] })}\n\n`)
+          );
+          controller.close();
+        },
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new RealDeepSeekClient("test-key", undefined, 200);
+
+    const iterable = await client.completeStream([{ role: "user", content: "a" }]);
+    const received: string[] = [];
+    for await (const chunk of iterable) received.push(chunk);
+
+    expect(received.join("")).toBe("가나");
   });
 });

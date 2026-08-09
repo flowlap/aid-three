@@ -26,11 +26,68 @@ function logError(label: string, model: string, startedAt: number, err: unknown)
 
 const HEARTBEAT_INTERVAL_MS = 2000;
 
+const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 120_000;
+
+/**
+ * Max time we'll wait for the *next raw byte* from the streaming response
+ * before treating the connection as dead and aborting. This is deliberately
+ * an idle (gap-between-reads) timeout, not a total-duration one:
+ *
+ * - Measured against this project's real workload, deepseek-v4-pro (the
+ *   "accurate" reasoning model) can spend ~3 minutes "thinking" before the
+ *   first *content* token — but it streams `reasoning_content` bytes the whole
+ *   time, so the raw socket is never silent for more than ~0.5s in a healthy
+ *   run (observed max gap 482ms, p99 69ms across full runs).
+ * - Total wall time swings widely (~90s to ~265s for the same prompt), so a
+ *   total timeout would either be uselessly long or kill legitimate runs.
+ *
+ * 120s is ~250x the observed worst-case idle gap — effectively zero false
+ * positives — while still auto-failing a genuinely hung request (the bug this
+ * fixes: a stalled stream left the job "running" forever, blocking retries)
+ * within two minutes instead of never. Override via env for tuning.
+ */
+function resolveIdleTimeoutMs(): number {
+  const raw = Number(process.env.DEEPSEEK_STREAM_IDLE_TIMEOUT_MS);
+  return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_STREAM_IDLE_TIMEOUT_MS;
+}
+
+export class StreamIdleTimeoutError extends Error {
+  constructor(idleMs: number) {
+    super(`스트리밍 응답이 ${Math.round(idleMs / 1000)}초 동안 데이터 없이 멈춰 요청을 중단했습니다`);
+    this.name = "StreamIdleTimeoutError";
+  }
+}
+
+/**
+ * `reader.read()` raced against an idle timer. A fresh timer per call means
+ * the deadline resets on every byte received, so this only fires when the
+ * connection has been genuinely silent for `idleTimeoutMs`. On win by read the
+ * timer is always cleared in `finally`; on timeout the pending read is left to
+ * the caller to release via `reader.cancel()`.
+ */
+async function readWithIdleTimeout<T>(
+  reader: ReadableStreamDefaultReader<T>,
+  idleTimeoutMs: number
+): Promise<ReadableStreamReadResult<T>> {
+  let idleTimer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      reader.read(),
+      new Promise<never>((_, reject) => {
+        idleTimer = setTimeout(() => reject(new StreamIdleTimeoutError(idleTimeoutMs)), idleTimeoutMs);
+      }),
+    ]);
+  } finally {
+    if (idleTimer) clearTimeout(idleTimer);
+  }
+}
+
 async function* parseSSEStream(
   body: ReadableStream<Uint8Array>,
   label: string,
   model: string,
-  startedAt: number
+  startedAt: number,
+  idleTimeoutMs: number
 ): AsyncGenerator<string> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
@@ -39,7 +96,19 @@ async function* parseSSEStream(
   let lastHeartbeat = startedAt;
 
   while (true) {
-    const { done, value } = await reader.read();
+    let result: ReadableStreamReadResult<Uint8Array>;
+    try {
+      result = await readWithIdleTimeout(reader, idleTimeoutMs);
+    } catch (err) {
+      // Idle timeout (or a low-level read rejection): cancel the reader so the
+      // hung upstream connection is actually released, then surface the error
+      // — it propagates out of the async generator to the API route, which
+      // marks the job "error" instead of leaving it stuck "running".
+      await reader.cancel().catch(() => {});
+      logError(label, model, startedAt, err);
+      throw err;
+    }
+    const { done, value } = result;
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
 
@@ -82,7 +151,8 @@ async function* parseSSEStream(
 export class RealDeepSeekClient implements LlmClient {
   constructor(
     private readonly apiKey: string,
-    private readonly models: { accurate: string; fast: string } = DEFAULT_MODELS
+    private readonly models: { accurate: string; fast: string } = DEFAULT_MODELS,
+    private readonly idleTimeoutMs: number = resolveIdleTimeoutMs()
   ) {}
 
   private modelFor(tier?: LlmTier): string {
@@ -172,7 +242,7 @@ export class RealDeepSeekClient implements LlmClient {
       throw err;
     }
 
-    return parseSSEStream(response.body!, "completeStream()", model, startedAt);
+    return parseSSEStream(response.body!, "completeStream()", model, startedAt, this.idleTimeoutMs);
   }
 }
 
