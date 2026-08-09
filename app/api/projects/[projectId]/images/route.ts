@@ -30,6 +30,9 @@ import { groupContentScenesByParentTitle } from "@/lib/pipeline/sceneHierarchy";
 import { loadSequenceContextByScene } from "@/lib/pipeline/loadSequenceContext";
 import { groupScenesBySequence, loadSequenceMasterAsset, type SequenceMasterAsset } from "@/lib/pipeline/sequenceLookup";
 import type { SequencePlan } from "@/lib/pipeline/sequenceTypes";
+import { bakeSequenceSceneStill } from "@/lib/pipeline/bakeSequenceSceneStill";
+import { computeFrameDimensions } from "@/lib/video/frameDimensions";
+import { getProjectImageAspectRatio } from "@/lib/pipeline/imageAspectRatio";
 import {
   IMAGE_GENERATION_CONCURRENCY,
   LOCAL_IMAGE_DRAFT_WIDTH,
@@ -125,9 +128,18 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
     throw err;
   }
 
+  // Sequence mode composites each scene from the sequence master + overlays
+  // (no image model per scene — see bakeSequenceSceneStill), so no image
+  // client is created; only scene-mode's per-scene generation needs one.
+  const frameDimensions = sequencePlan
+    ? computeFrameDimensions(await getProjectImageAspectRatio(projectId))
+    : undefined;
+
   let client: ImageClient | undefined;
   let localClient: LocalImageClient | undefined;
-  if (engine === "local") {
+  if (sequencePlan) {
+    // no-op: no AI image client needed in sequence mode
+  } else if (engine === "local") {
     try {
       localClient = createLocalImageClient(projectImagesDir(projectId));
     } catch (err) {
@@ -203,7 +215,36 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
         }
       }
 
-      if (localClient) {
+      if (sequencePlan && frameDimensions) {
+        // Sequence mode: each content scene's still is a deterministic composite
+        // of its sequence's master image (cropped to the camera motion's first
+        // frame) + its overlay layer — no image-model call per scene. Baked to
+        // images/{sceneId}.png so the existing preview/storyboard/editor UIs
+        // (which just read that file) show the master+overlay result directly.
+        // A scene whose sequence has no master image bakes nothing (the
+        // per-sequence warning above already told the user); the video renderer
+        // falls back to a caption card just like a missing scene image.
+        const pendingSceneEntries = pendingGroups.flatMap((group) =>
+          group.scenes.map((scene) => ({ scene, sequenceId: group.sequenceId }))
+        );
+        await runWithConcurrencyLimit(pendingSceneEntries, IMAGE_GENERATION_CONCURRENCY, async ({ scene, sequenceId }) => {
+          if (job.controller.signal.aborted) throw new DOMException("Aborted", "AbortError");
+
+          const sequence = sequenceId ? sequencePlan.sequences.find((seq) => seq.id === sequenceId) : undefined;
+          const masterAsset = (sequenceId && sequenceMasterAssets.get(sequenceId)) || ({} as SequenceMasterAsset);
+          await bakeSequenceSceneStill({
+            projectId,
+            sceneId: scene.id,
+            sequence,
+            masterAsset,
+            frameDimensions,
+            signal: job.controller.signal,
+          });
+          completedSoFar += 1;
+          recordProgress(projectId, STEP, completedSoFar - 1, total);
+          emit(JSON.stringify({ type: "scene", sceneId: scene.id, index: completedSoFar - 1, total }) + "\n");
+        });
+      } else if (localClient) {
         // Local generation runs one Python process that loads the model once and
         // generates strictly in order (LOCAL_IMAGE_CONCURRENCY=1) — no benefit to
         // OpenAI's uncapped-groups-behind-a-limit shape, so every pending scene is

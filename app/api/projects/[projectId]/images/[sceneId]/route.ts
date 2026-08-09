@@ -16,7 +16,6 @@ import {
   buildImagePrompt,
   buildRelatedScenesContext,
   describeImageError,
-  type SceneReferenceImages,
 } from "@/lib/pipeline/generateSceneImage";
 import { DEFAULT_IMAGE_COMMON_PROMPT } from "@/lib/pipeline/commonPromptDefaults";
 import {
@@ -32,6 +31,9 @@ import type { VisualDesign } from "@/lib/pipeline/designVisuals";
 import { withInFlightLock, AlreadyInFlightError } from "@/lib/jobs/inFlightLock";
 import { loadSequenceContextByScene } from "@/lib/pipeline/loadSequenceContext";
 import { findSequenceForScene, loadSequenceMasterAsset } from "@/lib/pipeline/sequenceLookup";
+import { bakeSequenceSceneStill } from "@/lib/pipeline/bakeSequenceSceneStill";
+import { computeFrameDimensions } from "@/lib/video/frameDimensions";
+import { getProjectImageAspectRatio } from "@/lib/pipeline/imageAspectRatio";
 
 export async function GET(
   _req: NextRequest,
@@ -136,17 +138,33 @@ async function regenerateScene(projectId: string, sceneId: string, overrides: Re
   // — there's no stream here to emit a warning event on, so nothing further
   // to do for that case. "stale" masters are still real, readable files and
   // are reused just like "generated" ones — see loadSequenceMasterAsset.
-  let sequenceImageContext;
-  let sequenceMasterBuffer: Buffer | undefined;
-  let sequenceMasterPath: string | undefined;
+  // Sequence mode: a scene's still is a deterministic composite of its
+  // sequence's master image (cropped to the camera motion's first frame) +
+  // its overlay layer — not an AI image. So "regenerate" here re-bakes that
+  // composite; the AI engine paths below are never reached in sequence mode.
   if (getProductionMode(project) === "sequence") {
     const contextResult = await loadSequenceContextByScene(projectId, scenes);
     if ("errorResponse" in contextResult) return contextResult.errorResponse;
-    sequenceImageContext = contextResult.sequenceContextByScene[sceneId];
     const owningSequence = findSequenceForScene(contextResult.plan, sceneId);
-    const asset = await loadSequenceMasterAsset(projectId, owningSequence);
-    sequenceMasterBuffer = asset.buffer;
-    sequenceMasterPath = asset.path;
+    const masterAsset = await loadSequenceMasterAsset(projectId, owningSequence);
+    const frameDimensions = computeFrameDimensions(await getProjectImageAspectRatio(projectId));
+    const result = await bakeSequenceSceneStill({
+      projectId,
+      sceneId,
+      sequence: owningSequence,
+      masterAsset,
+      frameDimensions,
+    });
+    if (!result.baked) {
+      return NextResponse.json(
+        {
+          error:
+            "이 씬이 속한 시퀀스의 마스터 이미지가 아직 없습니다. ‘시퀀스 설계’ 단계에서 마스터 비주얼을 먼저 생성해주세요.",
+        },
+        { status: 400 }
+      );
+    }
+    return NextResponse.json({ ok: true });
   }
 
   if (engine === "local") {
@@ -168,10 +186,8 @@ async function regenerateScene(projectId: string, sceneId: string, overrides: Re
       relatedScenes: buildRelatedScenesContext(scene, visualDesigns),
       allowTextInImage: false,
       extraPrompt,
-      sequenceImageContext,
-      hasMasterReferenceImage: Boolean(sequenceMasterPath),
     });
-    const itemReferenceImagePaths = sequenceMasterPath ? [...referenceImagePaths, sequenceMasterPath] : referenceImagePaths;
+    const itemReferenceImagePaths = referenceImagePaths;
 
     try {
       let generatedImage: Buffer | undefined;
@@ -217,10 +233,9 @@ async function regenerateScene(projectId: string, sceneId: string, overrides: Re
         backgroundFixed,
         relatedScenes: buildRelatedScenesContext(scene, visualDesigns),
         extraPrompt,
-        sequenceImageContext,
       },
       undefined,
-      sequenceMasterBuffer ? ({ ...referenceImages, master: sequenceMasterBuffer } satisfies SceneReferenceImages) : referenceImages
+      referenceImages
     );
     await writeProjectImage(projectId, sceneId, buffer);
   } catch (err) {

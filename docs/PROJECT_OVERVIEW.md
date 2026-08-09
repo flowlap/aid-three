@@ -150,8 +150,8 @@ npx tsc --noEmit               # 타입 체크 (테스트에 안 걸리는 실�
 | 대상 | 대부분의 이러닝 과정(기존 방식 그대로) | 연속된 비주얼 영상 제작(카메라 워크가 있는 하나의 흐름) |
 | 파이프라인 단계 | 원고 변환 → 씬 분할 → 화면 설계 → 일관성 검수 → 이미지 생성 → 최종 뷰 | 원고 변환 → 씬 분할 → **시퀀스 설계** → 화면 설계 → 일관성 검수 → 이미지 생성 → 최종 뷰 |
 | 추가 산출물 | 없음 | `sequences.json`, `sequence-assets/{sequenceId}/{assetId}.png` |
-| 씬 이미지 생성 | 씬 단위로 독립 생성 | 시퀀스 단위로 묶어서 순서대로 생성(같은 시퀀스 내 씬들이 마스터 이미지/연속성 컨텍스트 공유) |
-| 영상 렌더링 | `buildVideoClip`(정지 프레임 + 내레이션 + 0.65초 홀드 + 균일 fade) — byte-for-byte 유지 | `buildSequenceVideoClip`(raw 이미지 + ffmpeg crop 기반 pan/zoom 모션 + Satori 오버레이 합성 + 시퀀스 경계별 전환 효과) |
+| 씬 이미지 생성 | 씬 단위로 독립 AI 이미지 생성 | **씬별 AI 이미지 생성 없음.** 각 콘텐츠 씬 = 시퀀스 마스터 비주얼(카메라 시작 프레임 크롭) + 오버레이 레이어를 결정적으로 합성해 `images/{sceneId}.png`에 굽는다(`lib/pipeline/bakeSequenceSceneStill.ts` + `lib/video/composeSequenceStill.ts`). 이미지 모델은 시퀀스당 마스터 1장에만 사용(마스터는 ‘시퀀스 설계’ 단계에서 생성). 마스터 없음/타이틀 씬은 캡션 카드로 폴백. |
+| 영상 렌더링 | `buildVideoClip`(정지 프레임 + 내레이션 + 0.65초 홀드 + 균일 fade) — byte-for-byte 유지 | `buildSequenceVideoClip`. 콘텐츠 씬 베이스 프레임은 `images/{sceneId}.png`가 아니라 **원본 마스터 에셋**을 써서 ffmpeg crop이 전체 범위를 애니메이션하고(오버레이는 고정), 정지 프리뷰(`images/{sceneId}.png`)는 그 클립의 t=0 프레임과 일치(`startCropRect`). Satori 오버레이 합성 + 시퀀스 경계별 전환 효과. |
 
 `getProductionMode(project)`(`lib/projects/types.ts`)가 이 분기의 단일 진입점이다 — `project.productionMode ?? "scene"`으로 레거시 `project.json`(필드 자체가 없는 과거 프로젝트)도 안전하게 씬 모드로 취급한다. 파이프라인 내비게이션(`lib/projects/pipelineSteps.ts`의 `getPipelineSteps(mode)`), 화면 설계 프롬프트, 씬 이미지 생성, 영상 생성 라우트가 전부 이 함수 하나로 모드를 판별하며, 어디서도 `project.productionMode`를 직접 비교하지 않는다.
 

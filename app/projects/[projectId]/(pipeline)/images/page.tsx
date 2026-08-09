@@ -1,4 +1,5 @@
-import { readProjectFile, readProjectReferenceImage, listProjectImageIds } from "@/lib/projects/store";
+import { readProject, readProjectFile, readProjectReferenceImage, listProjectImageIds } from "@/lib/projects/store";
+import { getProductionMode } from "@/lib/projects/types";
 import { getProjectImageAspectRatio } from "@/lib/pipeline/imageAspectRatio";
 import { ImagesEditor } from "./ImagesEditor";
 import type { ImageEngine, LocalModelSize, HChatGeminiModel } from "@/components/ImageEngineSelector";
@@ -48,15 +49,21 @@ export default async function ImagesPage({ params }: { params: Promise<{ project
   const initialHchatGeminiModel: HChatGeminiModel =
     hchatGeminiModelRaw === "gemini-3-pro-image" ? "gemini-3-pro-image" : "gemini-3.1-flash-image";
   const imageAspectRatio = await getProjectImageAspectRatio(projectId);
+  const project = await readProject(projectId);
+  const productionMode = project ? getProductionMode(project) : "scene";
+  const isSequence = productionMode === "sequence";
 
   return (
     <>
       <h1 className="mb-1 text-3xl font-semibold tracking-tight">이미지/목업 생성</h1>
       <p className="mb-6 text-sm text-muted-foreground">
-        선택 사항입니다. 이미지 없이 다음 단계로 넘어가도 됩니다 — 외부 API(OpenAI, Gemini) 호출은 비용이 발생합니다.
+        {isSequence
+          ? "각 씬을 시퀀스 마스터 비주얼(카메라 시작 프레임) + 오버레이 레이어로 합성합니다. 이미지 모델을 씬마다 호출하지 않으며(비용 없음), 마스터 비주얼은 ‘시퀀스 설계’ 단계에서 먼저 생성하세요."
+          : "선택 사항입니다. 이미지 없이 다음 단계로 넘어가도 됩니다 — 외부 API(OpenAI, Gemini) 호출은 비용이 발생합니다."}
       </p>
       <ImagesEditor
         projectId={projectId}
+        productionMode={productionMode}
         scenes={scenes}
         screenTypes={screenTypes}
         visualDesigns={visualDesigns}

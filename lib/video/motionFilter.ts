@@ -57,12 +57,38 @@ function fitOutputAspectCrop(source: SourceDimensions, output: FrameDimensions):
   return { width, height };
 }
 
+/**
+ * Escapes commas inside a crop option VALUE (an expression such as
+ * `min(max(t,0),D)`). In an ffmpeg filtergraph a bare comma separates filters
+ * in a chain, so an expression comma left unescaped is misread as "end of the
+ * crop filter" and the graph fails to parse ("Error parsing a filter
+ * description" / code 234). A literal comma inside a value must be written
+ * `\,`; the expression evaluator sees the plain comma after the filtergraph
+ * layer un-escapes it. Only commas need this — the expressions here use no
+ * other filtergraph-special chars (`:`, `;`, `[`, `]`).
+ */
+function escapeExprCommas(expr: string): string {
+  return expr.replace(/,/g, "\\,");
+}
+
 function cropFilter(w: string, h: string, x: string, y: string, output: FrameDimensions): string {
-  // eval=frame is required: crop's x/y/w/h expressions default to
-  // evaluating once at filter init (eval=init) and would otherwise freeze
-  // at their t=0 value for the whole clip -- silently reproducing the exact
-  // "frozen crop" bug this module exists to avoid.
-  return `crop=w=${w}:h=${h}:x=${x}:y=${y}:eval=frame,scale=${output.width}:${output.height},setsar=1`;
+  // No `eval=frame`: as of ffmpeg 8.0 the crop filter dropped the `eval`
+  // option entirely (passing it now hard-errors with "Error applying option
+  // 'eval' to filter 'crop': Option not found", ffmpeg exit code 234) and
+  // makes its w/h/x/y expressions per-frame by default -- verified: a
+  // `t`-dependent crop animates without it. (On pre-8.0 ffmpeg the default was
+  // eval=init, which froze the crop, so `eval=frame` used to be required; this
+  // tool targets a current Homebrew ffmpeg, i.e. 8.x+.)
+  //
+  // The four expressions are comma-escaped individually so any commas they
+  // contain (min()/max()) stay part of the value instead of being read as
+  // filter-chain separators; the `,scale=...,setsar=1` below are the real
+  // (unescaped) separators.
+  const ew = escapeExprCommas(w);
+  const eh = escapeExprCommas(h);
+  const ex = escapeExprCommas(x);
+  const ey = escapeExprCommas(y);
+  return `crop=w=${ew}:h=${eh}:x=${ex}:y=${ey},scale=${output.width}:${output.height},setsar=1`;
 }
 
 /**
@@ -141,6 +167,74 @@ export function buildMotionFilter(
 
     default:
       // Defensive: TypeScript's CameraMotion union should prevent this.
+      return null;
+  }
+}
+
+/** A concrete crop rectangle in source pixels — the numeric counterpart of buildMotionFilter's crop expressions at one instant. */
+export interface CropRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * The crop rectangle a given motion occupies at t=0 — i.e. the exact frame a
+ * motion clip STARTS on. This is the numeric mirror of buildMotionFilter's
+ * w/h/x/y expressions evaluated at t=0 (progress=0), used to bake a still
+ * "start frame" of the sequence master image for screen-design/mockup/preview
+ * without going through ffmpeg's time-varying filter. A motionFilter.test.ts
+ * invariant asserts the two agree, so the still preview always matches the
+ * video clip's first frame.
+ *
+ * Returns null exactly when buildMotionFilter returns null (static, or a pan/
+ * follow-flow with insufficient slack): the caller then shows the whole master
+ * scaled to frame (buildStaticScaleFilter), the same fallback the renderer uses.
+ */
+export function startCropRect(
+  motion: CameraMotion,
+  source: SourceDimensions,
+  output: FrameDimensions
+): CropRect | null {
+  if (source.width <= 0 || source.height <= 0) return null;
+
+  switch (motion) {
+    case "static":
+      return null;
+
+    case "slow-push-in":
+    case "slow-pull-out": {
+      const base = fitOutputAspectCrop(source, output);
+      // progress=0 → push-in zoomFactor=1 (full base window); pull-out uses
+      // progress'=(1-0)=1 → zoomFactor=(1-ZOOM_RATIO) (starts zoomed-in).
+      const zoomFactor = motion === "slow-push-in" ? 1 : 1 - ZOOM_RATIO;
+      const width = base.width * zoomFactor;
+      const height = base.height * zoomFactor;
+      return { width, height, x: (source.width - width) / 2, y: (source.height - height) / 2 };
+    }
+
+    case "pan-left":
+    case "pan-right":
+    case "follow-flow": {
+      const { width: cropW, height: cropH } = fitOutputAspectCrop(source, output);
+      const slackX = source.width - cropW;
+      const slackY = source.height - cropH;
+
+      if (motion === "follow-flow") {
+        if (slackX < MIN_PAN_SLACK_PX && slackY < MIN_PAN_SLACK_PX) return null;
+        // progress=0 → sweep starts at the top-left origin (0,0).
+        return { width: cropW, height: cropH, x: 0, y: 0 };
+      }
+
+      if (slackX < MIN_PAN_SLACK_PX) return null;
+      // progress=0 → pan-left starts at slackX (slides towards 0); pan-right
+      // starts at 0 (slides towards slackX). y is vertically centered.
+      const x = motion === "pan-right" ? 0 : slackX;
+      return { width: cropW, height: cropH, x, y: (source.height - cropH) / 2 };
+    }
+
+    default:
       return null;
   }
 }

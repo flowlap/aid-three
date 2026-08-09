@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildMotionFilter, buildStaticScaleFilter, MIN_PAN_SLACK_PX, type SourceDimensions } from "./motionFilter";
+import { buildMotionFilter, buildStaticScaleFilter, startCropRect, MIN_PAN_SLACK_PX, type SourceDimensions } from "./motionFilter";
 import type { CameraMotion } from "@/lib/pipeline/sequenceTypes";
 import type { FrameDimensions } from "./frameDimensions";
 
@@ -20,16 +20,24 @@ const ALL_MOTIONS: CameraMotion[] = [
   "follow-flow",
 ];
 
+/** The raw `crop=...` segment (everything before the trailing `,scale=`), commas still escaped as `\,`. */
+function cropSegment(filter: string): string {
+  const match = filter.match(/^crop=(.*),scale=/);
+  if (!match) throw new Error(`no crop segment found in filter: ${filter}`);
+  return match[1];
+}
+
 function parseCropParams(filter: string): Record<string, string> {
   // Expressions use ffmpeg's min()/max() functions, which contain commas --
   // so the crop segment can't be isolated with a naive split(","); it must
-  // be matched up to the literal ",scale=" that always follows it.
-  const match = filter.match(/^crop=(.*),scale=/);
-  if (!match) throw new Error(`no crop segment found in filter: ${filter}`);
+  // be matched up to the literal ",scale=" that always follows it. Commas
+  // inside each value are escaped as `\,` in the real filter (so ffmpeg
+  // doesn't read them as filter-chain separators) -- un-escape them here so
+  // the returned expressions are the plain, evaluatable math.
   const params: Record<string, string> = {};
-  for (const part of match[1].split(":")) {
+  for (const part of cropSegment(filter).split(":")) {
     const eqIndex = part.indexOf("=");
-    params[part.slice(0, eqIndex)] = part.slice(eqIndex + 1);
+    params[part.slice(0, eqIndex)] = part.slice(eqIndex + 1).replace(/\\,/g, ",");
   }
   return params;
 }
@@ -59,14 +67,18 @@ describe("buildMotionFilter", () => {
     }
   });
 
-  it("produces a crop+scale filter with eval=frame for every non-static motion (with enough slack)", () => {
+  it("produces a per-frame crop+scale filter for every non-static motion (with enough slack)", () => {
     const motions: CameraMotion[] = ["slow-push-in", "slow-pull-out", "pan-left", "pan-right", "follow-flow"];
     for (const motion of motions) {
       const filter = buildMotionFilter(motion, WIDE_SOURCE, OUTPUT, 5);
       expect(filter).not.toBeNull();
       expect(filter).toContain("crop=");
-      expect(filter).toContain("eval=frame");
       expect(filter).toContain(`scale=${OUTPUT.width}:${OUTPUT.height}`);
+      // ffmpeg 8.0 removed crop's `eval` option (per-frame is now the default);
+      // emitting `eval=frame` hard-errors, so it must NOT appear.
+      expect(filter).not.toContain("eval=");
+      // The crop must still be time-driven (animated), i.e. reference `t`.
+      expect(filter).toMatch(/\bt\b/);
     }
   });
 
@@ -181,5 +193,71 @@ describe("buildMotionFilter", () => {
 
   it("returns null for an unrecognized motion value (defensive default case)", () => {
     expect(buildMotionFilter("bogus-motion" as CameraMotion, WIDE_SOURCE, OUTPUT, 5)).toBeNull();
+  });
+
+  /**
+   * Regression test for the real ffmpeg failure (code 234, "Error parsing a
+   * filter description"): crop's w/h/x/y expressions use min()/max(), whose
+   * commas were emitted un-escaped and got read as filter-chain separators.
+   * Every comma inside the crop segment must be escaped as `\,`; the only
+   * unescaped commas may be the `,scale=`/`,setsar=` chain separators, which
+   * live outside the crop segment this checks.
+   */
+  it("escapes every comma inside the crop expression so ffmpeg doesn't misread it as a filter separator", () => {
+    const motions: CameraMotion[] = ["slow-push-in", "slow-pull-out", "pan-left", "pan-right", "follow-flow"];
+    for (const motion of motions) {
+      const filter = buildMotionFilter(motion, WIDE_SOURCE, OUTPUT, 15.85)!;
+      expect(filter).not.toBeNull();
+      const segment = cropSegment(filter);
+      // These motions all clamp progress with min(max(t,0),D) -> the segment
+      // must actually contain commas to make this assertion meaningful.
+      expect(segment).toContain("\\,");
+      // Removing the escaped commas must leave zero bare commas behind.
+      expect(segment.replace(/\\,/g, "")).not.toContain(",");
+    }
+  });
+});
+
+describe("startCropRect", () => {
+  /** Evaluate an ffmpeg crop expression with in_w/in_h/t substituted. */
+  function evalExpr(expr: string, source: SourceDimensions, t: number): number {
+    const jsExpr = expr
+      .replace(/\bmin\(/g, "Math.min(")
+      .replace(/\bmax\(/g, "Math.max(")
+      .replace(/\bin_w\b/g, String(source.width))
+      .replace(/\bin_h\b/g, String(source.height))
+      .replace(/\bt\b/g, String(t));
+    // Evaluating our own generated ffmpeg-expression string in a test, not user input.
+    return new Function(`return (${jsExpr});`)() as number;
+  }
+
+  it("returns null exactly when buildMotionFilter returns null (static + insufficient-slack pans)", () => {
+    expect(startCropRect("static", WIDE_SOURCE, OUTPUT)).toBeNull();
+    // MATCHING_SOURCE has zero pan slack: pans fall back, push/pull don't.
+    expect(startCropRect("pan-left", MATCHING_SOURCE, OUTPUT)).toBeNull();
+    expect(startCropRect("pan-right", MATCHING_SOURCE, OUTPUT)).toBeNull();
+    expect(startCropRect("follow-flow", MATCHING_SOURCE, OUTPUT)).toBeNull();
+    expect(startCropRect("slow-push-in", MATCHING_SOURCE, OUTPUT)).not.toBeNull();
+    expect(startCropRect("slow-pull-out", MATCHING_SOURCE, OUTPUT)).not.toBeNull();
+  });
+
+  /**
+   * The still preview must show exactly the frame the video clip starts on:
+   * startCropRect (numeric) must equal buildMotionFilter's w/h/x/y expressions
+   * evaluated at t=0. Guards against the still and the animated clip drifting.
+   */
+  it("matches buildMotionFilter's crop geometry at t=0 for every non-static motion", () => {
+    const motions: CameraMotion[] = ["slow-push-in", "slow-pull-out", "pan-left", "pan-right", "follow-flow"];
+    for (const motion of motions) {
+      const rect = startCropRect(motion, WIDE_SOURCE, OUTPUT);
+      const filter = buildMotionFilter(motion, WIDE_SOURCE, OUTPUT, 5);
+      expect(rect).not.toBeNull();
+      expect(filter).not.toBeNull();
+      const params = parseCropParams(filter!);
+      expect(rect!.width).toBeCloseTo(evalExpr(params.w, WIDE_SOURCE, 0), 4);
+      expect(rect!.height).toBeCloseTo(evalExpr(params.h, WIDE_SOURCE, 0), 4);
+      expect(rect!.x).toBeCloseTo(evalExpr(params.x, WIDE_SOURCE, 0), 4);
+      expect(rect!.y).toBeCloseTo(evalExpr(params.y, WIDE_SOURCE, 0), 4);
+    }
   });
 });

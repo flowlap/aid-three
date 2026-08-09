@@ -11,7 +11,6 @@ import {
   listProjectVideoClipIds,
   writeProjectVideoFrame,
   projectVideoFramePath,
-  projectImagePath,
   projectAudioPath,
   projectVideoClipPath,
   projectVideoPath,
@@ -37,6 +36,7 @@ import { runWithConcurrencyLimit } from "@/lib/concurrency";
 import { VIDEO_RENDER_CONCURRENCY } from "@/lib/pipeline/videoRenderConfig";
 import { getProjectImageAspectRatio, getPngDimensions } from "@/lib/pipeline/imageAspectRatio";
 import { validateSequenceIntegrity } from "@/lib/pipeline/validateSequenceIntegrity";
+import { loadSequenceMasterAsset } from "@/lib/pipeline/sequenceLookup";
 import type { Scene } from "@/lib/pipeline/splitScenes";
 import type { VisualDesign } from "@/lib/pipeline/designVisuals";
 import type { SequencePlan } from "@/lib/pipeline/sequenceTypes";
@@ -247,9 +247,18 @@ async function handleSequenceModeVideo(
 
         const entry = timeline.entries[index];
         const sequence = entry.sequenceId ? plan.sequences.find((seq) => seq.id === entry.sequenceId) : undefined;
-        const imageBuffer = await readProjectImage(projectId, scene.id);
+        // The base frame for a content scene is its sequence's MASTER image
+        // (animated by the camera crop below + a fixed overlay layer), NOT a
+        // per-scene image — sequence mode no longer generates one. The images/
+        // {sceneId}.png that the images step bakes is only a still preview; the
+        // video re-derives from the raw master so the crop can pan across it
+        // while the overlay stays put. Title scenes (no owning sequence) and
+        // content scenes whose sequence has no master fall back to a caption
+        // card, exactly like a missing scene image did before.
+        const masterAsset = sequence ? await loadSequenceMasterAsset(projectId, sequence) : {};
+        const baseBuffer = masterAsset.buffer;
         const fingerprint = computeSceneClipFingerprint({
-          imageBuffer,
+          imageBuffer: baseBuffer ?? null,
           audioDigest: audioDigestsBySceneId[scene.id],
           motion: entry.motion,
           overlays: entry.overlays,
@@ -266,28 +275,27 @@ async function handleSequenceModeVideo(
           let framePath: string;
           let vf: string;
 
-          if (scene.sceneType === "title" || !imageBuffer) {
+          if (scene.sceneType === "title" || !baseBuffer || !masterAsset.path) {
             const design = visualDesigns[scene.id];
-            const framePng = await renderSceneFrameToPng(scene, design, imageBuffer ?? undefined, frameDimensions);
+            const framePng = await renderSceneFrameToPng(scene, design, undefined, frameDimensions);
             await writeProjectVideoFrame(projectId, scene.id, framePng);
             framePath = projectVideoFramePath(projectId, scene.id);
             vf = buildStaticScaleFilter(frameDimensions);
 
-            // The outer condition is `sceneType === "title" || !imageBuffer`,
-            // so inside this branch a non-title scene can only have gotten
-            // here because imageBuffer was falsy — no need to re-check it.
+            // A non-title scene only reaches here when its sequence has no
+            // usable master image — warn (the caption card is the fallback).
             if (scene.sceneType !== "title") {
               emit(
                 JSON.stringify({
                   type: "warning",
-                  message: `${scene.id} 씬의 생성된 이미지를 찾을 수 없어 캡션 카드로 대체합니다.`,
+                  message: `${scene.id} 씬이 속한 시퀀스의 마스터 이미지를 찾을 수 없어 캡션 카드로 대체합니다.`,
                 }) + "\n"
               );
             }
           } else {
-            framePath = projectImagePath(projectId, scene.id);
+            framePath = masterAsset.path;
             const staticVf = buildStaticScaleFilter(frameDimensions);
-            const sourceDimensions = getPngDimensions(imageBuffer);
+            const sourceDimensions = getPngDimensions(baseBuffer);
             const motionVf = sourceDimensions
               ? buildMotionFilter(entry.motion, sourceDimensions, frameDimensions, entry.clipDurationSec)
               : null;
@@ -302,8 +310,8 @@ async function handleSequenceModeVideo(
               // doesn't get shown for an unrelated file-read failure.
               const message =
                 sourceDimensions === null
-                  ? `${scene.id} 씬의 이미지 파일을 읽을 수 없어 정지 화면으로 대체합니다.`
-                  : `${scene.id} 씬은 카메라 모션(${entry.motion})을 적용하기에 이미지 여백이 부족해 정지 화면으로 대체합니다.`;
+                  ? `${scene.id} 씬의 마스터 이미지 파일을 읽을 수 없어 정지 화면으로 대체합니다.`
+                  : `${scene.id} 씬은 카메라 모션(${entry.motion})을 적용하기에 마스터 이미지 여백이 부족해 정지 화면으로 대체합니다.`;
               emit(JSON.stringify({ type: "warning", message }) + "\n");
             }
           }
