@@ -129,6 +129,24 @@ describe("parseRawSequences", () => {
     const result = parseRawSequences(goodTwoSequenceResponse());
     expect(result).toHaveLength(2);
   });
+
+  it("recovers when sequences is double-encoded as a JSON string of the array itself", () => {
+    const inner = JSON.parse(goodTwoSequenceResponse()).sequences;
+    const raw = JSON.stringify({ sequences: JSON.stringify(inner) });
+    const result = parseRawSequences(raw);
+    expect(result).toHaveLength(2);
+  });
+
+  it("recovers when sequences is double-encoded as a JSON string of another {sequences:[...]} envelope", () => {
+    const raw = JSON.stringify({ sequences: goodTwoSequenceResponse() });
+    const result = parseRawSequences(raw);
+    expect(result).toHaveLength(2);
+  });
+
+  it("still throws when the double-encoded string doesn't contain a sequences array", () => {
+    const raw = JSON.stringify({ sequences: JSON.stringify({ foo: "bar" }) });
+    expect(() => parseRawSequences(raw)).toThrow(/sequences 배열/);
+  });
 });
 
 describe("isValidRawSequenceShape", () => {
@@ -280,6 +298,14 @@ describe("planSequences", () => {
     expect(client.calls).toHaveLength(1);
     expect(client.calls[0].options?.jsonMode).toBe(true);
     expect(client.calls[0].options?.tier).toBe("accurate");
+  });
+
+  it("forces tool-use JSON via jsonSchema (root-cause fix for malformed-JSON batch failures)", async () => {
+    const client = new MockLlmClient([goodTwoSequenceResponse()]);
+    await planSequences(client, fourContentScenes());
+
+    expect(client.calls[0].options?.jsonSchema?.name).toBe("emit_sequence_plan");
+    expect(client.calls[0].options?.jsonSchema?.schema).toBeTruthy();
   });
 
   it("rejects when the AI response is not valid JSON", async () => {

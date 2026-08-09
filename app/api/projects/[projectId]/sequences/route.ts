@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { readProject, readProjectFile, writeSequencePlan, updateProjectStep } from "@/lib/projects/store";
 import { getProductionMode } from "@/lib/projects/types";
 import { createLlmClient } from "@/lib/ai/llm/factory";
-import { planSequencesStream, parseSequencePlanResponse } from "@/lib/pipeline/planSequences";
+import { planSequencesStream } from "@/lib/pipeline/planSequences";
 import { validateSequenceIntegrity } from "@/lib/pipeline/validateSequenceIntegrity";
 import type { Scene } from "@/lib/pipeline/splitScenes";
 import type { Sequence, SequencePlan } from "@/lib/pipeline/sequenceTypes";
@@ -77,10 +77,8 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ pr
   }
 
   let client: ReturnType<typeof createLlmClient>;
-  let chunkStream: AsyncIterable<string>;
   try {
     client = createLlmClient();
-    chunkStream = await planSequencesStream(client, scenes, job.controller.signal);
   } catch (err) {
     console.error("시퀀스 계획 생성 실패:", err);
     finishJob(projectId, STEP, "error", "AI 시퀀스 계획 생성에 실패했습니다");
@@ -92,22 +90,13 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ pr
 
   const stream = createResilientStream(async (emit) => {
     try {
-      let raw = "";
-      for await (const delta of chunkStream) {
-        raw += delta;
-        recordChunk(projectId, STEP, delta);
-        emit(JSON.stringify({ type: "chunk", text: delta }) + "\n");
-      }
-
-      let plan: SequencePlan;
-      try {
-        plan = parseSequencePlanResponse(raw);
-      } catch (err) {
-        console.error("시퀀스 계획 응답 파싱 실패:", err);
-        finishJob(projectId, STEP, "error", "AI 응답 형식이 올바르지 않습니다");
-        emit(JSON.stringify({ type: "error", message: "AI 응답 형식이 올바르지 않습니다" }) + "\n");
-        return;
-      }
+      const plan: SequencePlan = await planSequencesStream(client, scenes, {
+        signal: job.controller.signal,
+        onChunk: (text) => {
+          recordChunk(projectId, STEP, text);
+          emit(JSON.stringify({ type: "chunk", text }) + "\n");
+        },
+      });
 
       // Computed and attached before writing (per the plan doc), but — like
       // scenes/route.ts's validateNarrationIntegrity/integrityOk — issues do
@@ -129,8 +118,10 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ pr
         return;
       }
       console.error("시퀀스 계획 생성 중 오류:", err);
-      finishJob(projectId, STEP, "error", "AI 시퀀스 계획 생성에 실패했습니다");
-      emit(JSON.stringify({ type: "error", message: "AI 시퀀스 계획 생성에 실패했습니다" }) + "\n");
+      const detail = err instanceof Error ? err.message : String(err);
+      const message = `AI 시퀀스 계획 생성에 실패했습니다: ${detail}`;
+      finishJob(projectId, STEP, "error", message);
+      emit(JSON.stringify({ type: "error", message }) + "\n");
     }
   });
 
