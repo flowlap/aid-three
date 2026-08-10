@@ -373,7 +373,11 @@ export function SequencePlanEditor({
 
   useNextStepAction(
     saving ? "저장 중..." : "다음 단계",
-    saveDisabled,
+    // Mirrors ScreenDesignEditor.tsx's (scene mode) equivalent gate — screen
+    // design is now generated from this step, so advancing while it's still
+    // empty would silently persist an empty screen-design.json and break
+    // every downstream per-scene image generation call.
+    saveDisabled || Object.keys(screenTypes).length === 0,
     () => void saveAndGoTo(`/projects/${projectId}/review`)
   );
 
