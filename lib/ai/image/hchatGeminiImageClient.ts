@@ -1,4 +1,4 @@
-import { ImageApiError, type ImageClient, type ImageGenerateOptions } from "./types";
+import { ImageApiError, NoImageDataError, type ImageClient, type ImageGenerateOptions } from "./types";
 import { getHChatBaseUrl, getHChatHeaders } from "../hchatShared";
 
 const DEFAULT_MODEL = "gemini-3.1-flash-image";
@@ -50,7 +50,7 @@ function extractInlineImageBase64(raw: string): string {
   }
 
   if (!b64Data) {
-    throw new Error(`이미지 데이터를 찾을 수 없습니다\n\n[raw 응답 앞 500자]\n${raw.slice(0, 500)}`);
+    throw new NoImageDataError(`이미지 데이터를 찾을 수 없습니다\n\n[raw 응답 앞 500자]\n${raw.slice(0, 500)}`);
   }
   return b64Data;
 }

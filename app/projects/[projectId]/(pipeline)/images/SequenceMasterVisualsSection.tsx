@@ -6,6 +6,9 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import type { Sequence, SequencePlan } from "@/lib/pipeline/sequenceTypes";
 import { sortedSequences } from "@/lib/pipeline/sequenceEditorOps";
+import type { ImageEngine } from "@/components/ImageEngineSelector";
+import { runWithConcurrencyLimit, createRateGate } from "@/lib/concurrency";
+import { IMAGE_GENERATION_CONCURRENCY, IMAGE_GENERATION_MIN_INTERVAL_MS, LOCAL_IMAGE_CONCURRENCY } from "@/lib/pipeline/imageGenerationConfig";
 
 const MASTER_VISUAL_STATUS_LABEL: Record<Sequence["masterVisual"]["status"], string> = {
   "not-generated": "미생성",
@@ -24,9 +27,11 @@ const MASTER_VISUAL_STATUS_LABEL: Record<Sequence["masterVisual"]["status"], str
 export function SequenceMasterVisualsSection({
   projectId,
   initialPlan,
+  engine,
 }: {
   projectId: string;
   initialPlan: SequencePlan;
+  engine: ImageEngine;
 }) {
   const [plan, setPlan] = useState<SequencePlan>(initialPlan);
   const [generatingFor, setGeneratingFor] = useState<Set<string>>(new Set());
@@ -76,7 +81,13 @@ export function SequenceMasterVisualsSection({
     }
   }
 
-  /** Serial by necessity — the endpoint's project-wide in-flight lock rejects concurrent calls. */
+  /**
+   * Runs several sequences' generation calls concurrently — the endpoint's
+   * lock is now per-sequence (see the master-image route), so different
+   * sequences no longer contend with each other. Capped like the main batch
+   * scene-image job: LOCAL_IMAGE_CONCURRENCY (1, the local engine runs on a
+   * single GPU process) or IMAGE_GENERATION_CONCURRENCY for remote engines.
+   */
   async function generateAll() {
     if (batchRunning) return;
     const targets = sortedSequences(plan).filter((seq) => seq.masterVisual.status !== "generated");
@@ -89,13 +100,21 @@ export function SequenceMasterVisualsSection({
     let failures = 0;
     setBatchProgress({ done: 0, total: targets.length });
 
-    for (const target of targets) {
-      if (batchCancelRef.current) break;
+    const concurrency = engine === "local" ? LOCAL_IMAGE_CONCURRENCY : IMAGE_GENERATION_CONCURRENCY;
+    // Rate-gated like the main scene-image batch job (see
+    // IMAGE_GENERATION_MIN_INTERVAL_MS) — this hits the same image gateway,
+    // so calls are paced to at most one new start per interval regardless of
+    // how many are already in flight, instead of capping concurrency alone.
+    const rateGate = createRateGate(IMAGE_GENERATION_MIN_INTERVAL_MS);
+    await runWithConcurrencyLimit(targets, concurrency, async (target) => {
+      if (batchCancelRef.current) return;
+      if (engine !== "local") await rateGate();
+      if (batchCancelRef.current) return;
       const ok = await generateOne(target.id);
       if (!ok) failures++;
       done++;
       setBatchProgress({ done, total: targets.length });
-    }
+    });
 
     const cancelled = batchCancelRef.current;
     const succeeded = done - failures;
@@ -137,7 +156,7 @@ export function SequenceMasterVisualsSection({
             className="ml-auto"
             onClick={() => void generateAll()}
             disabled={pendingCount === 0}
-            title="마스터 비주얼이 없는(또는 재생성이 필요한) 시퀀스를 순서대로 모두 생성합니다"
+            title="마스터 비주얼이 없는(또는 재생성이 필요한) 시퀀스를 모두 병렬로 생성합니다"
           >
             {pendingCount === 0 ? "모두 생성됨" : `일괄 생성 (${pendingCount}개)`}
           </Button>

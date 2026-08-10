@@ -25,7 +25,7 @@ import type { ScreenTypeAssignment, SceneSequenceContext } from "@/lib/pipeline/
 import type { VisualDesign } from "@/lib/pipeline/designVisuals";
 import { createResilientStream } from "@/lib/http/resilientStream";
 import { startJob, finishJob, recordProgress, JobAlreadyRunningError } from "@/lib/jobs/registry";
-import { runWithConcurrencyLimit } from "@/lib/concurrency";
+import { runWithConcurrencyLimit, createRateGate } from "@/lib/concurrency";
 import { groupContentScenesByParentTitle } from "@/lib/pipeline/sceneHierarchy";
 import { loadSequenceContextByScene } from "@/lib/pipeline/loadSequenceContext";
 import { groupScenesBySequence, loadSequenceMasterAsset, type SequenceMasterAsset } from "@/lib/pipeline/sequenceLookup";
@@ -35,6 +35,7 @@ import { computeFrameDimensions } from "@/lib/video/frameDimensions";
 import { getProjectImageAspectRatio } from "@/lib/pipeline/imageAspectRatio";
 import {
   IMAGE_GENERATION_CONCURRENCY,
+  IMAGE_GENERATION_MIN_INTERVAL_MS,
   LOCAL_IMAGE_DRAFT_WIDTH,
   LOCAL_IMAGE_DRAFT_HEIGHT,
   LOCAL_IMAGE_STEPS,
@@ -290,19 +291,29 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
           },
         });
       } else if (client) {
-        // Image generation stays capped at IMAGE_GENERATION_CONCURRENCY
-        // concurrent *groups* — real image API calls are costlier and more
-        // rate-limit-sensitive, so groups queue behind the cap.
-        await runWithConcurrencyLimit(pendingGroups, IMAGE_GENERATION_CONCURRENCY, async (group) => {
+        // Flattened to one work item per scene (like the composite/local
+        // branches above) instead of a group-then-scene nested loop, so every
+        // scene across every group shares a single concurrent pool: up to
+        // IMAGE_GENERATION_CONCURRENCY in flight at once, with a new call
+        // allowed to start only once per IMAGE_GENERATION_MIN_INTERVAL_MS
+        // (see rateGate below) — that dispatch-rate gate, not the concurrency
+        // cap, is what actually targets the gateway's per-minute limit.
+        const pendingSceneEntries = pendingGroups.flatMap((group) => {
           const masterBuffer = group.sequenceId ? sequenceMasterAssets.get(group.sequenceId)?.buffer : undefined;
           const groupReferenceImages: SceneReferenceImages = group.sequenceId
             ? { ...referenceImages, master: masterBuffer }
             : referenceImages;
+          return group.scenes.map((scene) => ({ scene, groupReferenceImages }));
+        });
 
-          for (const scene of group.scenes) {
-            if (job.controller.signal.aborted) throw new DOMException("Aborted", "AbortError");
+        const rateGate = createRateGate(IMAGE_GENERATION_MIN_INTERVAL_MS);
+        await runWithConcurrencyLimit(pendingSceneEntries, IMAGE_GENERATION_CONCURRENCY, async ({ scene, groupReferenceImages }) => {
+          if (job.controller.signal.aborted) throw new DOMException("Aborted", "AbortError");
+          await rateGate(job.controller.signal);
+          if (job.controller.signal.aborted) throw new DOMException("Aborted", "AbortError");
 
-            const design = visualDesigns[scene.id];
+          const design = visualDesigns[scene.id];
+          try {
             const buffer = await generateSceneImageWithRetry(
               client,
               scene,
@@ -325,6 +336,19 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
             completedSoFar += 1;
             recordProgress(projectId, STEP, completedSoFar - 1, total);
             emit(JSON.stringify({ type: "scene", sceneId: scene.id, index: completedSoFar - 1, total }) + "\n");
+          } catch (err) {
+            // A scene that still fails after generateSceneImageWithRetry's own
+            // retries (e.g. the provider silently blocking this specific
+            // prompt every time, not just a transient quota hit — see
+            // NoImageDataError) must not abort the whole multi-hundred-scene
+            // job. Skip it and keep going with the rest of this group and all
+            // other groups; the scene stays un-generated so the next "이어서
+            // 생성" resume retries just this one instead of losing everything
+            // that already succeeded.
+            if (job.controller.signal.aborted) throw err;
+            const reason = describeImageError(err);
+            console.error(`씬 ${scene.id} 이미지 생성 실패(건너뜀):`, err);
+            emit(JSON.stringify({ type: "warning", message: `씬 ${scene.id} 이미지 생성 실패(건너뜀): ${reason}` }) + "\n");
           }
         });
       }

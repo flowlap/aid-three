@@ -21,6 +21,23 @@ export class ImageApiError extends Error {
   }
 }
 
+/**
+ * Thrown when a provider responds 200 OK but the body has no usable image
+ * data (e.g. Vertex/Gemini returning an empty candidate with
+ * finishReason: "STOP" instead of a proper 429 — observed in
+ * hchatGeminiImageClient.ts when several image calls burst at once and the
+ * per-minute quota is hit; retrying later succeeds). A distinct type from a
+ * plain Error so callers (see generateSceneImage.ts's isRateLimitError) can
+ * apply the more lenient rate-limit retry policy to it instead of the
+ * generic one, even though no HTTP status code signaled the throttle.
+ */
+export class NoImageDataError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "NoImageDataError";
+  }
+}
+
 export interface ImageClient {
   generateImage(prompt: string, options?: ImageGenerateOptions): Promise<Buffer>;
 }

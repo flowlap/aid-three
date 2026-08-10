@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { MockImageClient } from "../ai/image/mockImageClient";
-import { ImageApiError, type ImageClient, type ImageGenerateOptions } from "../ai/image/types";
+import { ImageApiError, NoImageDataError, type ImageClient, type ImageGenerateOptions } from "../ai/image/types";
 import {
   generateSceneImage,
   generateSceneImageWithRetry,
@@ -423,6 +423,10 @@ describe("isRateLimitError", () => {
 
   it("is false for a plain error", () => {
     expect(isRateLimitError(new Error("boom"))).toBe(false);
+  });
+
+  it("is true for a NoImageDataError (Gemini's silent-quota-throttle 200 OK with empty candidate)", () => {
+    expect(isRateLimitError(new NoImageDataError("이미지 데이터를 찾을 수 없습니다"))).toBe(true);
   });
 });
 

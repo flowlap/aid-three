@@ -1,4 +1,4 @@
-import { ImageApiError, type ImageClient, type ImageGenerateOptions } from "../ai/image/types";
+import { ImageApiError, NoImageDataError, type ImageClient, type ImageGenerateOptions } from "../ai/image/types";
 import { TEXT_FORWARD_SCREEN_TYPES, PRESENTER_EXCLUDED_SCREEN_TYPES } from "../visual-templates";
 import {
   IMAGE_GENERATION_MAX_RETRIES,
@@ -420,9 +420,18 @@ export async function generateSceneImage(
   return client.generateImage(prompt, { ...clientOptions, referenceImages: referenceBuffers });
 }
 
-/** True for a rate-limit ("too many requests") response from the configured image provider — the most likely failure when several scenes generate concurrently. */
+/**
+ * True for a rate-limit ("too many requests") response from the configured
+ * image provider — the most likely failure when several scenes generate
+ * concurrently. Also true for NoImageDataError: H-Chat's Gemini image
+ * endpoint has been observed returning a 200 OK with an empty candidate
+ * (finishReason "STOP", no inlineData) instead of a proper 429 when the
+ * per-minute quota is hit under concurrent load, so it gets the same
+ * lenient retry policy as an explicit 429 even though no status code
+ * signaled the throttle.
+ */
 export function isRateLimitError(err: unknown): boolean {
-  return err instanceof ImageApiError && err.status === 429;
+  return (err instanceof ImageApiError && err.status === 429) || err instanceof NoImageDataError;
 }
 
 const MAX_ERROR_MESSAGE_LENGTH = 300;

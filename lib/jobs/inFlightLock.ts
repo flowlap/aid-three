@@ -25,3 +25,27 @@ export async function withInFlightLock<T>(key: string, fn: () => Promise<T>): Pr
     locks.delete(key);
   }
 }
+
+/**
+ * Like withInFlightLock, but retries instead of failing immediately when
+ * `key` is already held — for short critical sections (e.g. a JSON
+ * read-modify-write) where several callers may legitimately finish their own
+ * slow work around the same time and each still needs its turn, rather than
+ * losing already-completed work to a rejection (see the sequence
+ * master-image route's write step, which serializes against both concurrent
+ * master-image writes and the sequence-plan PUT route via the same key).
+ */
+export async function withInFlightLockRetrying<T>(
+  key: string,
+  fn: () => Promise<T>,
+  { retries = 20, delayMs = 150 }: { retries?: number; delayMs?: number } = {}
+): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await withInFlightLock(key, fn);
+    } catch (err) {
+      if (!(err instanceof AlreadyInFlightError) || attempt >= retries) throw err;
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+}

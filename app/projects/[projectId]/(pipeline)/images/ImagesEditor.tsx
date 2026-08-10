@@ -380,7 +380,9 @@ export function ImagesEditor({
           initialHasImage={initialHasStyleImage}
         />
       </Card>
-      {isSequence && sequencePlan && <SequenceMasterVisualsSection projectId={projectId} initialPlan={sequencePlan} />}
+      {isSequence && sequencePlan && (
+        <SequenceMasterVisualsSection projectId={projectId} initialPlan={sequencePlan} engine={engine} />
+      )}
       <Card className="gap-3 p-4">
         <div className="flex flex-wrap items-center gap-2">
           <Button onClick={() => handleGenerate(isPartial ? "resume" : "full")} disabled={loading}>

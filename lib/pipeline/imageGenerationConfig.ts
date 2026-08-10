@@ -1,9 +1,44 @@
 /**
- * Max simultaneous OpenAI image-generation requests per job. Shared between
- * the images route (actual dispatch limit) and the client-side time
- * estimate, so the estimate reflects real parallel throughput.
+ * Safety ceiling on simultaneous in-flight image-generation calls. Real
+ * throughput is governed by IMAGE_GENERATION_MIN_INTERVAL_MS (a rate gate on
+ * how often a *new* call may start), not by this number — this just bounds
+ * how many can be in flight at once so a run of fast-returning calls (e.g.
+ * repeated immediate content-block failures, which don't take the usual
+ * ~17-24s) can't open an unbounded number of concurrent connections to the
+ * gateway. At steady state, calls average ~17-24s and a new one starts every
+ * IMAGE_GENERATION_MIN_INTERVAL_MS (4s), so ~5-6 tend to be in flight at
+ * once — this ceiling of 6 matches that naturally, it isn't the throttle.
+ *
+ * History: lowered from the original 3 all the way to 1 (fully sequential)
+ * after H-Chat's Gemini image endpoint was observed silently throttling —
+ * returning a 200 OK with an empty candidate instead of a proper 429 (see
+ * NoImageDataError in lib/ai/image/types.ts). Raised back up once the actual
+ * fix (rate-gating dispatch starts, not capping concurrency) was in place —
+ * see IMAGE_GENERATION_MIN_INTERVAL_MS.
  */
-export const IMAGE_GENERATION_CONCURRENCY = 3;
+export const IMAGE_GENERATION_CONCURRENCY = 6;
+
+/**
+ * Minimum spacing between the *start* of one image-generation call and the
+ * start of the next, enforced via a rate gate (see createRateGate in
+ * lib/concurrency.ts) shared across every concurrent worker — regardless of
+ * how many calls are in flight (up to IMAGE_GENERATION_CONCURRENCY), at most
+ * one new call may start per this interval. This directly targets Gemini's
+ * commonly documented 15 RPM tier (60000 / 15 = 4000ms/call average), the
+ * best concrete number available for H-Chat's Gemini image endpoint — there
+ * is no published H-Chat-specific limit, so this is inferred, not confirmed
+ * for this gateway specifically.
+ *
+ * Rate-gating dispatch (rather than serializing completion, the earlier
+ * approach) means overall throughput can approach the full 15 RPM budget
+ * even though each call takes far longer than 4s to complete, since several
+ * calls started 4s apart legitimately overlap in flight.
+ *
+ * Note this can't guarantee staying under a *shared* quota if the H-Chat key
+ * is also used by other concurrent traffic outside this app's visibility —
+ * pacing our own calls to 4s apart only bounds what we contribute.
+ */
+export const IMAGE_GENERATION_MIN_INTERVAL_MS = 4000;
 
 /**
  * Retry policy for a non-rate-limit image generation failure (network

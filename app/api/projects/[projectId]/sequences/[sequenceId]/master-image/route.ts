@@ -22,7 +22,7 @@ import {
   type SequenceMasterReferenceImages,
 } from "@/lib/pipeline/generateSequenceMasterImage";
 import { describeImageError } from "@/lib/pipeline/generateSceneImage";
-import { withInFlightLock, AlreadyInFlightError } from "@/lib/jobs/inFlightLock";
+import { withInFlightLock, withInFlightLockRetrying, AlreadyInFlightError } from "@/lib/jobs/inFlightLock";
 import type { Sequence, SequenceContinuity } from "@/lib/pipeline/sequenceTypes";
 import { DEFAULT_IMAGE_COMMON_PROMPT } from "@/lib/pipeline/commonPromptDefaults";
 import {
@@ -93,7 +93,13 @@ export async function POST(
   }
 
   try {
-    return await withInFlightLock(`sequence-master:${projectId}`, () =>
+    // Per-sequence lock (only guards against double-firing the same sequence
+    // twice at once) — different sequences generate concurrently. The slow
+    // AI call below never holds the project-wide `sequence-master:${projectId}`
+    // lock; only the final sequences.json write does, via
+    // withInFlightLockRetrying, since that lock also guards the sequence-plan
+    // PUT route (see lib/projects/store.ts's updateSequenceMasterVisual doc).
+    return await withInFlightLock(`sequence-master:${projectId}:${sequenceId}`, () =>
       generateMasterVisual(projectId, sequenceId, overrides)
     );
   } catch (err) {
@@ -165,8 +171,10 @@ async function generateMasterVisual(
   }
 
   const assetId = randomUUID();
-  await writeSequenceMasterImage(projectId, sequenceId, assetId, buffer);
-  await updateSequenceMasterVisual(projectId, sequenceId, { status: "generated", assetId, prompt });
+  await withInFlightLockRetrying(`sequence-master:${projectId}`, async () => {
+    await writeSequenceMasterImage(projectId, sequenceId, assetId, buffer);
+    await updateSequenceMasterVisual(projectId, sequenceId, { status: "generated", assetId, prompt });
+  });
 
   return NextResponse.json({ ok: true, assetId });
 }
