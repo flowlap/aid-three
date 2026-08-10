@@ -326,6 +326,36 @@ function chunkContiguous<T>(items: T[], maxSize: number): T[][] {
 }
 
 /**
+ * Caps how many content groups' AI calls run at once (mirrors
+ * planSequences.ts's MAX_CONCURRENT_SEQUENCE_BATCHES/mapWithConcurrency). A
+ * large sequence-mode project can produce dozens to 100+ pendingGroups;
+ * firing them all at once as a plain Promise.all bursts the H-CHAT gateway
+ * with that many simultaneous requests, worsening exactly the
+ * invalid/truncated-JSON failures MAX_GROUP_ATTEMPTS retries against — and
+ * since one group's permanent failure aborts every other in-flight group
+ * (see runGroupWorker's Promise.all/mapWithConcurrency call below), that made
+ * a large project's screen-design generation stop unpredictably far short of
+ * the full scene list, with "이어서 생성" only ever chipping away at the
+ * remainder instead of completing.
+ */
+const MAX_CONCURRENT_GROUPS = 6;
+
+/** Runs async work over `items` with at most `limit` calls in flight at once — identical helper to planSequences.ts's. Preserves Promise.all's fail-fast rejection (the caller still sees the first thrown error as soon as it happens), only bounding how many requests are ever issued simultaneously. */
+async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T, index: number) => Promise<R>): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let nextIndex = 0;
+  async function worker(): Promise<void> {
+    while (nextIndex < items.length) {
+      const index = nextIndex++;
+      results[index] = await fn(items[index], index);
+    }
+  }
+  const workerCount = Math.min(limit, items.length);
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  return results;
+}
+
+/**
  * Fixed, code-only design for title scenes — no AI call. Title scenes are a
  * heading read aloud as a chapter announcement (see splitScenes.ts), so they
  * always render as a plain "간지/타이틀형" divider; computeVisualDesign
@@ -471,12 +501,20 @@ async function requestSceneGroupAssignments(
 }
 
 /**
- * A group call occasionally comes back missing one of the requested orders —
- * observed as non-deterministic (rerunning the exact same group succeeds),
- * so it's treated as an AI sampling fluke rather than a parsing bug: retried
- * with a fresh call before giving up.
+ * A group call occasionally comes back missing one of the requested orders,
+ * or throws outright (hchatClaudeClient's jsonMode is a soft prompt
+ * instruction, not enforced JSON — Claude occasionally forgets to escape a
+ * quote, breaking JSON.parse) — both observed as non-deterministic
+ * (rerunning the exact same group succeeds), so they're treated as AI
+ * sampling flukes rather than parsing bugs: retried with a fresh call before
+ * giving up. Raised from 2 to 5 for the same reason as planSequences.ts's
+ * MAX_SEQUENCE_BATCH_ATTEMPTS: with dozens to 100+ groups per project, the
+ * odds that *every single group* survives within only 2 attempts collapses
+ * (e.g. at a 10% per-call failure rate, 100 groups at 2 attempts each have
+ * roughly a 99.997% chance at least one group exhausts its retries; at 5
+ * attempts that drops to well under 1%).
  */
-const MAX_GROUP_ATTEMPTS = 2;
+const MAX_GROUP_ATTEMPTS = 5;
 
 /** Designs one contiguous group (or sub-batch) of content scenes with a single AI call, returning assignments keyed by scene order. */
 async function designSceneGroup(
@@ -515,16 +553,35 @@ async function designSceneGroup(
   let byOrder = new Map<number, ScreenTypeAssignment>();
 
   for (let attempt = 1; attempt <= MAX_GROUP_ATTEMPTS; attempt++) {
-    byOrder = await requestSceneGroupAssignments(
-      client,
-      groupScenes,
-      context.documentContext,
-      context.commonPromptContext,
-      relatedContextByOrder,
-      sequenceOverlayContextByOrder,
-      sharedSequenceContext,
-      context.signal
-    );
+    try {
+      byOrder = await requestSceneGroupAssignments(
+        client,
+        groupScenes,
+        context.documentContext,
+        context.commonPromptContext,
+        relatedContextByOrder,
+        sequenceOverlayContextByOrder,
+        sharedSequenceContext,
+        context.signal
+      );
+    } catch (err) {
+      // An intentional cancellation (user cancel, or another group's
+      // failure aborting this run) must propagate immediately — retrying it
+      // would just re-issue calls against an already-aborted signal.
+      if (context.signal.aborted) throw err;
+
+      if (attempt < MAX_GROUP_ATTEMPTS) {
+        console.warn(
+          `[selectScreenTypes] 그룹 호출 실패, 재시도 (${attempt}/${MAX_GROUP_ATTEMPTS}): ${groupScenes.map((s) => s.id).join(", ")}`,
+          err
+        );
+        continue;
+      }
+      throw new Error(
+        `그룹(${groupScenes.map((s) => s.id).join(", ")}) 응답 처리 실패: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+
     missing = groupScenes.filter((scene) => !byOrder.has(scene.order));
     if (missing.length === 0) return byOrder;
 
@@ -620,16 +677,14 @@ export async function selectScreenTypes(
 
   try {
     if (internalSignal.aborted) throw new DOMException("Aborted", "AbortError");
-    await Promise.all(
-      pendingGroups.map((group) =>
-        runGroupWorker(group).catch((err) => {
-          // Stop every other worker as soon as one fails, instead of leaving
-          // them to keep designing scenes in the background after the caller
-          // has already been told this call failed.
-          internalController.abort();
-          throw err;
-        })
-      )
+    await mapWithConcurrency(pendingGroups, MAX_CONCURRENT_GROUPS, (group) =>
+      runGroupWorker(group).catch((err) => {
+        // Stop every other worker as soon as one fails, instead of leaving
+        // them to keep designing scenes in the background after the caller
+        // has already been told this call failed.
+        internalController.abort();
+        throw err;
+      })
     );
   } finally {
     signal?.removeEventListener("abort", onExternalAbort);

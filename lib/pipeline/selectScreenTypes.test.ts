@@ -187,7 +187,7 @@ describe("selectScreenTypes", () => {
     const client = new MockLlmClient([batchResponse([scenes[0]])]); // only order 1, order 2 missing
 
     await expect(selectScreenTypes(client, scenes)).rejects.toThrow();
-    expect(client.calls).toHaveLength(2); // retried once before giving up
+    expect(client.calls).toHaveLength(5); // retries up to MAX_GROUP_ATTEMPTS before giving up
   });
 
   it("retries a group call that came back missing a scene, and succeeds if the retry is complete", async () => {
@@ -239,6 +239,37 @@ describe("selectScreenTypes", () => {
     // Both title scenes are always resolved locally regardless of the content groups' outcome.
     expect(progressed).toContain("t1");
     expect(progressed).toContain("t2");
+  });
+
+  it("retries a group call that throws (invalid JSON), and succeeds on retry", async () => {
+    const client = new MockLlmClient(["이건 JSON이 아님", batchResponse(scenes)]);
+
+    const result = await selectScreenTypes(client, scenes);
+
+    expect(client.calls).toHaveLength(2);
+    expect(Object.keys(result)).toEqual(["scene-001", "scene-002"]);
+  });
+
+  it("processes every pending group when there are more groups than the concurrency cap", async () => {
+    const groupCount = 8; // > MAX_CONCURRENT_GROUPS (6)
+    const s: Scene[] = [];
+    for (let i = 0; i < groupCount; i++) {
+      s.push(title(`t${i}`, `${i}장`, 1, i * 2 + 1));
+      s.push(content(`c${i}`, `내용 ${i}`, i * 2 + 2));
+    }
+    const contentScenes = s.filter((scene) => scene.sceneType === "content");
+    // A single shared response covering every group's order, reused for every
+    // call (MockLlmClient repeats the last response once exhausted) — this
+    // keeps the test independent of the exact worker dispatch order under
+    // bounded concurrency, while still asserting every group's scene resolves.
+    const client = new MockLlmClient([batchResponse(contentScenes)]);
+
+    const result = await selectScreenTypes(client, s);
+
+    for (const scene of contentScenes) {
+      expect(result[scene.id]).toBeDefined();
+    }
+    expect(Object.keys(result)).toHaveLength(s.length);
   });
 
   it("reuses existingAssignments without calling the AI, and only for those scenes", async () => {
