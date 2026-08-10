@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { readProject, readProjectFile, projectAudioDir, listProjectAudioIds, mergeProjectJsonMap } from "@/lib/projects/store";
 import { createLocalTtsClient } from "@/lib/ai/localTtsClient";
 import { getWavDurationSec } from "@/lib/media/wavDuration";
-import { TTS_DEFAULT_VOICE, TTS_DEFAULT_LANG_CODE } from "@/lib/pipeline/ttsGenerationConfig";
+import { TTS_DEFAULT_VOICE, TTS_DEFAULT_LANG_CODE, TTS_DEFAULT_INSTRUCT } from "@/lib/pipeline/ttsGenerationConfig";
 import type { Scene } from "@/lib/pipeline/splitScenes";
 import { createResilientStream } from "@/lib/http/resilientStream";
 import { startJob, finishJob, recordProgress, JobAlreadyRunningError } from "@/lib/jobs/registry";
@@ -65,6 +65,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
         {
           voice: TTS_DEFAULT_VOICE,
           langCode: TTS_DEFAULT_LANG_CODE,
+          instruct: TTS_DEFAULT_INSTRUCT,
           signal: job.controller.signal,
           onScene: async ({ sceneId, audio }) => {
             const durationSec = getWavDurationSec(audio);

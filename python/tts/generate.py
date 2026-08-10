@@ -6,7 +6,8 @@ process (lib/ai/localTtsClient.ts) can relay progress as it happens.
 
 Input (stdin, one JSON object):
   {"items": [{"sceneId": "scene-001", "text": "..."}], "voice": "Sohee",
-   "langCode": "Korean", "outputDir": "/abs/path/to/data/projects/{id}/audio"}
+   "langCode": "Korean", "instruct": "차분하고 담담한 톤으로 말해주세요",
+   "outputDir": "/abs/path/to/data/projects/{id}/audio"}
 
 Output (stdout, one JSON object per line, flushed immediately):
   {"sceneId": "scene-001", "status": "done", "path": "..."}
@@ -48,6 +49,7 @@ def main():
     items = payload["items"]
     voice = payload.get("voice") or "Sohee"
     lang_code = payload.get("langCode") or "Korean"
+    instruct = payload.get("instruct") or None
     output_dir = Path(payload["outputDir"])
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -66,7 +68,7 @@ def main():
         try:
             chunks = []
             sample_rate = None
-            for result in model.generate(text, voice=voice, lang_code=lang_code):
+            for result in model.generate(text, voice=voice, lang_code=lang_code, instruct=instruct):
                 chunks.append(np.array(result.audio, dtype=np.float32))
                 sample_rate = result.sample_rate
             if not chunks or sample_rate is None:

@@ -6,6 +6,8 @@ import readline from "readline";
 export interface TtsOptions {
   voice?: string;
   langCode?: string;
+  /** Fixed emotion/style instruction passed to every scene's call — see TTS_DEFAULT_INSTRUCT for why. */
+  instruct?: string;
   signal?: AbortSignal;
 }
 
@@ -72,6 +74,7 @@ export class LocalMlxTtsClient implements TtsClient {
         items,
         voice: options.voice,
         langCode: options.langCode,
+        instruct: options.instruct,
         outputDir: this.audioOutputDir,
       })
     );
