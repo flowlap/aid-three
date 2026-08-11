@@ -7,6 +7,7 @@ import type {
   OverlayType,
   Sequence,
   SequenceCameraPlanEntry,
+  SequenceOverlayContent,
   SequenceOverlayEntry,
   SequencePlan,
   ShotType,
@@ -97,6 +98,8 @@ const OVERLAY_TYPES: ReadonlySet<string> = new Set<OverlayType>([
   "diagram",
   "chart",
 ]);
+const DIAGRAM_LAYOUTS = new Set(["flow", "radial", "hierarchy"]);
+const CHART_TYPES = new Set(["bar", "line"]);
 
 function isContentScene(scene: Scene): boolean {
   return (scene.sceneType ?? "content") === "content";
@@ -294,6 +297,28 @@ const PLAN_SEQUENCES_JSON_SCHEMA = {
                   sceneId: { type: "string" },
                   type: { type: "string", enum: Array.from(OVERLAY_TYPES) },
                   description: { type: "string" },
+                  content: {
+                    type: ["object", "null"],
+                    properties: {
+                      kind: { type: "string", enum: ["label", "flow", "diagram", "chart", "highlight"] },
+                      title: { type: "string" },
+                      body: { type: "string" },
+                      steps: { type: "array", items: { type: "string" } },
+                      layout: { type: "string", enum: ["flow", "radial", "hierarchy"] },
+                      nodes: { type: "array", items: { type: "string" } },
+                      chartType: { type: "string", enum: ["bar", "line"] },
+                      labels: { type: "array", items: { type: "string" } },
+                      values: { type: "array", items: { type: "number" } },
+                      unit: { type: "string" },
+                      label: { type: "string" },
+                      target: {
+                        type: "object",
+                        properties: {
+                          x: { type: "number" }, y: { type: "number" }, width: { type: "number" }, height: { type: "number" },
+                        },
+                      },
+                    },
+                  },
                 },
                 required: ["sceneId", "type", "description"],
               },
@@ -357,12 +382,12 @@ cameraPlan: 이 시퀀스에 포함된 씬 하나하나마다 빠짐없이 카�
 - shot은 다음 중 하나: wide, medium, detail, close-up
 - motion은 다음 중 하나: static, slow-push-in, slow-pull-out, pan-left, pan-right, follow-flow
 
-overlays: 이 시퀀스에서 화면에 별도로 얹어야 할 자막·라벨·화살표·강조·도표·차트를 나열하세요. 각 항목은 { sceneId, type, description } 형태이며 type은 다음 중 하나: label, arrow-flow, highlight, diagram, chart. description은 렌더러가 그대로 그릴 수 있을 만큼 위치·내용·타이밍을 구체적으로 쓰세요. 필요 없으면 빈 배열로 두세요.
+overlays: 이 시퀀스에서 화면에 별도로 얹어야 할 교육 그래픽을 나열하세요. 각 항목은 { sceneId, type, description, content } 형태이며 type은 label, arrow-flow, highlight, diagram, chart 중 하나입니다. description은 사람이 검토할 짧은 설명입니다. content는 코드 렌더러가 쓸 구조화 데이터이며 반드시 type에 맞춰 작성하세요: label은 {kind:"label",title,body?}, arrow-flow는 {kind:"flow",steps:[2~6개]}, diagram은 {kind:"diagram",layout:"flow"|"radial"|"hierarchy",nodes:[2~8개]}, chart는 {kind:"chart",chartType:"bar"|"line",labels:[2~6개],values:[labels와 같은 개수의 실제 숫자],unit?}, highlight는 {kind:"highlight",label?,target?:{x,y,width,height}}입니다. target 좌표는 마스터 이미지의 좌상단을 (0,0), 우하단을 (1,1)로 한 0~1 값입니다. 텍스트·수치·단계는 나레이션의 사실만 사용하고 추측하지 마세요. 필요 없으면 빈 배열로 두세요.
 
 씬 목록(순서대로):
 ${sceneBlocks}
 
-JSON으로만 응답하세요: {"sequences": [{"order": number, "title": string, "sceneIds": string[], "estimatedDurationSec": number, "purpose": string, "continuity": {"location": string, "timeOfDay": string | null, "visualStyle": string, "fixedElements": string[], "doNotChange": string[]}, "masterVisual": {"description": string}, "cameraPlan": [{"sceneId": string, "shot": string, "motion": string}], "overlays": [{"sceneId": string, "type": string, "description": string}]}]} — sequences 배열은 order 오름차순으로, 위 씬 목록의 모든 씬을 정확히 한 번씩, 원래 순서 그대로 포함해야 합니다.`;
+JSON으로만 응답하세요: {"sequences": [{"order": number, "title": string, "sceneIds": string[], "estimatedDurationSec": number, "purpose": string, "continuity": {"location": string, "timeOfDay": string | null, "visualStyle": string, "fixedElements": string[], "doNotChange": string[]}, "masterVisual": {"description": string}, "cameraPlan": [{"sceneId": string, "shot": string, "motion": string}], "overlays": [{"sceneId": string, "type": string, "description": string, "content": object | null}]}]} — sequences 배열은 order 오름차순으로, 위 씬 목록의 모든 씬을 정확히 한 번씩, 원래 순서 그대로 포함해야 합니다.`;
 
   return [
     { role: "system", content: "당신은 이러닝 스토리보드를 연속된 시각적 시퀀스로 설계하는 영상 연출 전문가입니다." },
@@ -485,18 +510,61 @@ function sanitizeCameraPlan(value: unknown): SequenceCameraPlanEntry[] {
 }
 
 /** Drops individual overlay entries with an unrecognized type or missing fields (see the module docstring). */
+function isStringArrayInRange(value: unknown, min: number, max: number): value is string[] {
+  return isStringArray(value) && value.length >= min && value.length <= max;
+}
+
+function sanitizeTarget(value: unknown) {
+  if (typeof value !== "object" || value === null) return undefined;
+  const target = value as Record<string, unknown>;
+  const numbers = [target.x, target.y, target.width, target.height];
+  if (!numbers.every((item) => typeof item === "number" && Number.isFinite(item) && item >= 0 && item <= 1)) return undefined;
+  if ((target.width as number) === 0 || (target.height as number) === 0) return undefined;
+  if ((target.x as number) + (target.width as number) > 1 || (target.y as number) + (target.height as number) > 1) return undefined;
+  return { x: target.x as number, y: target.y as number, width: target.width as number, height: target.height as number };
+}
+
+/** Keeps a valid legacy overlay when its optional structured content is malformed. */
+function sanitizeOverlayContent(value: unknown, type: OverlayType): SequenceOverlayContent | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const content = value as Record<string, unknown>;
+  if (type === "label" && content.kind === "label" && typeof content.title === "string" && content.title.trim()) {
+    return { kind: "label", title: content.title, ...(typeof content.body === "string" && content.body.trim() ? { body: content.body } : {}) };
+  }
+  if (type === "arrow-flow" && content.kind === "flow" && isStringArrayInRange(content.steps, 2, 6)) {
+    return { kind: "flow", steps: content.steps };
+  }
+  if (type === "diagram" && content.kind === "diagram" && typeof content.layout === "string" && DIAGRAM_LAYOUTS.has(content.layout) && isStringArrayInRange(content.nodes, 2, 8)) {
+    return { kind: "diagram", layout: content.layout as "flow" | "radial" | "hierarchy", nodes: content.nodes };
+  }
+  if (type === "chart" && content.kind === "chart" && typeof content.chartType === "string" && CHART_TYPES.has(content.chartType) && isStringArrayInRange(content.labels, 2, 6) && Array.isArray(content.values) && content.values.length === content.labels.length && content.values.every((item) => typeof item === "number" && Number.isFinite(item))) {
+    return { kind: "chart", chartType: content.chartType as "bar" | "line", labels: content.labels, values: content.values, ...(typeof content.unit === "string" && content.unit.trim() ? { unit: content.unit } : {}) };
+  }
+  if (type === "highlight" && content.kind === "highlight") {
+    const target = sanitizeTarget(content.target);
+    const label = typeof content.label === "string" && content.label.trim() ? content.label : undefined;
+    return label || target ? { kind: "highlight", ...(label ? { label } : {}), ...(target ? { target } : {}) } : undefined;
+  }
+  return undefined;
+}
+
 function sanitizeOverlays(value: unknown): SequenceOverlayEntry[] {
   if (!Array.isArray(value)) return [];
-  return value.filter((item): item is SequenceOverlayEntry => {
+  return value.flatMap((item): SequenceOverlayEntry[] => {
     const entry = item as Partial<SequenceOverlayEntry> | null;
-    return (
+    const valid =
       typeof entry === "object" &&
       entry !== null &&
       typeof entry.sceneId === "string" &&
       typeof entry.type === "string" &&
       OVERLAY_TYPES.has(entry.type) &&
-      typeof entry.description === "string"
-    );
+      typeof entry.description === "string";
+    if (!valid) return [];
+    const sceneId = entry.sceneId as string;
+    const type = entry.type as OverlayType;
+    const description = entry.description as string;
+    const content = sanitizeOverlayContent((entry as Record<string, unknown>).content, type);
+    return [{ sceneId, type, description, ...(content ? { content } : {}) }];
   });
 }
 

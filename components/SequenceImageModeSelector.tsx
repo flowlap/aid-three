@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 export type SequenceImageMode = "composite" | "ai";
 
 const MODE_LABELS: Record<SequenceImageMode, string> = {
-  composite: "코드 기반 합성 (마스터 + 오버레이)",
+  composite: "코드 기반 합성 (마스터 + 교육 그래픽)",
   ai: "AI 재생성 (오버레이를 프롬프트에 반영)",
 };
 
@@ -62,7 +62,7 @@ export function SequenceImageModeSelector({
       </div>
       {mode === "composite" ? (
         <p className="text-xs text-muted-foreground">
-          이미지 모델을 호출하지 않고 시퀀스 마스터 비주얼에 라벨/화살표/강조/도식/차트 오버레이를 결정적으로 합성합니다 — 비용 없음.
+          이미지 모델을 호출하지 않고 시퀀스 마스터 비주얼에 정확한 한글·수치 기반의 라벨/흐름도/강조/도식/차트를 결정적으로 합성합니다 — 비용 없음.
         </p>
       ) : (
         <p className="text-xs text-muted-foreground">

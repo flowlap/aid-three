@@ -102,16 +102,26 @@ describe("buildSequenceMasterImagePrompt", () => {
     expect(prompt).not.toContain("절대 변경 금지:");
   });
 
-  it("does not ask for on-screen text/captions or a presenter", () => {
+  it("keeps text out while allowing continuity subjects inside the master", () => {
     const prompt = buildSequenceMasterImagePrompt(sequence({ id: "sequence-001" }));
     expect(prompt).toContain("텍스트 렌더링 없이");
-    expect(prompt).toContain("강사(발표자) 등 인물은 등장시키지");
+    expect(prompt).toContain("고정 요소에 인물·제품·사물이 있다면");
+    expect(prompt).toContain("프로젝트별 강사 오버레이를 새로 추가하지");
   });
 
   it("asks for a wide composition with margin for camera crops and overlays", () => {
     const prompt = buildSequenceMasterImagePrompt(sequence({ id: "sequence-001" }));
     expect(prompt).toContain("여유 공간");
     expect(prompt).toContain("크롭");
+  });
+
+  it("excludes sample typography from a tone-and-manner reference and keeps the background minimal", () => {
+    const prompt = buildSequenceMasterImagePrompt(sequence({ id: "sequence-001" }));
+    expect(prompt).toContain("샘플 자막입니다");
+    expect(prompt).toContain("A/B/C");
+    expect(prompt).toContain("텍스트를 전혀 넣지 마세요");
+    expect(prompt).toContain("간결하고 최소화된 구도");
+    expect(prompt).toContain("의미 없는 장식물·소품·군중·복잡한 패턴");
   });
 });
 

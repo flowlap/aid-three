@@ -11,10 +11,10 @@ import type { Sequence } from "./sequenceTypes";
 /**
  * A sequence's master visual is a single background/location plate shared by
  * every scene in the sequence — later camera-crop and overlay steps composite
- * on top of it, and (a future task) a presenter, per scene. So unlike
+ * on top of it. So unlike
  * buildImagePrompt (a specific screen's exact content), this prompt only
- * ever asks for a wide, text-free, presenter-free establishing shot with
- * generous margin, built from the sequence's continuity/master description
+ * ever asks for a wide, text-free establishing shot with its fixed
+ * subjects/objects and generous margin, built from the sequence's continuity/master description
  * alone — no per-project style/presenter reference *text* injection (those
  * are attached as actual reference *images* to the generateImage call
  * instead, mirroring SceneReferenceImages).
@@ -22,8 +22,8 @@ import type { Sequence } from "./sequenceTypes";
 
 /**
  * Reference images optionally attached to a master-visual generation call.
- * No `presenter` field — a master visual is a location/backdrop plate with
- * no presenter baked in (composited per-scene later).
+ * No `presenter` field — the project-wide presenter toggle remains separate,
+ * while sequence-specific people/objects are continuity subjects in the master.
  */
 export interface SequenceMasterReferenceImages {
   background?: Buffer;
@@ -33,8 +33,14 @@ export interface SequenceMasterReferenceImages {
 const WIDE_COMPOSITION_INSTRUCTION =
   "이 이미지는 하나의 시퀀스 전체가 공유할 배경/장소 마스터 비주얼입니다. 특정 피사체나 인물을 화면 중앙에 꽉 채우지 말고, 넓은 설정샷(establishing shot) 구도로 그려서 화면 상하좌우에 여유 공간(헤드룸/마진)을 넉넉히 남기세요 — 이후 단계에서 이 이미지를 와이드/미디엄/클로즈업 등으로 잘라 쓰고 자막·아이콘 같은 오버레이를 얹을 것이므로, 크롭하거나 오버레이를 배치해도 구도가 깨지지 않아야 합니다.";
 
-const BACKGROUND_ONLY_INSTRUCTION =
-  "이 이미지는 배경/장소 자체만 그리는 마스터 플레이트입니다. 강사(발표자) 등 인물은 등장시키지 말고, 화면 자막·숫자·라벨 같은 온스크린 그래픽도 넣지 마세요 — 인물과 그래픽은 이후 단계에서 씬별로 별도로 합성됩니다.";
+const MASTER_SUBJECT_INSTRUCTION =
+  "이 이미지는 시퀀스 전체가 재사용할 마스터 플레이트입니다. 연속성 정보의 고정 요소에 인물·제품·사물이 있다면 배경과 함께 이 이미지 안에 포함해 이후 씬에서도 같은 대상이 보이게 하세요. 다만 프로젝트별 강사 오버레이를 새로 추가하지 말고, 화면 자막·숫자·라벨 같은 온스크린 그래픽은 절대 넣지 마세요 — 교육 그래픽은 이후 단계에서 코드로 합성됩니다.";
+
+const STYLE_REFERENCE_TEXT_EXCLUSION_INSTRUCTION =
+  "톤앤매너 참고 이미지가 함께 제공된 경우, 그 이미지의 자막·숫자·라벨 및 '샘플 자막입니다', 'A/B/C' 같은 모든 글자는 디자인 스타일을 보여주는 샘플일 뿐입니다. 그 어떤 문구·문자·숫자도 복사하거나 변형해 마스터 비주얼에 넣지 마세요. 이 마스터 비주얼에는 별도로 요청된 자막이 없으므로 텍스트를 전혀 넣지 마세요.";
+
+const MINIMAL_BACKGROUND_INSTRUCTION =
+  "배경은 간결하고 최소화된 구도로 만드세요. 설명에 필요한 고정 요소와 주요 피사체만 남기고, 의미 없는 장식물·소품·군중·복잡한 패턴을 과도하게 추가하지 마세요. 이후 교육 그래픽을 얹을 수 있도록 화면의 한 영역에는 깨끗한 여백과 낮은 시각적 복잡도를 유지하세요.";
 
 /**
  * Pure prompt builder for a sequence's master visual. Uses only
@@ -68,7 +74,11 @@ ${PRODUCTION_STYLE_INSTRUCTION} ${NO_TEXT_INSTRUCTION}${styleGuide}
 
 ${WIDE_COMPOSITION_INSTRUCTION}
 
-${BACKGROUND_ONLY_INSTRUCTION}`;
+${MASTER_SUBJECT_INSTRUCTION}
+
+${STYLE_REFERENCE_TEXT_EXCLUSION_INSTRUCTION}
+
+${MINIMAL_BACKGROUND_INSTRUCTION}`;
 }
 
 /** Rejects with an AbortError as soon as `signal` aborts, instead of sleeping the full duration regardless. Mirrors generateSceneImage.ts's private sleep helper. */

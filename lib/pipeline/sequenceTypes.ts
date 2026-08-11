@@ -19,6 +19,26 @@ export type CameraMotion =
 
 export type OverlayType = "label" | "arrow-flow" | "highlight" | "diagram" | "chart";
 
+/** A normalized rectangle over the master visual, used only for deterministic emphasis. */
+export interface SequenceOverlayTarget {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * Structured educational content that the sequence renderer can draw without
+ * guessing from prose. `description` remains the backwards-compatible
+ * fallback for plans created before this contract existed.
+ */
+export type SequenceOverlayContent =
+  | { kind: "label"; title: string; body?: string }
+  | { kind: "flow"; steps: string[] }
+  | { kind: "diagram"; layout: "flow" | "radial" | "hierarchy"; nodes: string[] }
+  | { kind: "chart"; chartType: "bar" | "line"; labels: string[]; values: number[]; unit?: string }
+  | { kind: "highlight"; label?: string; target?: SequenceOverlayTarget };
+
 export interface SequenceContinuity {
   location: string;
   timeOfDay?: string;
@@ -44,6 +64,8 @@ export interface SequenceOverlayEntry {
   sceneId: string;
   type: OverlayType;
   description: string;
+  /** Optional structured payload for the code renderer; absent on legacy plans. */
+  content?: SequenceOverlayContent;
 }
 
 export interface Sequence {

@@ -260,6 +260,40 @@ describe("parseSequencePlanResponse", () => {
     expect(plan.sequences[0].overlays[0].type).toBe("label");
   });
 
+  it("keeps valid structured educational overlay content while preserving the legacy description", () => {
+    const raw = JSON.stringify({
+      sequences: [
+        rawSequence({
+          overlays: [
+            {
+              sceneId: "scene-001",
+              type: "chart",
+              description: "분기별 학습 완료율 비교",
+              content: { kind: "chart", chartType: "bar", labels: ["1분기", "2분기"], values: [32, 58], unit: "%" },
+            },
+          ],
+        }),
+      ],
+    });
+    const plan = parseSequencePlanResponse(raw);
+    expect(plan.sequences[0].overlays[0].content).toEqual({
+      kind: "chart", chartType: "bar", labels: ["1분기", "2분기"], values: [32, 58], unit: "%",
+    });
+    expect(plan.sequences[0].overlays[0].description).toBe("분기별 학습 완료율 비교");
+  });
+
+  it("keeps a legacy overlay when its optional structured payload is malformed", () => {
+    const raw = JSON.stringify({
+      sequences: [
+        rawSequence({
+          overlays: [{ sceneId: "scene-001", type: "chart", description: "기존 차트", content: { kind: "chart", labels: ["A"], values: [1] } }],
+        }),
+      ],
+    });
+    const plan = parseSequencePlanResponse(raw);
+    expect(plan.sequences[0].overlays).toEqual([{ sceneId: "scene-001", type: "chart", description: "기존 차트" }]);
+  });
+
   it("drops an individual malformed sequence entry (missing required fields) while keeping the valid ones", () => {
     const raw = JSON.stringify({
       sequences: [rawSequence(), { title: "부실한 항목" }],

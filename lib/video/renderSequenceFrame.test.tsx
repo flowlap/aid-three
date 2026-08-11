@@ -101,11 +101,67 @@ describe("buildSequenceOverlayLayout", () => {
     expect(Array.isArray(stack)).toBe(true);
     expect((stack as unknown[]).length).toBe(3);
   });
+
+  it("renders structured process steps as deterministic learning graphics", () => {
+    const layout = buildSequenceOverlayLayout(
+      [{ sceneId: "scene-001", type: "arrow-flow", description: "기존 설명", content: { kind: "flow", steps: ["확인", "실행", "점검"] } }],
+      FRAME_WIDTH,
+      FRAME_HEIGHT
+    );
+    expect(findText(layout, "학습 절차")).toBe(true);
+    expect(findText(layout, "확인")).toBe(true);
+    expect(findText(layout, "실행")).toBe(true);
+    expect(findText(layout, "점검")).toBe(true);
+  });
+
+  it("renders supplied chart labels and values instead of treating them as a prose badge", () => {
+    const layout = buildSequenceOverlayLayout(
+      [{ sceneId: "scene-001", type: "chart", description: "기존 설명", content: { kind: "chart", chartType: "bar", labels: ["전", "후"], values: [24, 76], unit: "%" } }],
+      FRAME_WIDTH,
+      FRAME_HEIGHT
+    );
+    expect(findText(layout, "데이터 비교")).toBe(true);
+    expect(findText(layout, "24%")).toBe(true);
+    expect(findText(layout, "76%")).toBe(true);
+    expect(findText(layout, "전")).toBe(true);
+    expect(findText(layout, "후")).toBe(true);
+  });
+
+  it("uses a distinct trend layout when the planned chart type is line", () => {
+    const layout = buildSequenceOverlayLayout(
+      [{ sceneId: "scene-001", type: "chart", description: "추이", content: { kind: "chart", chartType: "line", labels: ["1월", "2월", "3월"], values: [20, 50, 40] } }],
+      FRAME_WIDTH,
+      FRAME_HEIGHT
+    );
+    expect(findText(layout, "데이터 추세")).toBe(true);
+    const elements = collectElements(layout);
+    expect(elements.some((el) => typeof el.props.style === "object" && (el.props.style as Record<string, unknown>).transform)).toBe(true);
+  });
+
+  it("places a structured highlight at its normalized master-image target instead of the generic corner", () => {
+    const layout = buildSequenceOverlayLayout(
+      [{ sceneId: "scene-001", type: "highlight", description: "기존 강조", content: { kind: "highlight", label: "핵심 장치", target: { x: 0.2, y: 0.3, width: 0.25, height: 0.2 } } }],
+      FRAME_WIDTH,
+      FRAME_HEIGHT
+    );
+    const elements = collectElements(layout);
+    const target = elements.find((el) => typeof el.props.style === "object" && (el.props.style as Record<string, unknown>).border === "7px solid #F59E0B");
+    expect(target?.props.style).toMatchObject({ left: 384, top: 384, width: 480, height: 256 });
+    expect(findText(layout, "핵심 장치")).toBe(true);
+  });
 });
 
 describe("renderSequenceOverlayToPng", () => {
   it("returns null for an empty overlays array without invoking Satori", async () => {
     const result = await renderSequenceOverlayToPng([], { width: FRAME_WIDTH, height: FRAME_HEIGHT });
     expect(result).toBeNull();
+  });
+
+  it("rasterizes a structured chart into a real PNG", async () => {
+    const result = await renderSequenceOverlayToPng(
+      [{ sceneId: "scene-001", type: "chart", description: "완료율", content: { kind: "chart", chartType: "bar", labels: ["전", "후"], values: [24, 76], unit: "%" } }],
+      { width: FRAME_WIDTH, height: FRAME_HEIGHT }
+    );
+    expect(result?.subarray(0, 8)).toEqual(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
   });
 });

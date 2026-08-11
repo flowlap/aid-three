@@ -101,6 +101,9 @@ describe("generateSceneImage", () => {
     expect(client.calls).toHaveLength(1);
     expect(client.calls[0].options?.referenceImages).toEqual([style]);
     expect(client.calls[0].prompt).toContain("톤앤매너 기준 이미지와 동일한 색감");
+    expect(client.calls[0].prompt).toContain("샘플 자막입니다");
+    expect(client.calls[0].prompt).toContain("A/B/C");
+    expect(client.calls[0].prompt).toContain("자막 요청이 없다면 어떤 텍스트도 새로 넣지 마세요");
   });
 
   it("tells the model not to render text for an illustration-style screen type", () => {
