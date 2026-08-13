@@ -24,7 +24,7 @@ http://localhost:9625 접속.
 | `deepseek` | `DEEPSEEK_API_KEY` | 원고 변환/씬 분할/화면 유형 선정/일관성 검수 등 텍스트 단계 |
 | `openai` | `OPENAI_API_KEY` | 5단계 이미지 생성(선택 사항, 실제 과금). 이미지 생성을 안 쓸 거면 생략해도 나머지 단계는 정상 동작하고, 5단계에서 로컬 모델(FLUX.2 Klein, Mac 전용, 아래 참고)로 전환하면 이 키 없이도 이미지를 생성할 수 있다. |
 | `hchat-claude` / `hchat-chatgpt` / `hchat-gemini` / (이미지) `hchat-gemini` | `HCHAT_KEY` | 사내 H-CHAT 게이트웨이 — 4개 provider가 키를 공유 |
-| (이미지) `fal` | `FAL_KEY` | fal.ai 이미지 생성(큐 REST API). 기본 모델 `fal-ai/flux/schnell`(텍스트→이미지), `FAL_IMAGE_MODEL`로 변경 |
+| (이미지) `fal` | `FAL_KEY` | fal.ai 이미지 생성(큐 REST API). 기본 모델 `fal-ai/flux/schnell`(텍스트→이미지), `FAL_IMAGE_MODEL`로 변경 — `google/nano-banana-2-lite` 등 Nano Banana 계열로 바꾸면 배경 고정/강사 표시 등 참조 이미지도 지원(`/edit` 엔드포인트) |
 
 Provider별 모델명은 `.env.example`에 나열된 `*_MODEL_ACCURATE`/`*_MODEL_FAST`(또는 `HCHAT_GEMINI_IMAGE_MODEL`) 변수로 오버라이드할 수 있고, 생략 시 기본 모델을 쓴다. 아키텍처 상세는 [H-CHAT provider 추상화 설계 문서](docs/superpowers/specs/2026-08-03-hchat-provider-abstraction-design.md) 참고.
 
@@ -91,7 +91,7 @@ npm run lint           # eslint
 | 2. 씬 분할 | `scenes.json` | 원고의 `#`/`##`/`###` 헤더를 제목 씬(뎁스 포함)으로, 본문을 내용 씬으로 분할. 씬 병합/분리/삭제, 계층 들여쓰기·브레드크럼 표시 |
 | 3. 화면 설계 | `screen-design.json` | 내용 씬을 최하위 제목 기준으로 그룹핑해 그룹당 1회 AI 호출로 화면 유형·자막·키워드·배치 설계(제목 씬은 AI 호출 없이 로컬 처리) |
 | 4. 일관성 검수 | `review.json` | 결정적 검사(레이아웃 중복, 나레이션 길이, 씬 번호) + AI 의미 검사 |
-| 5. 이미지/목업 생성 (선택) | `images/{sceneId}.png` | 상단에서 엔진 선택: 설정된 이미지 provider(기본값 OpenAI, `IMAGE_PROVIDER`로 변경 가능, 실제 과금)로 씬별 이미지 생성(제목 씬 제외) 또는 **로컬 FLUX.2 Klein**(mflux, Mac 전용, 무료 — 아래 참고). 동시 생성 그룹은 화면 설계와 동일한 기준으로 묶이며, 실패 시 재시도(일반 오류 5초 후 1회, rate limit 30초 후 2회) 후에도 실패하면 사유를 표시하고 중단 |
+| 5. 이미지/목업 생성 (선택) | `images/{sceneId}.png` | 상단에서 엔진 선택: 설정된 이미지 provider(기본값 OpenAI, `IMAGE_PROVIDER`로 변경 가능, 실제 과금)로 씬별 이미지 생성(제목 씬 제외) 또는 **로컬 FLUX.2 Klein**(mflux, Mac 전용, 무료 — 아래 참고). 새 호출은 최소 4초 간격으로만 시작되도록 페이싱하면서 여러 개를 동시에 진행(H-CHAT Gemini의 분당 호출 한도 대응), 실패 시 재시도(일반 오류 5초 후 1회, rate limit 30초 후 2회) 후에도 계속 실패하는 씬은 건너뛰고 나머지를 계속 진행(경고 표시, 전체 중단 아님) |
 | 6. 최종 스토리보드 뷰 | 없음(조합 렌더링) | 읽기 전용 최종 결과, PPTX 내보내기 버튼 포함 |
 | 미리보기 | 없음 | 좌측 씬 목차 + 우측 이미지/화면설계 나란히 보기 |
 | 내레이션 음성 생성 | `audio/{sceneId}.wav`, `video/final.mp4` | 로컬 TTS로 씬별 음성 생성 후 동영상으로 합성 (**Mac 전용**, 아래 참고) |
@@ -112,7 +112,7 @@ cd python/tts
 
 ### 실행
 
-별도로 띄울 서버/프로세스는 없다 — `npm run dev`로 앱을 띄운 상태에서 프로젝트의 "내레이션 음성 생성" 페이지에서 버튼을 누르면, Node가 `python/tts/generate.py`를 그때그때 자식 프로세스로 실행한다(1.7B 모델 로딩이 무거워서 씬마다 새로 띄우지 않고, 작업 1회 시작 시 프로세스 하나로 모든 씬을 순차 처리). 진행률/취소는 이미지 생성 단계와 동일한 UI를 재사용한다.
+별도로 띄울 서버/프로세스는 없다 — `npm run dev`로 앱을 띄운 상태에서 프로젝트의 "내레이션 음성 생성" 페이지에서 버튼을 누르면, Node가 `python/tts/generate.py`를 그때그때 자식 프로세스로 실행한다(1.7B 모델 로딩이 무거워서 씬마다 새로 띄우지 않고, 작업 1회 시작 시 프로세스 하나로 모든 씬을 순차 처리). 진행률/취소는 이미지 생성 단계와 동일한 UI를 재사용한다. 씬마다 독립적으로 합성하면 텍스트 내용에 따라 톤(슬픔/당참 등)이 들쭉날쭉해지는 문제가 있어, 모든 씬에 고정된 톤 지시(`instruct`, `TTS_DEFAULT_INSTRUCT`)를 함께 전달해 일정한 내레이션 톤을 유지한다 — 별도 UI 설정은 없다.
 
 - 다른 Python 인터프리터를 쓰고 싶으면 `TTS_PYTHON_BIN` 환경변수로 경로를 지정할 수 있다(기본값: `python/tts/.venv/bin/python`).
 - 동영상 생성(음성 + 프레임 → mp4)은 **ffmpeg**가 필요하다: `brew install ffmpeg`.

@@ -18,6 +18,10 @@ cd python/tts
 - 진행 상황은 자식 프로세스가 stdout에 한 줄씩 찍는 NDJSON을 Node가 그대로 릴레이해서, 기존 이미지 생성 단계와 동일한 진행률/취소 UI를 재사용한다.
 - 취소(cancel) 시 Node가 자식 프로세스를 kill한다.
 
+## 톤 일관성 (`instruct`)
+
+Qwen3-TTS-CustomVoice는 `instruct`(감정/스타일 지시) 없이 호출하면 그 호출의 텍스트 내용만 보고 톤을 스스로 추론한다. 씬마다 독립적인 호출로 합성하다 보니 씬 텍스트가 슬프면 슬프게, 당차면 당차게 — 씬 간 맥락 없이 톤이 들쭉날쭉해지는 문제가 있었다. 그래서 모든 합성 호출에 고정된 한국어 `instruct`(`TTS_DEFAULT_INSTRUCT`, `lib/pipeline/ttsGenerationConfig.ts`)를 전달해 텍스트 기반 추론을 덮어쓰고 하나의 차분한 톤으로 통일한다. `localTtsClient.ts` → `generate.py`(stdin JSON의 `instruct` 필드) → `model.generate(..., instruct=instruct)`까지 그대로 전달되며, 사용자가 조정할 수 있는 UI는 없다(하드코딩 상수).
+
 ## 환경변수
 
 - `TTS_PYTHON_BIN` (선택): `python/tts/.venv/bin/python`이 아닌 다른 Python 인터프리터를 쓰고 싶을 때만 설정.

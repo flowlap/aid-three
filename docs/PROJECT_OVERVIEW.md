@@ -1,6 +1,7 @@
 # 프로젝트 개요 및 상세 문서
 
 - 작성일: 2026-07-29
+- 최근 갱신: 2026-08-11 — 로컬 TTS/영상 렌더링/PPTX 내보내기/Getty 이미지 검색 등 이전에 문서화되지 않았던 기능을 파일 구조·아키텍처 섹션에 반영, 이미지 생성 rate-gate 전환·시퀀스 계획 생성 JSON 파싱 안정화 등 최근 수정 사항 추가
 - 대상 저장소: [flowlap/aid-three](https://github.com/flowlap/aid-three)
 - 목적: 세션/기기(Windows → Mac 등) 전환 시 빠르게 컨텍스트를 파악할 수 있도록 프로젝트 전체를 한 문서에 정리
 
@@ -15,7 +16,8 @@
 
 ```
 업로드(pdf/txt/텍스트 붙여넣기) → 1단계 원고 변환 → 2단계 씬 분할 → 3단계 화면 설계
-→ 4단계 일관성 검수 → 5단계 이미지 생성(선택) → 6단계 최종 스토리보드 뷰 → (선택) 미리보기
+→ 4단계 일관성 검수 → 5단계 이미지 생성(선택) → 6단계 최종 스토리보드 뷰
+→ (선택) 미리보기 / PPTX 내보내기 / 내레이션 음성 생성 + 동영상 생성(Mac 전용)
 ```
 
 각 단계는 "AI 생성 → 사용자 검토/수정 → 다음 단계" 패턴을 따르는 선형 마법사(wizard) UI로 구현되어 있다. 1단계에서 "자동 진행" 버튼을 누르면 이후 단계들이 각자 도착 시 자동으로 생성을 트리거하고, 결과가 무결성 문제 없이 완전하면 자동으로 다음 단계까지 넘어간다(URL의 `?auto=1`로 전파) — 단, 씬 분할 무결성 경고나 일관성 검수 이슈가 발견되면 그 자리에서 자동 진행이 멈추고 사용자 확인을 기다린다. **자동진행은 4단계(일관성 검수)에서 끝나고 5단계(이미지 생성)로는 넘어가지 않는다** — 이미지 생성은 실제 과금되는 OpenAI 호출이라 사용자의 명시적 클릭이 항상 필요하도록 의도적으로 막아뒀다. 단계별 정확한 입출력 계약은 [`docs/reference/pipeline-steps.md`](reference/pipeline-steps.md) 참고.
@@ -29,7 +31,9 @@
 | 4. 일관성 검수 | `review.json` | 있음(결정적 검사 3종 + AI 검사 1종) | 편집 없음, 이슈 목록 확인 후 다음 단계로 이동 |
 | 5. 이미지 생성(선택) | `images/{sceneId}.png`(바이너리, 인덱스 파일 없음) | 있음 — 엔진 선택 가능: OpenAI(씬별 1회 호출, **실제 과금**) 또는 로컬 FLUX.2 Klein(mflux, Mac 전용, 무료) | 편집 불가, 씬별 재생성만 가능 — 필수 아님, 이미지 없이도 다음 단계 진행 가능 |
 | 6. 최종 스토리보드 뷰 | 없음(조합 렌더링) | 없음 | 읽기 전용 |
-| (선택) 미리보기 | 없음(조합 렌더링) | 없음 | 읽기 전용 — 좌측 씬 목차 + 구조화 화면/이미지 나란히 표시, `storyboard`에서 진입 |
+| (선택) 미리보기 | 없음(조합 렌더링) | 없음 | 읽기 전용 — 좌측 씬 목차 + 구조화 화면/이미지 나란히 표시, Getty Images Korea 역방향 이미지 검색으로 유사 스톡 이미지 탐색 가능(`lib/imageSearch/`), `storyboard`에서 진입 |
+| (선택) 내레이션 음성 생성 | `audio/{sceneId}.wav`, `audio-manifest.json`, `video/final.mp4` | 있음 — 로컬 Qwen3-TTS(mlx-audio, Mac 전용)로 씬별 음성 합성 후 ffmpeg로 동영상 합성 | 재생성만 가능, 별도 편집 없음. `app/projects/[projectId]/narration-audio/`(`(pipeline)` 밖의 형제 라우트, storyboard에서 "동영상으로 보기"로 진입). 상세: [`docs/reference/local-tts.md`](reference/local-tts.md) |
+| (선택) PPTX 내보내기 | `.pptx` 다운로드(디스크에 영속 저장 안 함) | 없음 | 기본 템플릿 또는 프로젝트별 업로드 템플릿(`pptx-template/route.ts`) 선택, 최종 스토리보드 뷰에서 트리거. `lib/pptx/`가 pptxgenjs 같은 라이브러리 없이 OOXML/JSZip을 직접 조작해 생성 |
 
 ## 3. 기술 스택 & 아키텍처
 
@@ -40,6 +44,11 @@
 - **AI(이미지, 로컬)**: 위 provider 추상화와 별도로, 5단계 상단 엔진 선택기(`ImageEngineSelector`)에서 프로젝트별로 클라우드(`IMAGE_PROVIDER`가 고르는 openai/hchat-gemini) 대신 이 Mac에서 완전히 로컬로 도는 FLUX.2 Klein(`lib/ai/localImageClient.ts` + `python/image/`, mflux/MLX 기반, Mac 전용, 무료)을 선택할 수 있다 — env var가 아니라 프로젝트별 런타임 토글이라는 점이 다르다. 상세: [`docs/reference/local-image-generation.md`](reference/local-image-generation.md)
 - **PDF 파싱**: `pdf-parse` v2.x (v1과 API가 완전히 다름 — `PDFParse` 클래스의 `getText()`, `import pdfParse from "pdf-parse"` 형태의 v1 코드는 동작하지 않음)
 - **저장소**: DB 없음. `data/projects/{project-id}/` 폴더 + JSON/markdown 파일 (전체 gitignore 대상)
+- **로컬 TTS**: 내레이션 음성은 외부 API가 아니라 이 Mac에서 로컬로 도는 Qwen3-TTS(`mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit`, mlx-audio)를 `python/tts/generate.py` 자식 프로세스로 실행(Mac 전용). 상세: [`docs/reference/local-tts.md`](reference/local-tts.md)
+- **동영상 렌더링**: `lib/video/`(15개 파일) — ffmpeg 기반 클립 빌더(정지 프레임/시퀀스 카메라 모션), `crop`+`scale` 합성 모션 필터(`zoompan` 미사용, 아래 7절 참고), Satori 기반 오버레이 PNG 렌더링, 클립 fingerprint로 변경분만 다시 렌더링하는 증분 재빌드. ffmpeg 자체 설치는 필요(`brew install ffmpeg`), Node 코드는 플랫폼 무관.
+- **PPTX 내보내기**: `lib/pptx/` — pptxgenjs 같은 서드파티 PPTX 생성 라이브러리 없이 OOXML XML + JSZip을 직접 조작해 생성(기본 템플릿 또는 프로젝트별 업로드 템플릿 기반).
+- **스톡 이미지 검색**: `lib/imageSearch/` — Getty Images Korea 역방향 이미지 검색 프록시, 미리보기 페이지에서 사용.
+- **AI 호출 동시성 제어**: `lib/concurrency.ts`가 `runWithConcurrencyLimit`(동시 실행 개수 상한)과 `createRateGate`(호출 시작 간 최소 간격 페이싱, 분당 호출 한도 대응)를 제공 — 씬/그룹 단위로 병렬 AI 호출을 날리는 모든 파이프라인 단계(이미지 생성, 시퀀스 계획, 화면 설계)가 이 두 헬퍼를 조합해 쓴다.
 
 ### 데이터 모델
 
@@ -71,8 +80,21 @@ lib/
                   # selectScreenTypes, designVisuals(VisualDesign 타입만, AI 함수는 Phase 5에서 제거됨), reviewConsistency, generateSceneImage
                   # → 모두 (input) => Promise<output> 순수 함수형, AI 클라이언트를 인자로 주입받음
                   #   (향후 특정 모듈을 Python 프로세스로 교체할 수 있도록 설계, 아직 미구현)
+                  # 씬·시퀀스 이중 모드 관련 추가: sequenceTypes.ts(정본 타입), planSequences.ts(시퀀스 계획 AI 생성),
+                  #   sequenceLookup.ts(groupScenesBySequence 등 조회 헬퍼), bakeSequenceSceneStill.ts(마스터+오버레이 결정적 합성),
+                  #   imageGenerationConfig.ts, ttsGenerationConfig.ts(TTS_DEFAULT_VOICE/INSTRUCT 등 상수)
   visual-templates/  # Phase 5 신규 — computeVisualDesign(scene, screenType): AI 호출 없는 코드 기반 비주얼 설계 계산, SCREEN_TYPE_OPTIONS(10종)
+  video/          # ffmpeg 기반 동영상 렌더링(15개 파일) — buildVideoClip.ts(정지 프레임형 + 시퀀스 카메라 모션형 두 빌더),
+                  #   motionFilter.ts(crop+scale 기반 push-in/pull-out/pan/follow-flow, zoompan 미사용),
+                  #   composeSequenceStill.ts(마스터+오버레이 정지 프레임 합성), renderSequenceFrameToPng.ts(Satori 오버레이 렌더링),
+                  #   concat/전환 효과, computeSceneClipFingerprint(변경분만 재렌더링하는 증분 캐시)
+  pptx/           # PPTX 내보내기 — pptxgenjs 미사용, OOXML XML + JSZip 직접 조작(기본/업로드 템플릿 지원)
+  media/          # wavDuration.ts(WAV 헤더 파싱으로 재생 시간 계산), ffmpeg.ts(assertFfmpegAvailable, runFfmpeg 공용 래퍼)
+  http/           # resilientStream.ts — 클라이언트 연결이 끊겨도 서버 작업은 계속 진행되게 하는 NDJSON 스트리밍 헬퍼(TTS/영상 라우트가 사용)
+  imageSearch/    # Getty Images Korea 역방향 이미지 검색 프록시(미리보기 페이지의 PreviewViewer가 사용)
+  concurrency.ts  # runWithConcurrencyLimit(동시 실행 상한), createRateGate(호출 시작 간 최소 간격 페이싱) — AI 호출 병렬화 공용 헬퍼
   jobs/           # registry.ts — AI 작업 레지스트리(중복 실행 방지/취소/진행률), PIPELINE_JOB_STEPS
+                  #   inFlightLock.ts — 더 단순한 프로젝트별 배타적 락(레지스트리와 별도, 동시 요청 직렬화용)
   client/         # useAiJob.ts(작업 폴링+스트림 훅), StepNavContext.tsx(셸 푸터 다음-버튼 등록), useAutoProgress.ts(?auto=1 자동진행)
 app/
   AppShell.tsx                     # 파이프라인 단계 전용 공용 셸: 1000px 중앙 컬럼, sticky 헤더(단계 배지)/푸터(이전·다음)
@@ -80,13 +102,15 @@ app/
   page.tsx, ProjectListItem.tsx    # 홈: 프로젝트 목록(신호등 상태 표시) + 삭제
   projects/new/page.tsx            # 업로드 폼 (파일 업로드 / 텍스트 붙여넣기 토글)
   projects/[projectId]/
-    (pipeline)/                    # 라우트 그룹 — URL에는 안 나타남, AppShell을 쓰는 6개 선형 단계만 묶음
+    (pipeline)/                    # 라우트 그룹 — URL에는 안 나타남, AppShell을 쓰는 선형 단계만 묶음(모드별로 개수 다름, 7절 참고)
       layout.tsx                   # AppShell 렌더 위임(서버 컴포넌트)
-      markdown|scenes|screen-design|review|images|storyboard/
+      markdown|scenes|screen-design|sequences|review|images|storyboard/
         page.tsx (서버 컴포넌트, 파일 읽기)
         *Editor.tsx / *List.tsx (클라이언트 컴포넌트, "use client")
     preview/                       # (pipeline) 밖의 형제 — AppShell 미상속, 독자적인 좌측 TOC+하단 씬이동 셸(Phase 6)
       page.tsx, PreviewViewer.tsx
+    narration-audio/                # (pipeline) 밖의 형제 — TTS 음성 생성 + 동영상 생성 UI(Mac 전용), storyboard의 "동영상으로 보기"에서 진입
+      page.tsx
   api/projects/
     route.ts (GET 목록), upload/route.ts (POST 업로드, file 또는 text 필드)
     [projectId]/route.ts (DELETE)
@@ -96,6 +120,12 @@ app/
     [projectId]/screen-design/[sceneId]/route.ts, [projectId]/images/[sceneId]/route.ts (POST 씬 하나만 재생성, 작업 레지스트리 미사용 / images는 GET도 있음 — PNG 서빙)
     [projectId]/review/route.ts (POST만)
     [projectId]/storyboard/route.ts (POST — currentStep을 storyboard로 기록만 함, images 단계의 "다음 단계"가 호출)
+    [projectId]/sequences/route.ts, [projectId]/sequences/[sequenceId]/master-image/route.ts (시퀀스 계획 생성/저장, 시퀀스 마스터 비주얼 생성)
+    [projectId]/images/sequence-mode/route.ts (시퀀스 모드 씬 이미지 방식 사이드카 `sequence-image-mode.txt` 저장)
+    [projectId]/tts/route.ts (POST — 로컬 Qwen3-TTS 배치 합성, NDJSON 스트리밍)
+    [projectId]/audio/[sceneId]/route.ts (GET — WAV Range 요청 서빙)
+    [projectId]/video/route.ts (POST — 렌더링 시작(NDJSON 스트리밍), GET — 완성된 mp4 서빙)
+    [projectId]/pptx-template/route.ts (GET/POST/DELETE — 프로젝트별 PPTX 템플릿 업로드 관리)
 ```
 
 ### 확립된 코딩 패턴 (새 기능 추가 시 따를 것)
@@ -105,6 +135,10 @@ app/
 3. **클라이언트 컴포넌트**: `res.ok` 체크 → 실패 시 화면에 에러 메시지 표시 → `try/finally`로 로딩 상태 항상 해제.
 4. **PUT 핸들러**: 저장 전 요청 바디 형태 검증(타입 가드), `body`가 `null`/비객체인 경우도 방어.
 5. **Next.js 16 동적 라우트**: `params`는 `Promise<{ projectId: string }>`이며 반드시 `const { projectId } = await params;`로 사용.
+6. **병렬 AI 호출은 상한 없는 `Promise.all` 금지**: 씬/그룹을 여러 개 병렬로 AI 호출하는 코드는 반드시 `lib/concurrency.ts`의 `runWithConcurrencyLimit`(동시 개수 상한)과 `createRateGate`(호출 시작 간 최소 간격)를 조합해서 쓴다 — 상한 없는 `Promise.all`은 H-CHAT Gemini 같은 분당 호출 한도가 있는 provider에서 rate limit을 유발하고, 그중 하나라도 fail-fast로 던지면 이미 완료된 다른 그룹까지 전체 작업이 중단된다(`planSequences.ts`, `selectScreenTypes.ts`, 이미지 생성 라우트가 모두 이 패턴을 따름).
+7. **그룹/배치 AI 호출은 호출 자체의 예외도 재시도 대상에 포함**: "응답은 왔지만 스키마가 일부 어긋난 경우"만 재시도하고 "요청 자체가 throw"하는 경우(JSON 파싱 실패 등)는 즉시 포기하는 재시도 루프는 놓치기 쉬운 버그다 — 두 실패 모드 모두 같은 재시도 루프로 감싸되, `signal.aborted`(사용자 취소, 또는 다른 그룹의 실패로 인한 내부 abort)는 재시도하지 않고 즉시 전파한다.
+8. **Anthropic(H-CHAT Claude) 구조화 JSON 응답은 프롬프트 지시만으로 강제하지 않는다**: `hchatClaudeClient.ts`의 JSON 모드는 시스템 프롬프트로 "JSON만 응답하라"고 지시하는 방식이라 가끔 따옴표 이스케이프 실수 등으로 파싱 실패가 난다 — tool-use(강제 tool_choice)로 스키마를 강제하는 방식이 더 안정적이며, 새로 Claude 기반 JSON 생성 경로를 추가할 때는 이 방식을 우선 검토한다.
+9. **배타적 락은 병목이 되지 않을 만큼 세분화**: 같은 프로젝트에 대한 동시 요청을 직렬화해야 하는 라우트는 `lib/jobs/inFlightLock.ts`(중복 실행 방지/진행률까지 필요 없는 단순 배타적 락, `withInFlightLockRetrying`로 락 획득 재시도까지 지원)를, 진행률·취소·재진입 UI까지 필요한 경우 `lib/jobs/registry.ts`를 쓴다 — 둘은 별도 메커니즘이라 섞어 쓰지 않는다. 락 키를 프로젝트 단위로 너무 넓게 잡으면 병렬화 가능한 작업(예: 시퀀스별 마스터 비주얼 생성)까지 직렬화돼버리므로, 실제 충돌 지점(예: `sequences.json` 파일 쓰기)만 감싸도록 락 범위를 최소화하고 느린 AI 호출 자체는 락 밖에서 수행한다.
 
 ## 4. 실행 방법
 
@@ -116,8 +150,14 @@ npm test                      # 전체 유닛 테스트
 npx tsc --noEmit               # 타입 체크 (테스트에 안 걸리는 실제 버그를 여러 번 잡아냈음 — 항상 같이 확인할 것)
 ```
 
-## 5. 현재 상태 (2026-08-09 기준)
+## 5. 현재 상태 (2026-08-11 기준)
 
+- (이전 세션들에서 이미 구현됐으나 이 문서에는 반영되지 않았던 기능들 — 문서를 실제 코드 상태에 맞춰 동기화) 로컬 TTS(Qwen3-TTS, `narration-audio` 페이지) + ffmpeg 기반 동영상 렌더링(`lib/video/`), PPTX 내보내기(`lib/pptx/`, OOXML 직접 조작), Getty Images Korea 역방향 이미지 검색(`lib/imageSearch/`, 미리보기 페이지), fal.ai 이미지 provider(`IMAGE_PROVIDER=fal`, Nano Banana 2 계열은 참조 이미지도 지원, `e1f55ea`) 모두 이미 구현·동작 중.
+- 2026-08-10 (`93732b7`): 로컬 TTS(Qwen3-TTS-CustomVoice)가 `instruct` 없이 호출하면 씬 텍스트 내용만 보고 톤을 추론해, 씬마다 독립 합성하는 구조상 슬픔/당참 등으로 톤이 널뛰던 문제를 고정 한국어 `instruct`(`TTS_DEFAULT_INSTRUCT`, `ttsGenerationConfig.ts`)로 해결.
+- 2026-08-10 (`d984682`): 화면 설계가 시퀀스 설계 단계에 흡수되면서 `screenTypes`가 비어 있어도 "다음 단계" 저장이 막히지 않아 빈 `screen-design.json`이 저장되고 이후 씬 이미지 생성이 전부 깨지는 경로가 있었음 — 씬 모드의 `ScreenDesignEditor.tsx`와 동일한 게이트를 `SequencePlanEditor.tsx`에도 적용.
+- 2026-08-10 (`0d27a71`): H-CHAT Gemini 이미지 게이트웨이가 200 OK에 빈 candidate를 얹어 조용히 스로틀링하는 현상(`NoImageDataError`)이 있어 동시성 1로 우회했으나 처리량이 너무 낮았던 문제를, "새 호출 시작" 간격만 최소 4초로 페이싱하는 `createRateGate`로 전환(동시 호출 상한 자체는 안전장치로 6까지 완화)해 처리량을 Gemini의 분당 호출 한도(~15 RPM)에 가깝게 개선. 같은 커밋에서 시퀀스 마스터 비주얼 생성 락도 프로젝트 단위 → 시퀀스 단위로 세분화(`withInFlightLockRetrying`)해 여러 시퀀스를 동시에 생성할 수 있게 함.
+- 2026-08-10 (`6a1dc8a`): 대형 프로젝트에서 시퀀스 모드 화면 설계 "이어서 생성"이 반복적으로 중간에 멈추는 문제 수정(`selectScreenTypes.ts`) — 시퀀스 단위 그룹 AI 호출이 상한 없는 `Promise.all`이라 그룹 수가 많을수록(수십~100개) 하나라도 실패할 확률이 실행마다 사실상 100%에 가까웠고, 그룹 호출 자체가 throw하는 경우(JSON 파싱 실패 등)는 재시도가 전혀 없었던 것이 근본 원인. `planSequences.ts`에서 이미 검증된 패턴(`mapWithConcurrency`로 동시 호출 상한 + 재시도 강화)을 그대로 이식해 `MAX_CONCURRENT_GROUPS=6` 상한 추가, 호출 자체의 예외도 재시도 대상에 포함, `MAX_GROUP_ATTEMPTS` 2→5로 상향.
+- 2026-08-09 (`48ef90f`): H-CHAT Claude 게이트웨이의 JSON 모드가 프롬프트 지시문에만 의존해 시퀀스 계획 생성 배치가 반복적으로 유효하지 않은 JSON으로 실패하던 근본 원인을, Anthropic tool-use(`tools`/`tool_choice`+`input_schema`) 강제로 전환해 구조적으로 해결(모델이 이중 인코딩된 문자열로 반환하는 경우 복구하는 방어 로직도 추가). 같은 커밋에서 시퀀스 모드 이미지/목업 단계의 씬 이미지 생성 방식 기본값을 `"composite"`에서 `"ai"`(AI 생성)로 바꿨는데, 이 변경은 페이지 초기 표시값(`images/page.tsx`)에만 적용되고 실제 생성 라우트(`images/route.ts`/`video/route.ts`/`images/[sceneId]/route.ts`)의 사이드카 파일 부재 시 기본값은 여전히 `"composite"`로 남아 있다 — 아래 6절 "알려진 제약"에 기록.
 - 2026-08-09: 시퀀스 모드 화면 설계 품질 개선 3종 완료 — (1) 화면 설계 AI 호출을 제목 계층이 아니라 시퀀스 단위로 그룹화해 같은 시퀀스에 속한 씬들이 서로를 보며 함께 설계되도록 수정, (2) 시퀀스 마스터 비주얼 생성 기능을 시퀀스 설계 단계에서 이미지/목업 단계로 이동(엔진 선택·공통 프롬프트·배경 고정·스타일 참조 이미지 설정을 그대로 재사용), (3) 시퀀스 모드에서 화면 설계를 별도 단계로 두지 않고 시퀀스 설계 단계가 흡수하도록 통합(파이프라인이 시퀀스 설계 → 일관성 검수로 바로 이어짐). 씬 모드는 세 변경 모두 영향 없음(byte-for-byte 유지). 상세는 아래 "7. 씬·시퀀스 이중 제작 모드" 섹션 갱신 내용 참고.
 - 2026-08-07: 씬·시퀀스 이중 제작 모드(dual production mode) 구현 완료 — 상세는 아래 "7. 씬·시퀀스 이중 제작 모드" 섹션과 [`docs/superpowers/plans/2026-08-07-dual-production-mode-sequence-plan.md`](superpowers/plans/2026-08-07-dual-production-mode-sequence-plan.md) 참고.
 - 2026-08-04: 5단계(이미지 생성)에 로컬 모델(FLUX.2 Klein 4B/9B, mflux/MLX 기반) 옵션 추가 — 상단 엔진 선택기로 OpenAI/로컬 전환, 참조 이미지(배경 고정/강사 표시) 조건부 생성도 로컬에서 동일 지원, 텍스트는 이미지에 굽지 않고 PPTX 텍스트로 배치. 상세: [`docs/reference/local-image-generation.md`](reference/local-image-generation.md).
@@ -139,6 +179,7 @@ npx tsc --noEmit               # 타입 체크 (테스트에 안 걸리는 실�
 - `next dev`가 모든 인터페이스에 바인딩됨 — 로컬 1인 도구 특성상 `-H 127.0.0.1`로 제한하는 게 더 안전
 - `currentStep`은 각 단계의 저장(PUT)이 아니라 AI 생성(POST) 성공 시에만 갱신됨 — 홈 신호등 상태가 "AI 생성을 완료한 단계"를 반영하는 것이지 "사용자가 검토를 마친 단계"가 아님(단, 알 수 없는 과거 단계 값이 와도 화면이 깨지지는 않도록 `getProjectStatus`에 폴백은 추가됨 — D7)
 - 콘텐츠가 짧은 파이프라인 단계(원고 변환/씬 분할 등)에서 화면 하단 여백이 큼 — 없애는 게 나은지 여백으로 유지하는 게 나은지 디자인 판단이 필요해 보류(`DESIGN_REVIEW.md` 항목 12)
+- **시퀀스 모드 씬 이미지 생성 방식(`sequence-image-mode.txt` 사이드카)의 기본값이 UI와 백엔드에서 서로 다르다**: `images/page.tsx`(2026-08-09, `48ef90f`)는 사이드카 파일이 없으면 초기 선택값을 `"ai"`로 보여주지만, 실제 생성을 수행하는 `images/route.ts`·`video/route.ts`·`images/[sceneId]/route.ts`는 사이드카 파일이 없으면 여전히 `"composite"`로 처리한다. 즉 새 시퀀스 모드 프로젝트에서 사용자가 이미지/목업 단계 UI에 진입만 하고 방식을 한 번도 명시적으로 저장(`POST /images/sequence-mode`)한 적이 없으면, 화면에는 "AI 생성"이 선택된 것처럼 보이지만 실제 생성 호출은 합성(`composite`) 방식으로 동작한다.
 
 ## 7. 씬·시퀀스 이중 제작 모드 (2026-08-07, 2026-08-09 갱신)
 
@@ -151,7 +192,7 @@ npx tsc --noEmit               # 타입 체크 (테스트에 안 걸리는 실�
 | 대상 | 대부분의 이러닝 과정(기존 방식 그대로) | 연속된 비주얼 영상 제작(카메라 워크가 있는 하나의 흐름) |
 | 파이프라인 단계 | 원고 변환 → 씬 분할 → 화면 설계 → 일관성 검수 → 이미지 생성 → 최종 뷰 | 원고 변환 → 씬 분할 → **시퀀스 설계**(화면 설계 흡수) → 일관성 검수 → 이미지 생성 → 최종 뷰 — 화면 설계는 2026-08-09부터 별도 단계가 아니라 시퀀스 설계 단계 안에서 씬별로 인라인 편집한다(`SequencePlanEditor.tsx`가 `screen-design` 스텝의 `ScreenDesignSceneCard`를 그대로 재사용). `/screen-design`으로 직접 진입하면 `/sequences`로 리다이렉트된다. |
 | 추가 산출물 | 없음 | `sequences.json`, `sequence-assets/{sequenceId}/{assetId}.png` |
-| 씬 이미지 생성 | 씬 단위로 독립 AI 이미지 생성 | 프로젝트 단위 `sequence-image-mode.txt` 사이드카(기본값 `"composite"`)로 두 방식 중 선택. **`"composite"`(기본)**: 씬별 AI 이미지 생성 없음 — 각 콘텐츠 씬 = 시퀀스 마스터 비주얼(카메라 시작 프레임 크롭) + 오버레이 레이어를 결정적으로 합성해 `images/{sceneId}.png`에 굽는다(`lib/pipeline/bakeSequenceSceneStill.ts` + `lib/video/composeSequenceStill.ts`). 이미지 모델은 시퀀스당 마스터 1장에만 사용 — **마스터 생성은 2026-08-09부터 시퀀스 설계 단계가 아니라 이미지/목업 단계에서 하며**, 그 단계의 엔진 선택기(로컬/OpenAI/H-CHAT)·공통 프롬프트·배경 고정·스타일 참조 이미지 설정을 그대로 재사용한다(`ImagesEditor.tsx`의 "시퀀스 마스터 비주얼" 섹션). 마스터 없음/타이틀 씬은 캡션 카드로 폴백. **`"ai"`**: 씬마다 실제 AI 이미지 생성 호출(씬 모드와 동일 경로 재사용) — 오버레이(라벨/화살표/강조/도식/차트)를 합성하지 않고 프롬프트에 녹여 이미지 자체에 직접 그려 넣는다(`generateSceneImage.ts`의 `sequenceOverlayRenderMode: "bake"`). 시퀀스 마스터는 참조 이미지로만 첨부해 배경 연속성을 유지. |
+| 씬 이미지 생성 | 씬 단위로 독립 AI 이미지 생성 | 프로젝트 단위 `sequence-image-mode.txt` 사이드카로 두 방식 중 선택 — **사이드카가 없을 때의 기본값이 UI(`"ai"`)와 실제 생성 라우트(`"composite"`)에서 서로 다르다(6절 "알려진 제약" 참고)**. **`"composite"`(기본)**: 씬별 AI 이미지 생성 없음 — 각 콘텐츠 씬 = 시퀀스 마스터 비주얼(카메라 시작 프레임 크롭) + 오버레이 레이어를 결정적으로 합성해 `images/{sceneId}.png`에 굽는다(`lib/pipeline/bakeSequenceSceneStill.ts` + `lib/video/composeSequenceStill.ts`). 이미지 모델은 시퀀스당 마스터 1장에만 사용 — **마스터 생성은 2026-08-09부터 시퀀스 설계 단계가 아니라 이미지/목업 단계에서 하며**, 그 단계의 엔진 선택기(로컬/OpenAI/H-CHAT)·공통 프롬프트·배경 고정·스타일 참조 이미지 설정을 그대로 재사용한다(`ImagesEditor.tsx`의 "시퀀스 마스터 비주얼" 섹션). 마스터 없음/타이틀 씬은 캡션 카드로 폴백. **`"ai"`**: 씬마다 실제 AI 이미지 생성 호출(씬 모드와 동일 경로 재사용) — 오버레이(라벨/화살표/강조/도식/차트)를 합성하지 않고 프롬프트에 녹여 이미지 자체에 직접 그려 넣는다(`generateSceneImage.ts`의 `sequenceOverlayRenderMode: "bake"`). 시퀀스 마스터는 참조 이미지로만 첨부해 배경 연속성을 유지. |
 | 영상 렌더링 | `buildVideoClip`(정지 프레임 + 내레이션 + 0.65초 홀드 + 균일 fade) — byte-for-byte 유지 | `sequence-image-mode`가 `"composite"`인 씬은 `buildSequenceVideoClip`: 콘텐츠 씬 베이스 프레임은 `images/{sceneId}.png`가 아니라 **원본 마스터 에셋**을 써서 ffmpeg crop이 전체 범위를 애니메이션하고(오버레이는 고정), 정지 프리뷰(`images/{sceneId}.png`)는 그 클립의 t=0 프레임과 일치(`startCropRect`). Satori 오버레이 합성 + 시퀀스 경계별 전환 효과. `"ai"`인 씬(타이틀 제외)은 오버레이가 이미 이미지에 구워져 있으므로 씬 모드와 동일하게 `buildVideoClip`으로 **정지 프레임**(카메라 모션 없음) 렌더링 — 두 빌더가 만든 클립도 `SCENE_BREAK_HOLD_SEC` 상수를 공유해 길이가 어긋나지 않아 한 프로젝트 안에서 섞여도 안전하다. |
 
 `getProductionMode(project)`(`lib/projects/types.ts`)가 이 분기의 단일 진입점이다 — `project.productionMode ?? "scene"`으로 레거시 `project.json`(필드 자체가 없는 과거 프로젝트)도 안전하게 씬 모드로 취급한다. 파이프라인 내비게이션(`lib/projects/pipelineSteps.ts`의 `getPipelineSteps(mode)`), 화면 설계 프롬프트, 씬 이미지 생성, 영상 생성 라우트가 전부 이 함수 하나로 모드를 판별하며, 어디서도 `project.productionMode`를 직접 비교하지 않는다.
@@ -210,6 +251,7 @@ npx tsc --noEmit               # 타입 체크 (테스트에 안 걸리는 실�
 - [파이프라인 단계별 입출력 계약](reference/pipeline-steps.md)
 - [DeepSeek API 레퍼런스](reference/deepseek-api.md)
 - [로컬 이미지 생성 레퍼런스 (FLUX.2 Klein via mflux)](reference/local-image-generation.md)
+- [로컬 TTS 레퍼런스 (Qwen3-TTS via mlx-audio)](reference/local-tts.md)
 - [향후 개발 계획](ROADMAP.md)
 - [디자인 평가 및 개선 계획 (2026-07-29)](DESIGN_REVIEW.md) — v2 개편 직후 전체 화면 스크린샷 기반 평가, 모바일 레이아웃 버그 3건 포함
 - 루트 [`CLAUDE.md`](../CLAUDE.md) — Claude Code 세션용 빠른 요약(이 문서와 중복 최소화, 여기 문서를 정본으로 참조)
