@@ -16,6 +16,7 @@ import {
   type HChatGeminiModel,
 } from "@/components/ImageEngineSelector";
 import { SequenceImageModeSelector, type SequenceImageMode } from "@/components/SequenceImageModeSelector";
+import { SectionQuickNav, SECTION_QUICK_NAV_SCROLL_MARGIN_CLASS } from "@/components/SectionQuickNav";
 import { SequenceMasterVisualsSection } from "./SequenceMasterVisualsSection";
 import { computeMockupVariantIndexes } from "@/lib/visual-templates";
 import type { Scene } from "@/lib/pipeline/splitScenes";
@@ -33,6 +34,7 @@ import {
   DEFAULT_BACKGROUND_IMAGE_PROMPT,
   DEFAULT_PRESENTER_IMAGE_PROMPT,
   DEFAULT_STYLE_IMAGE_PROMPT,
+  DEFAULT_SEQUENCE_SCENE_EXTRA_PROMPT,
 } from "@/lib/pipeline/commonPromptDefaults";
 import { cn } from "@/lib/utils";
 import { getDepthBorderClass } from "@/lib/depthColors";
@@ -69,6 +71,7 @@ export function ImagesEditor({
   imageAspectRatio,
   initialSequenceImageMode,
   sequencePlan,
+  initialSequenceSceneExtraPrompt,
 }: {
   projectId: string;
   productionMode: ProductionMode;
@@ -96,6 +99,8 @@ export function ImagesEditor({
   initialSequenceImageMode: SequenceImageMode;
   /** Sequence mode only — null in scene mode. Drives the master-visual generation section. */
   sequencePlan: SequencePlan | null;
+  /** Sequence + AI mode only — see DEFAULT_SEQUENCE_SCENE_EXTRA_PROMPT for why this exists. */
+  initialSequenceSceneExtraPrompt: string;
 }) {
   const router = useRouter();
   // Sequence + composite mode composites each scene from the sequence master +
@@ -234,7 +239,7 @@ export function ImagesEditor({
     }
     setOpenOptionsSceneId(sceneId);
     setOptionsDraft({
-      extraPrompt: "",
+      extraPrompt: isSequence && !isSequenceComposite ? initialSequenceSceneExtraPrompt : "",
       backgroundFixed,
       presenterEnabled,
       styleReferenceEnabled: initialHasStyleImage,
@@ -291,6 +296,14 @@ export function ImagesEditor({
 
   return (
     <div className="space-y-4">
+      {isSequence && sequencePlan && (
+        <SectionQuickNav
+          links={[
+            { id: "sequence-master-visuals-section", label: "① 마스터 비주얼" },
+            { id: "scene-images-section", label: "② 씬별 이미지" },
+          ]}
+        />
+      )}
       {isSequence && (
         <SequenceImageModeSelector projectId={projectId} initialMode={initialSequenceImageMode} onModeChange={setSequenceImageMode} />
       )}
@@ -381,9 +394,23 @@ export function ImagesEditor({
         />
       </Card>
       {isSequence && sequencePlan && (
-        <SequenceMasterVisualsSection projectId={projectId} initialPlan={sequencePlan} engine={engine} />
+        <div id="sequence-master-visuals-section" className={cn("space-y-2", SECTION_QUICK_NAV_SCROLL_MARGIN_CLASS)}>
+          <h2 className="text-sm font-semibold">시퀀스 마스터 비주얼</h2>
+          <SequenceMasterVisualsSection projectId={projectId} initialPlan={sequencePlan} engine={engine} />
+        </div>
       )}
-      <Card className="gap-3 p-4">
+      <div id="scene-images-section" className={cn("space-y-2", SECTION_QUICK_NAV_SCROLL_MARGIN_CLASS)}>
+        {isSequence && sequencePlan && <h2 className="text-sm font-semibold">씬별 이미지</h2>}
+        {isSequence && !isSequenceComposite && (
+          <CommonPromptField
+            saveUrl={`/api/projects/${projectId}/images/sequence-scene-extra-prompt`}
+            initialValue={initialSequenceSceneExtraPrompt}
+            label="씬 생성 추가 프롬프트 (시퀀스 AI 모드)"
+            helperText="시퀀스 AI 모드는 오버레이 텍스트를 이미지에 직접 그려 넣습니다 — 영문으로 그려지는 경우가 있다면 이 지시로 방지하세요. 모든 씬 이미지 생성에 최우선으로 반영됩니다."
+            placeholder={DEFAULT_SEQUENCE_SCENE_EXTRA_PROMPT}
+          />
+        )}
+        <Card className="gap-3 p-4">
         <div className="flex flex-wrap items-center gap-2">
           <Button onClick={() => handleGenerate(isPartial ? "resume" : "full")} disabled={loading}>
             {loading
@@ -657,6 +684,7 @@ export function ImagesEditor({
             </Card>
           );
         })}
+      </div>
       </div>
     </div>
   );

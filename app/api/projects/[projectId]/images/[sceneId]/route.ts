@@ -17,7 +17,7 @@ import {
   buildRelatedScenesContext,
   describeImageError,
 } from "@/lib/pipeline/generateSceneImage";
-import { DEFAULT_IMAGE_COMMON_PROMPT } from "@/lib/pipeline/commonPromptDefaults";
+import { DEFAULT_IMAGE_COMMON_PROMPT, DEFAULT_SEQUENCE_SCENE_EXTRA_PROMPT } from "@/lib/pipeline/commonPromptDefaults";
 import {
   LOCAL_IMAGE_FINAL_WIDTH,
   LOCAL_IMAGE_FINAL_HEIGHT,
@@ -82,6 +82,8 @@ async function regenerateScene(projectId: string, sceneId: string, overrides: Re
     return NextResponse.json({ error: "씬 또는 화면 설계 데이터가 없습니다" }, { status: 400 });
   }
   const commonPrompt = (await readProjectFile(projectId, "image-common-prompt.txt"))?.trim() || DEFAULT_IMAGE_COMMON_PROMPT;
+  const projectSequenceSceneExtraPrompt =
+    (await readProjectFile(projectId, "sequence-scene-extra-prompt.txt"))?.trim() || DEFAULT_SEQUENCE_SCENE_EXTRA_PROMPT;
   const projectPresenterEnabled = (await readProjectFile(projectId, "image-presenter-enabled.txt"))?.trim() === "true";
   const projectBackgroundFixed = (await readProjectFile(projectId, "background-fixed-enabled.txt"))?.trim() === "true";
   const genderRaw = (await readProjectFile(projectId, "presenter-gender.txt"))?.trim();
@@ -97,7 +99,6 @@ async function regenerateScene(projectId: string, sceneId: string, overrides: Re
   const presenterEnabled = overrides.presenterEnabled ?? projectPresenterEnabled;
   const backgroundFixed = overrides.backgroundFixed ?? projectBackgroundFixed;
   const styleReferenceEnabled = overrides.styleReferenceEnabled ?? true;
-  const extraPrompt = overrides.extraPrompt;
 
   const referenceImages = {
     background: backgroundFixed ? (await readProjectReferenceImage(projectId, "background")) ?? undefined : undefined,
@@ -164,6 +165,7 @@ async function regenerateScene(projectId: string, sceneId: string, overrides: Re
         sequence: owningSequence,
         masterAsset,
         frameDimensions,
+        overlayPositions: design.overlayPositions,
       });
       if (!result.baked) {
         return NextResponse.json(
@@ -185,6 +187,13 @@ async function regenerateScene(projectId: string, sceneId: string, overrides: Re
     sequenceMasterBuffer = masterAsset.buffer;
     sequenceMasterPath = masterAsset.path;
   }
+
+  // Same override-then-fallback pattern as presenterEnabled/backgroundFixed
+  // above: a one-off options-panel value wins if given, otherwise the
+  // persisted per-project default applies. Only relevant in sequence + AI
+  // mode (sequenceImageContext set), matching where sequenceOverlayRenderMode
+  // is "bake" below.
+  const extraPrompt = overrides.extraPrompt ?? (sequenceImageContext ? projectSequenceSceneExtraPrompt : undefined);
 
   if (engine === "local") {
     let localClient;

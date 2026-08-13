@@ -207,6 +207,7 @@ export function computeVisualDesign(scene: Scene, screenType: ScreenTypeAssignme
     objectPlacement: screenType.objectPlacement?.trim() || body.objectPlacement,
     layoutElements: screenType.layoutElements,
     presenterPosition: screenType.presenterPosition,
+    overlayPositions: screenType.overlayPositions,
     appearanceOrder: body.appearanceOrder,
     productionNotes: withRationale(body.productionNotes, screenType),
   };

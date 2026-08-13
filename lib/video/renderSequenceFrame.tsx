@@ -1,4 +1,5 @@
 import type { OverlayType, SequenceOverlayContent, SequenceOverlayEntry } from "@/lib/pipeline/sequenceTypes";
+import { LAYOUT_POSITIONS, type LayoutPosition } from "@/lib/pipeline/designVisuals";
 
 /**
  * Overlays are composited by ffmpeg AFTER the crop+scale motion filter
@@ -39,7 +40,17 @@ const OVERLAY_STYLES: Record<OverlayType, OverlayStyle> = {
   "arrow-flow": { zone: "corner", label: "흐름", color: "#DC2626", icon: "→" },
 };
 
-function renderOverlayChip(overlay: SequenceOverlayEntry, key: string) {
+/**
+ * `maxWidth` defaults to the full bottom/corner-band width (1400) that every
+ * existing caller relies on; a caller placing this chip inside one of the
+ * 9-grid position cells (see buildSequenceOverlayLayout) passes the cell's
+ * own (narrower) width instead, so the card doesn't overflow it. Only the
+ * plain fallback banner below reads it — the structured flow/diagram/chart
+ * branches never render inside a position cell (see the isStructured check
+ * in buildSequenceOverlayLayout), so they keep their fixed structuredShell
+ * width unconditionally.
+ */
+function renderOverlayChip(overlay: SequenceOverlayEntry, key: string, maxWidth = 1400) {
   const style = OVERLAY_STYLES[overlay.type];
   const structured = overlay.content;
 
@@ -57,7 +68,7 @@ function renderOverlayChip(overlay: SequenceOverlayEntry, key: string) {
         flexDirection: "row",
         alignItems: "center",
         gap: 20,
-        maxWidth: 1400,
+        maxWidth,
         backgroundColor: "rgba(17,17,17,0.72)",
         borderRadius: 16,
         padding: "20px 32px",
@@ -226,15 +237,89 @@ function renderHighlightTarget(overlay: SequenceOverlayEntry, key: string, frame
   );
 }
 
+const GRID_PADDING = 72;
+
+/**
+ * Maps one of the 9 layout-elements-style grid positions (see
+ * VisualDesign.layoutElements in designVisuals.ts and ScreenMockup's
+ * LayoutElementsMockup, which renders the exact same 9 names as a 3x3
+ * mockup grid) to the matching cell rect inside the frame — same padding as
+ * the corner/bottom bands below, so a positioned card lines up with them.
+ * `LAYOUT_POSITIONS` is already in row-major order (top-left, top,
+ * top-right, left, center, ...), so its index alone gives row/col.
+ */
+/** Index 0/1/2 along one grid axis -> the flex alignment that hugs that axis's edge (or centers, for the middle index). */
+const EDGE_ALIGNMENT: readonly ["flex-start", "center", "flex-end"] = ["flex-start", "center", "flex-end"];
+
+function layoutPositionToCellRect(position: LayoutPosition, frameWidth: number, frameHeight: number) {
+  const index = LAYOUT_POSITIONS.indexOf(position);
+  const row = Math.floor(index / 3);
+  const col = index % 3;
+  const cellWidth = (frameWidth - GRID_PADDING * 2) / 3;
+  const cellHeight = (frameHeight - GRID_PADDING * 2) / 3;
+  return {
+    left: GRID_PADDING + col * cellWidth,
+    top: GRID_PADDING + row * cellHeight,
+    width: cellWidth,
+    height: cellHeight,
+    alignItems: EDGE_ALIGNMENT[col],
+    justifyContent: EDGE_ALIGNMENT[row],
+  };
+}
+
+const STRUCTURED_CONTENT_KINDS = new Set(["flow", "diagram", "chart"]);
+
 /**
  * Pure layout builder for one scene's overlay layer, split out from the
  * Satori rasterization wrapper below the same way buildSceneFrameLayout is
  * split from renderSceneFrameToPng -- testable without invoking Satori.
+ *
+ * `overlayPositions[i]`, when given, is screen-design's chosen 9-grid slot
+ * for `overlays[i]` (see ScreenTypeAssignment.overlayPositions) — but it
+ * only ever applies to the plain fallback banner (no structured content, or
+ * a non-targeted highlight): flow/diagram/chart keep their fixed
+ * structuredShell width and existing bottom-band stacking regardless (see
+ * the module doc / the plan this shipped under for why), and a
+ * target-based highlight already has its own precise placement. Omitting
+ * the 4th argument (or leaving an index undefined) reproduces the exact
+ * legacy corner/bottom stacking byte-for-byte, so old projects/tests are
+ * unaffected.
  */
-export function buildSequenceOverlayLayout(overlays: SequenceOverlayEntry[], frameWidth: number, frameHeight: number) {
+export function buildSequenceOverlayLayout(
+  overlays: SequenceOverlayEntry[],
+  frameWidth: number,
+  frameHeight: number,
+  overlayPositions?: (LayoutPosition | undefined)[]
+) {
   const targetHighlights = overlays.filter((overlay) => overlay.content?.kind === "highlight" && overlay.content.target);
-  const cornerOverlays = overlays.filter((overlay) => OVERLAY_STYLES[overlay.type].zone === "corner" && !targetHighlights.includes(overlay));
-  const bottomOverlays = overlays.filter((overlay) => OVERLAY_STYLES[overlay.type].zone === "bottom");
+
+  // Only a plain fallback banner (no content, a "label", or an untargeted
+  // "highlight") can be moved to a screen-design-chosen grid cell — matched
+  // to its ORIGINAL index in `overlays` (not any filtered array) since
+  // that's the index space overlayPositions was produced in.
+  const positionByOverlay = new Map<SequenceOverlayEntry, LayoutPosition>();
+  overlays.forEach((overlay, index) => {
+    if (targetHighlights.includes(overlay)) return;
+    if (overlay.content && STRUCTURED_CONTENT_KINDS.has(overlay.content.kind)) return;
+    const position = overlayPositions?.[index];
+    if (position) positionByOverlay.set(overlay, position);
+  });
+
+  const cornerOverlays = overlays.filter(
+    (overlay) => OVERLAY_STYLES[overlay.type].zone === "corner" && !targetHighlights.includes(overlay) && !positionByOverlay.has(overlay)
+  );
+  const bottomOverlays = overlays.filter(
+    (overlay) => OVERLAY_STYLES[overlay.type].zone === "bottom" && !positionByOverlay.has(overlay)
+  );
+
+  const positionGroups = new Map<LayoutPosition, SequenceOverlayEntry[]>();
+  for (const overlay of overlays) {
+    const position = positionByOverlay.get(overlay);
+    if (!position) continue;
+    const group = positionGroups.get(position) ?? [];
+    group.push(overlay);
+    positionGroups.set(position, group);
+  }
 
   return (
     <div
@@ -245,7 +330,7 @@ export function buildSequenceOverlayLayout(overlays: SequenceOverlayEntry[], fra
         position: "relative",
         flexDirection: "column",
         justifyContent: "space-between",
-        padding: 72,
+        padding: GRID_PADDING,
         fontFamily: "Pretendard",
       }}
     >
@@ -264,6 +349,28 @@ export function buildSequenceOverlayLayout(overlays: SequenceOverlayEntry[], fra
         )}
       </div>
       {targetHighlights.map((overlay, index) => renderHighlightTarget(overlay, `highlight-target-${index}`, frameWidth, frameHeight))}
+      {Array.from(positionGroups.entries()).map(([position, group]) => {
+        const rect = layoutPositionToCellRect(position, frameWidth, frameHeight);
+        return (
+          <div
+            key={`cell-${position}`}
+            style={{
+              display: "flex",
+              position: "absolute",
+              left: rect.left,
+              top: rect.top,
+              width: rect.width,
+              height: rect.height,
+              flexDirection: "column",
+              alignItems: rect.alignItems,
+              justifyContent: rect.justifyContent,
+              gap: 16,
+            }}
+          >
+            {group.map((overlay, index) => renderOverlayChip(overlay, `cell-${position}-${index}`, rect.width - 24))}
+          </div>
+        );
+      })}
     </div>
   );
 }

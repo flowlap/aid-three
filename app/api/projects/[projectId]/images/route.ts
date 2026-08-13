@@ -42,7 +42,7 @@ import {
   LOCAL_IMAGE_QUANTIZE,
   type LocalImageModelSize,
 } from "@/lib/pipeline/imageGenerationConfig";
-import { DEFAULT_IMAGE_COMMON_PROMPT } from "@/lib/pipeline/commonPromptDefaults";
+import { DEFAULT_IMAGE_COMMON_PROMPT, DEFAULT_SEQUENCE_SCENE_EXTRA_PROMPT } from "@/lib/pipeline/commonPromptDefaults";
 
 /**
  * A unit of work for image generation: either a sequence-mode group (all
@@ -73,6 +73,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
     return NextResponse.json({ error: "씬 또는 화면 설계 데이터가 없습니다" }, { status: 400 });
   }
   const commonPrompt = (await readProjectFile(projectId, "image-common-prompt.txt"))?.trim() || DEFAULT_IMAGE_COMMON_PROMPT;
+  const sequenceSceneExtraPrompt =
+    (await readProjectFile(projectId, "sequence-scene-extra-prompt.txt"))?.trim() || DEFAULT_SEQUENCE_SCENE_EXTRA_PROMPT;
   const presenterEnabled = (await readProjectFile(projectId, "image-presenter-enabled.txt"))?.trim() === "true";
   const backgroundFixed = (await readProjectFile(projectId, "background-fixed-enabled.txt"))?.trim() === "true";
   const genderRaw = (await readProjectFile(projectId, "presenter-gender.txt"))?.trim();
@@ -242,6 +244,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
             sequence,
             masterAsset,
             frameDimensions,
+            overlayPositions: visualDesigns[scene.id]?.overlayPositions,
             signal: job.controller.signal,
           });
           completedSoFar += 1;
@@ -262,6 +265,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
           const prompt = buildImagePrompt(scene, design, {
             screenType: screenTypes[scene.id]?.screenType,
             commonPrompt,
+            extraPrompt: sequencePlan ? sequenceSceneExtraPrompt : undefined,
             presenterEnabled,
             presenterPosition: design.presenterPosition,
             presenterGender,
@@ -321,6 +325,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
               {
                 screenType: screenTypes[scene.id]?.screenType,
                 commonPrompt,
+                extraPrompt: sequencePlan ? sequenceSceneExtraPrompt : undefined,
                 presenterEnabled,
                 presenterPosition: design.presenterPosition,
                 presenterGender,

@@ -52,6 +52,7 @@ async function renderStaticSceneClip(
   design: VisualDesign | undefined,
   imageBuffer: Buffer | undefined,
   frameDimensions: ReturnType<typeof computeFrameDimensions>,
+  clipDurationSec: number,
   signal: AbortSignal
 ): Promise<void> {
   const framePng = await renderSceneFrameToPng(scene, design, imageBuffer, frameDimensions);
@@ -61,6 +62,7 @@ async function renderStaticSceneClip(
     projectAudioPath(projectId, scene.id),
     projectVideoClipPath(projectId, scene.id),
     frameDimensions,
+    clipDurationSec,
     signal
   );
 }
@@ -144,6 +146,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
   const existingClipIds = resume ? new Set(await listProjectVideoClipIds(projectId)) : new Set<string>();
   const pending = scenes.filter((scene) => !existingClipIds.has(scene.id));
   const frameDimensions = computeFrameDimensions(await getProjectImageAspectRatio(projectId));
+  const clipDurationsBySceneId = Object.fromEntries(
+    scenes.map((scene, index) => [scene.id, durations[index] + SCENE_BREAK_HOLD_SEC])
+  );
 
   const stream = createResilientStream(async (emit) => {
     let completedSoFar = existingClipIds.size;
@@ -153,7 +158,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
 
         const design = visualDesigns[scene.id];
         const imageBuffer = await readProjectImage(projectId, scene.id);
-        await renderStaticSceneClip(projectId, scene, design, imageBuffer ?? undefined, frameDimensions, job.controller.signal);
+        await renderStaticSceneClip(
+          projectId,
+          scene,
+          design,
+          imageBuffer ?? undefined,
+          frameDimensions,
+          clipDurationsBySceneId[scene.id],
+          job.controller.signal
+        );
 
         completedSoFar += 1;
         recordProgress(projectId, STEP, completedSoFar - 1, scenes.length);
@@ -285,7 +298,15 @@ async function handleSequenceModeVideo(
             (await readProjectVideoClipFingerprint(projectId, scene.id)) === fingerprint;
 
           if (!canSkip) {
-            await renderStaticSceneClip(projectId, scene, design, imageBuffer ?? undefined, frameDimensions, job.controller.signal);
+            await renderStaticSceneClip(
+              projectId,
+              scene,
+              design,
+              imageBuffer ?? undefined,
+              frameDimensions,
+              entry.clipDurationSec,
+              job.controller.signal
+            );
             await writeProjectVideoClipFingerprint(projectId, scene.id, fingerprint);
           }
 
@@ -367,7 +388,11 @@ async function handleSequenceModeVideo(
 
           let overlayPath: string | null = null;
           if (entry.overlays.length > 0) {
-            const overlayBuffer = await renderSequenceOverlayToPng(entry.overlays, frameDimensions);
+            const overlayBuffer = await renderSequenceOverlayToPng(
+              entry.overlays,
+              frameDimensions,
+              visualDesigns[scene.id]?.overlayPositions
+            );
             if (overlayBuffer) {
               await writeProjectVideoOverlay(projectId, scene.id, overlayBuffer);
               overlayPath = projectVideoOverlayPath(projectId, scene.id);
@@ -380,6 +405,7 @@ async function handleSequenceModeVideo(
             projectVideoClipPath(projectId, scene.id),
             vf,
             overlayPath,
+            entry.clipDurationSec,
             job.controller.signal
           );
           await writeProjectVideoClipFingerprint(projectId, scene.id, fingerprint);

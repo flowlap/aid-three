@@ -398,6 +398,32 @@ describe("selectScreenTypes", () => {
     expect(result["scene-001"].presenterPosition).toBeUndefined();
   });
 
+  it("keeps a well-formed overlayPositions array from the AI response", async () => {
+    const client = new MockLlmClient([batchResponse([scenes[0]], { 1: { overlayPositions: ["top-left", "bottom-right"] } })]);
+
+    const result = await selectScreenTypes(client, [scenes[0]]);
+
+    expect(result["scene-001"].overlayPositions).toEqual(["top-left", "bottom-right"]);
+  });
+
+  it("keeps index alignment by replacing an invalid overlayPositions entry with undefined instead of dropping it", async () => {
+    const client = new MockLlmClient([
+      batchResponse([scenes[0]], { 1: { overlayPositions: ["top-left", "not-a-real-position", "center"] } }),
+    ]);
+
+    const result = await selectScreenTypes(client, [scenes[0]]);
+
+    expect(result["scene-001"].overlayPositions).toEqual(["top-left", undefined, "center"]);
+  });
+
+  it("omits overlayPositions entirely when the AI response has none", async () => {
+    const client = new MockLlmClient([batchResponse([scenes[0]])]);
+
+    const result = await selectScreenTypes(client, [scenes[0]]);
+
+    expect(result["scene-001"].overlayPositions).toBeUndefined();
+  });
+
   it("resolves related scenes from allScenesForContext when scenes is a subset (single-scene regenerate)", async () => {
     const fullScenes: Scene[] = [
       scenes[0],
@@ -451,6 +477,25 @@ describe("selectScreenTypes", () => {
       expect(prompt).toContain("wide");
       expect(prompt).toContain("slow-push-in");
       expect(prompt).toContain("배출권 가격 추이 그래프");
+    });
+
+    it("numbers the overlay list from 0 so the AI can address entries positionally in overlayPositions", async () => {
+      const client = new MockLlmClient([batchResponse([scenes[0]])]);
+      const sequenceContext = makeSequenceContext({
+        overlays: [
+          { sceneId: "scene-001", type: "label", description: "첫 오버레이" },
+          { sceneId: "scene-001", type: "chart", description: "둘째 오버레이" },
+        ],
+      });
+
+      await selectScreenTypes(client, [scenes[0]], {
+        sequenceContextByScene: { "scene-001": sequenceContext },
+      });
+
+      const prompt = client.calls[0].messages[1].content;
+      expect(prompt).toContain("0: (label) 첫 오버레이");
+      expect(prompt).toContain("1: (chart) 둘째 오버레이");
+      expect(prompt).toContain("overlayPositions");
     });
 
     it("does not append any sequence-context block when sequenceContextByScene is omitted (scene mode)", async () => {

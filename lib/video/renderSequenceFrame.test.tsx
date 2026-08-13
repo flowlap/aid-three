@@ -149,6 +149,85 @@ describe("buildSequenceOverlayLayout", () => {
     expect(target?.props.style).toMatchObject({ left: 384, top: 384, width: 480, height: 256 });
     expect(findText(layout, "핵심 장치")).toBe(true);
   });
+
+  describe("overlayPositions (screen-design-driven placement)", () => {
+    const CELL_WIDTH = (FRAME_WIDTH - 72 * 2) / 3;
+    const CELL_HEIGHT = (FRAME_HEIGHT - 72 * 2) / 3;
+
+    it("places a plain fallback overlay in the 9-grid cell given by overlayPositions, out of the legacy zone stacks", () => {
+      const layout = buildSequenceOverlayLayout([makeOverlay("label", "코너식 라벨")], FRAME_WIDTH, FRAME_HEIGHT, ["top-left"]);
+
+      const [topRow, bottomRow] = layout.props.children as { props: { children: unknown } }[];
+      expect(topRow.props.children).toBeFalsy();
+      expect(bottomRow.props.children).toBeFalsy();
+
+      const elements = collectElements(layout);
+      const cell = elements.find(
+        (el) => typeof el.props.style === "object" && (el.props.style as Record<string, unknown>).left === 72 && (el.props.style as Record<string, unknown>).top === 72
+      );
+      expect(cell).toBeTruthy();
+      expect(cell?.props.style).toMatchObject({ width: CELL_WIDTH, height: CELL_HEIGHT });
+      expect(findText(layout, "코너식 라벨")).toBe(true);
+    });
+
+    it("maps bottom-right to the last grid cell", () => {
+      const layout = buildSequenceOverlayLayout([makeOverlay("label")], FRAME_WIDTH, FRAME_HEIGHT, ["bottom-right"]);
+      const elements = collectElements(layout);
+      const cell = elements.find(
+        (el) =>
+          typeof el.props.style === "object" &&
+          (el.props.style as Record<string, unknown>).left === 72 + 2 * CELL_WIDTH &&
+          (el.props.style as Record<string, unknown>).top === 72 + 2 * CELL_HEIGHT
+      );
+      expect(cell).toBeTruthy();
+    });
+
+    it("stacks multiple overlays assigned the same grid cell instead of overlapping", () => {
+      const overlays = [makeOverlay("label", "첫 라벨"), makeOverlay("highlight", "두번째 강조")];
+      const layout = buildSequenceOverlayLayout(overlays, FRAME_WIDTH, FRAME_HEIGHT, ["center", "center"]);
+      const elements = collectElements(layout);
+      const cell = elements.find(
+        (el) => typeof el.props.style === "object" && (el.props.style as Record<string, unknown>).justifyContent === "center" && (el.props.style as Record<string, unknown>).width === CELL_WIDTH
+      );
+      const stack = (cell?.props.children ?? []) as unknown[];
+      expect(Array.isArray(stack)).toBe(true);
+      expect((stack as unknown[]).length).toBe(2);
+    });
+
+    it("ignores an assigned position for structured content (flow/diagram/chart) — it keeps the existing bottom band", () => {
+      const layout = buildSequenceOverlayLayout(
+        [{ sceneId: "scene-001", type: "diagram", description: "구조도", content: { kind: "diagram", layout: "hierarchy", nodes: ["A", "B"] } }],
+        FRAME_WIDTH,
+        FRAME_HEIGHT,
+        ["top-left"]
+      );
+      const [, bottomRow] = layout.props.children as { props: { children: unknown } }[];
+      expect(bottomRow.props.children).toBeTruthy();
+      const elements = collectElements(layout);
+      const cell = elements.find((el) => typeof el.props.style === "object" && (el.props.style as Record<string, unknown>).left === 72 && (el.props.style as Record<string, unknown>).top === 72);
+      expect(cell).toBeUndefined();
+    });
+
+    it("ignores an assigned position for a target-based highlight — it keeps its normalized-target placement", () => {
+      const layout = buildSequenceOverlayLayout(
+        [{ sceneId: "scene-001", type: "highlight", description: "기존 강조", content: { kind: "highlight", target: { x: 0.2, y: 0.3, width: 0.25, height: 0.2 } } }],
+        FRAME_WIDTH,
+        FRAME_HEIGHT,
+        ["center"]
+      );
+      const elements = collectElements(layout);
+      const target = elements.find((el) => typeof el.props.style === "object" && (el.props.style as Record<string, unknown>).border === "7px solid #F59E0B");
+      expect(target?.props.style).toMatchObject({ left: 384, top: 384 });
+    });
+
+    it("falls back to the legacy zone stack for an overlay with no assigned position, even when other overlays in the same call have one", () => {
+      const overlays = [makeOverlay("label", "위치 있음"), makeOverlay("chart", "위치 없음")];
+      const layout = buildSequenceOverlayLayout(overlays, FRAME_WIDTH, FRAME_HEIGHT, ["top-left", undefined]);
+      const [, bottomRow] = layout.props.children as { props: { children: unknown } }[];
+      expect(findText(bottomRow, "위치 없음")).toBe(true);
+      expect(findText(bottomRow, "위치 있음")).toBe(false);
+    });
+  });
 });
 
 describe("renderSequenceOverlayToPng", () => {

@@ -1,5 +1,7 @@
 import Link from "next/link";
-import { readProjectFile, listProjectImageIds } from "@/lib/projects/store";
+import { readProject, readProjectFile, listProjectImageIds, updateProjectStep } from "@/lib/projects/store";
+import { getProductionMode } from "@/lib/projects/types";
+import { computeStoryboardPrereqsComplete } from "@/lib/projects/stepCompletion";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ScreenMockupThumbnail } from "@/components/ScreenMockup";
@@ -15,6 +17,20 @@ import type { VisualDesign } from "@/lib/pipeline/designVisuals";
 
 export default async function StoryboardPage({ params }: { params: Promise<{ projectId: string }> }) {
   const { projectId } = await params;
+
+  // Reaching this page IS "done" for the storyboard step (it has no output
+  // of its own — see computeStoryboardPrereqsComplete) — advance currentStep
+  // here instead of requiring the images step's "다음 단계" button to have
+  // been clicked first, so a direct link/bookmark into the storyboard still
+  // marks the project complete once every earlier step's output actually is.
+  const project = await readProject(projectId);
+  if (project && project.currentStep !== "storyboard") {
+    const productionMode = getProductionMode(project);
+    if (await computeStoryboardPrereqsComplete(projectId, productionMode)) {
+      await updateProjectStep(projectId, "storyboard");
+    }
+  }
+
   const scenesRaw = await readProjectFile(projectId, "scenes.json");
   const screenDesignRaw = await readProjectFile(projectId, "screen-design.json");
 

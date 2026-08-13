@@ -15,6 +15,16 @@ export const SCENE_BREAK_HOLD_SEC = 0.65;
  * docs/reference plan notes on avoiding ffmpeg's fragile zoompan filter).
  * All clips of one project share this exact codec/resolution/fps.
  *
+ * `clipDurationSec` (narration + SCENE_BREAK_HOLD_SEC, computed by the
+ * caller from the real WAV file) is passed as an explicit `-t` cutoff
+ * instead of relying on `-shortest` to detect where the padded audio ends:
+ * `-shortest` was found to race with x264's B-frame lookahead buffer on a
+ * `-loop 1` still-image input, occasionally muxing a couple of GOPs' worth
+ * of extra video after the audio has already ended (confirmed by re-running
+ * an identical real-project ffmpeg invocation multiple times and observing
+ * a different frame count each time). `-t` truncates the output at a fixed
+ * PTS regardless of encoder buffering, which is deterministic.
+ *
  * This is scene mode's only clip builder and stays byte-for-byte unchanged.
  * Sequence mode's motion/overlay rendering (crop+scale via lib/video/
  * motionFilter.ts, not zoompan — the fragility this comment warns about is
@@ -26,6 +36,7 @@ export async function buildVideoClip(
   audioPath: string,
   outputPath: string,
   { width, height }: FrameDimensions,
+  clipDurationSec: number,
   signal?: AbortSignal
 ): Promise<void> {
   await fs.mkdir(path.dirname(outputPath), { recursive: true });
@@ -42,7 +53,7 @@ export async function buildVideoClip(
       "-c:a", "aac",
       "-b:a", "192k",
       "-af", `apad=pad_dur=${SCENE_BREAK_HOLD_SEC}`,
-      "-shortest",
+      "-t", String(clipDurationSec),
       "-vf", `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,format=yuv420p`,
       "-movflags", "+faststart",
       outputPath,
@@ -53,13 +64,15 @@ export async function buildVideoClip(
 
 /**
  * Sequence-mode sibling of buildVideoClip: same base invocation shape (loop
- * the frame, mux with narration audio, apad + -shortest so a scene never
- * advances before its narration finishes), but takes the `-vf` filter as a
- * parameter — callers pass buildMotionFilter(...)'s result when non-null, or
- * buildStaticScaleFilter(...) as the fallback (see lib/video/motionFilter.ts)
- * — and can additionally composite a transparent overlay PNG (labels/arrows/
- * highlights/diagrams/charts, see renderSequenceFrameToPng.ts) on top of the
- * motion-filtered base via a third looped input and `-filter_complex`.
+ * the frame, mux with narration audio, apad + an explicit `-t` cutoff so a
+ * scene never advances before its narration finishes — see buildVideoClip's
+ * doc comment for why `-t` is used instead of `-shortest`), but takes the
+ * `-vf` filter as a parameter — callers pass buildMotionFilter(...)'s result
+ * when non-null, or buildStaticScaleFilter(...) as the fallback (see
+ * lib/video/motionFilter.ts) — and can additionally composite a transparent
+ * overlay PNG (labels/arrows/highlights/diagrams/charts, see
+ * renderSequenceFrameToPng.ts) on top of the motion-filtered base via a
+ * third looped input and `-filter_complex`.
  */
 export async function buildSequenceVideoClip(
   framePath: string,
@@ -67,6 +80,7 @@ export async function buildSequenceVideoClip(
   outputPath: string,
   vf: string,
   overlayPath: string | null,
+  clipDurationSec: number,
   signal?: AbortSignal
 ): Promise<void> {
   await fs.mkdir(path.dirname(outputPath), { recursive: true });
@@ -90,7 +104,7 @@ export async function buildSequenceVideoClip(
     "-c:a", "aac",
     "-b:a", "192k",
     "-af", `apad=pad_dur=${SCENE_BREAK_HOLD_SEC}`,
-    "-shortest"
+    "-t", String(clipDurationSec)
   );
 
   if (overlayPath) {

@@ -22,7 +22,7 @@ describe("buildSequenceVideoClip (mocked ffmpeg)", () => {
   it("uses a plain -vf filter with two inputs when there is no overlay", async () => {
     const outputPath = path.join(tmpRoot, "no-overlay", "scene-001.mp4");
 
-    await buildSequenceVideoClip("frame.png", "audio.wav", outputPath, "scale=100:100", null);
+    await buildSequenceVideoClip("frame.png", "audio.wav", outputPath, "scale=100:100", null, 12.34);
 
     expect(runFfmpegMock).toHaveBeenCalledTimes(1);
     const args = runFfmpegMock.mock.calls[0][0] as string[];
@@ -42,7 +42,7 @@ describe("buildSequenceVideoClip (mocked ffmpeg)", () => {
   it("uses -filter_complex with three inputs and maps [vout]/1:a when an overlay is given", async () => {
     const outputPath = path.join(tmpRoot, "overlay", "scene-001.mp4");
 
-    await buildSequenceVideoClip("frame.png", "audio.wav", outputPath, "scale=100:100", "overlay.png");
+    await buildSequenceVideoClip("frame.png", "audio.wav", outputPath, "scale=100:100", "overlay.png", 12.34);
 
     expect(runFfmpegMock).toHaveBeenCalledTimes(1);
     const args = runFfmpegMock.mock.calls[0][0] as string[];
@@ -64,11 +64,23 @@ describe("buildSequenceVideoClip (mocked ffmpeg)", () => {
     expect(args[inputIndexes[2] + 1]).toBe("overlay.png");
   });
 
+  it("passes clipDurationSec as an explicit -t cutoff instead of relying on -shortest", async () => {
+    const outputPath = path.join(tmpRoot, "duration", "scene-001.mp4");
+
+    await buildSequenceVideoClip("frame.png", "audio.wav", outputPath, "scale=100:100", null, 12.34);
+
+    const args = runFfmpegMock.mock.calls[0][0] as string[];
+    expect(args).not.toContain("-shortest");
+    const tIndex = args.indexOf("-t");
+    expect(tIndex).toBeGreaterThan(-1);
+    expect(args[tIndex + 1]).toBe("12.34");
+  });
+
   it("creates the output directory before running ffmpeg", async () => {
     const outputDir = path.join(tmpRoot, "mkdir-check");
     const outputPath = path.join(outputDir, "scene-001.mp4");
 
-    await buildSequenceVideoClip("frame.png", "audio.wav", outputPath, "scale=100:100", null);
+    await buildSequenceVideoClip("frame.png", "audio.wav", outputPath, "scale=100:100", null, 12.34);
 
     const stat = await fs.stat(outputDir);
     expect(stat.isDirectory()).toBe(true);
@@ -78,7 +90,7 @@ describe("buildSequenceVideoClip (mocked ffmpeg)", () => {
     const controller = new AbortController();
     const outputPath = path.join(tmpRoot, "signal", "scene-001.mp4");
 
-    await buildSequenceVideoClip("frame.png", "audio.wav", outputPath, "scale=100:100", null, controller.signal);
+    await buildSequenceVideoClip("frame.png", "audio.wav", outputPath, "scale=100:100", null, 12.34, controller.signal);
 
     expect(runFfmpegMock.mock.calls[0][1]).toBe(controller.signal);
   });

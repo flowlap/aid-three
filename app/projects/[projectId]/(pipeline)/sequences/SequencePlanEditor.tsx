@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { AiJobStatus } from "@/components/AiJobStatus";
 import { CommonPromptField } from "@/components/CommonPromptField";
+import { SectionQuickNav, SECTION_QUICK_NAV_SCROLL_MARGIN_CLASS } from "@/components/SectionQuickNav";
 import type { Scene } from "@/lib/pipeline/splitScenes";
 import type { Sequence, SequenceContinuity, SequenceIntegrityIssue, SequencePlan } from "@/lib/pipeline/sequenceTypes";
 import type { ScreenTypeAssignment } from "@/lib/pipeline/selectScreenTypes";
@@ -450,7 +451,15 @@ export function SequencePlanEditor({
 
   return (
     <div className="space-y-4">
-      <Card className="gap-3 p-4">
+      {plan && sequences.length > 0 && (
+        <SectionQuickNav
+          links={[
+            { id: "sequence-generate-section", label: "① 시퀀스 생성" },
+            { id: "screen-design-generate-section", label: "② 화면 설계 생성" },
+          ]}
+        />
+      )}
+      <Card id="sequence-generate-section" className={cn("gap-3 p-4", SECTION_QUICK_NAV_SCROLL_MARGIN_CLASS)}>
         <div className="flex flex-wrap items-center gap-2">
           <Button onClick={handleGenerate} disabled={seqLoading}>
             {seqLoading ? (seqDiscoveredRunning ? "이미 실행 중..." : "설계 중...") : plan ? "다시 생성" : "AI로 시퀀스 설계"}
@@ -519,7 +528,7 @@ export function SequencePlanEditor({
             helperText="이 콘텐츠 전반에 적용할 맥락이나 원칙을 적어두면 AI가 씬마다 화면 유형·자막·키워드를 정할 때 함께 참고합니다."
             placeholder={DEFAULT_SCREEN_DESIGN_COMMON_PROMPT}
           />
-          <Card className="gap-3 p-4">
+          <Card id="screen-design-generate-section" className={cn("gap-3 p-4", SECTION_QUICK_NAV_SCROLL_MARGIN_CLASS)}>
             <div className="flex flex-wrap items-center gap-2">
               <Button
                 onClick={() => handleGenerateScreenDesign(isScreenPartial ? "resume" : "full")}
@@ -621,6 +630,7 @@ export function SequencePlanEditor({
 
                     {seq.purpose && <p className="text-sm text-muted-foreground">{seq.purpose}</p>}
 
+                    <p className="text-xs font-semibold text-muted-foreground">시퀀스 정보</p>
                     <div className="grid gap-3 sm:grid-cols-2">
                       <label className="space-y-1 text-xs text-muted-foreground">
                         장소
@@ -749,7 +759,8 @@ export function SequencePlanEditor({
                       })}
                     </ul>
 
-                    <div className="space-y-3">
+                    <div className="space-y-3 border-t pt-3">
+                      <p className="text-xs font-semibold text-muted-foreground">화면 설계 (씬별)</p>
                       {seq.sceneIds.map((sceneId) => {
                         const scene = sceneById.get(sceneId);
                         if (!scene) return null;

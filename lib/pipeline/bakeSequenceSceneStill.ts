@@ -9,6 +9,7 @@ import { renderSequenceOverlayToPng } from "@/lib/video/renderSequenceFrameToPng
 import type { FrameDimensions } from "@/lib/video/frameDimensions";
 import type { Sequence } from "@/lib/pipeline/sequenceTypes";
 import type { SequenceMasterAsset } from "@/lib/pipeline/sequenceLookup";
+import type { LayoutPosition } from "@/lib/pipeline/designVisuals";
 
 export interface BakeSequenceStillResult {
   /** True when a composited still was written to images/{sceneId}.png. */
@@ -36,9 +37,11 @@ export async function bakeSequenceSceneStill(params: {
   sequence: Sequence | undefined;
   masterAsset: SequenceMasterAsset;
   frameDimensions: FrameDimensions;
+  /** From this scene's VisualDesign (screen-design.json) — see VisualDesign.overlayPositions. */
+  overlayPositions?: (LayoutPosition | undefined)[];
   signal?: AbortSignal;
 }): Promise<BakeSequenceStillResult> {
-  const { projectId, sceneId, sequence, masterAsset, frameDimensions, signal } = params;
+  const { projectId, sceneId, sequence, masterAsset, frameDimensions, overlayPositions, signal } = params;
 
   if (!masterAsset.path || !masterAsset.buffer) return { baked: false, reason: "no-master" };
   const source = getPngDimensions(masterAsset.buffer);
@@ -51,7 +54,7 @@ export async function bakeSequenceSceneStill(params: {
   // Overlay layer is optional — renderSequenceOverlayToPng returns null for an
   // empty overlays array, so scenes with no overlays skip the overlay input
   // entirely (a plain cropped master).
-  const overlayBuffer = overlays.length > 0 ? await renderSequenceOverlayToPng(overlays, frameDimensions) : null;
+  const overlayBuffer = overlays.length > 0 ? await renderSequenceOverlayToPng(overlays, frameDimensions, overlayPositions) : null;
 
   let tempDir: string | null = null;
   let overlayPath: string | null = null;

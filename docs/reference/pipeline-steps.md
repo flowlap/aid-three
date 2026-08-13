@@ -101,7 +101,7 @@ interface SequencePlan {
 - 직전 1~2개 씬의 화면 유형: 같은 유형이 3연속 반복되지 않도록 프롬프트에 다양성 유도 문구를 동적으로 추가한다(2연속 반복 시에는 해당 유형을 명시적으로 배제).
 - AI(flash 모델)는 화면 유형 중 하나를 정확히 선택하고, 그 결과(`screenType`/`recommendedLayout`/`rationale`/`caption`/`keywords`)를 `computeVisualDesign(scene, screenType)`(AI 호출 없는 순수 함수)에 넘겨 나머지 비주얼 설계 필드(레이아웃 템플릿 문구)를 코드로 계산한다. `caption`(화면 자막)과 `keywords`(핵심 키워드)는 AI가 나레이션 전체를 검토해 직접 작성/선정한 값이며 — 나레이션을 앞에서부터 자르거나(caption) 등장 순서로 단어를 줍는(keywords) 로컬 휴리스틱이 아니다. 그 로컬 휴리스틱은 AI가 값을 안 줬을 때만 쓰이는 폴백으로 남아 있다.
 
-**시퀀스 모드 확장**: 시퀀스 모드 프로젝트는 `sequences.json`을 로드/검증해 해당 씬이 속한 시퀀스의 `purpose`/`continuity`/`masterVisual.description`과 그 씬의 카메라·오버레이 지시만 골라 `sequenceContext`로 프롬프트에 추가한다(다른 시퀀스 정보는 넘기지 않음). `sequences.json`이 없거나 무결성 오류가 있으면 사용자에게 "먼저 시퀀스 단계를 완료해달라"는 사전조건 오류를 보여준다. 프롬프트는 씬 고유의 교육 콘텐츠를 우선하면서 시퀀스의 비주얼 세계관을 유지하도록 지시하고, 자막/숫자/라벨/차트는 렌더러가 그리는 오버레이이지 이미지에 구워 넣을 텍스트가 아니라는 점을 명시한다. 씬 모드는 이 컨텍스트 없이 기존 경로를 그대로 타며 출력 계약도 동일하다.
+**시퀀스 모드 확장**: 시퀀스 모드 프로젝트는 `sequences.json`을 로드/검증해 해당 씬이 속한 시퀀스의 `purpose`/`continuity`/`masterVisual.description`과 그 씬의 카메라·오버레이 지시만 골라 `sequenceContext`로 프롬프트에 추가한다(다른 시퀀스 정보는 넘기지 않음). `sequences.json`이 없거나 무결성 오류가 있으면 사용자에게 "먼저 시퀀스 단계를 완료해달라"는 사전조건 오류를 보여준다. 프롬프트는 씬 고유의 교육 콘텐츠를 우선하면서 시퀀스의 비주얼 세계관을 유지하도록 지시하고, 자막/숫자/라벨/차트는 렌더러가 그리는 오버레이이지 이미지에 구워 넣을 텍스트가 아니라는 점을 명시한다. 이때 AI는 그 씬의 오버레이 목록(번호 매김) 각각에 9분면 배치(`overlayPositions`, `layoutElements`와 같은 9개 값)도 함께 배정해, 코드기반(composite) 오버레이 렌더러가 화면유형이 정한 배치를 그대로 반영할 수 있게 한다(`lib/video/renderSequenceFrame.tsx`의 `buildSequenceOverlayLayout` — 구조화 콘텐츠(flow/diagram/chart)나 좌표 지정된 highlight는 이 배치를 무시하고 기존 방식을 유지). 씬 모드는 이 컨텍스트 없이 기존 경로를 그대로 타며 출력 계약도 동일하다.
 
 **출력** (`screen-design.json`, 씬 id 기준 매핑 — 화면 유형과 비주얼 설계를 한 파일에 저장)
 ```json
@@ -122,11 +122,13 @@ interface SequencePlan {
       "imageOrDiagramDescription": "이미지 또는 도식에 대한 설명(제작 지시용, 이미지 자체는 생성하지 않음)",
       "objectPlacement": "좌측 인물 아이콘, 우측 텍스트 박스",
       "appearanceOrder": ["제목", "본문 텍스트", "아이콘"],
-      "productionNotes": "제작 지시 사항"
+      "productionNotes": "제작 지시 사항",
+      "overlayPositions": ["top-left", "bottom-right"]
     }
   }
 }
 ```
+`overlayPositions`는 시퀀스 모드에서만, 그 씬에 오버레이가 계획된 경우에만 채워진다(옵션). 배열의 i번째 값은 `Sequence.overlays`를 sceneId로 필터링했을 때의 i번째 오버레이가 위치할 9분면(`layoutElements`와 같은 9개 값)이다 — 그 자리에 무엇이 있는지는 사람이 검증하지 않으므로, 값이 없거나 잘못돼도 렌더러가 기존 고정 위치로 조용히 폴백한다.
 
 `visualDesigns[id].caption`/`keywords`는 `screenTypes[id]`의 동일 필드를 그대로 복사한 값이다(`computeVisualDesign`이 AI 응답을 그대로 통과시킴) — 두 곳에 있는 이유는 `screenTypes`가 AI 원본 응답을, `visualDesigns`가 화면 구성에 필요한 전체 필드를 한데 모은 최종 산출물을 나타내기 때문.
 

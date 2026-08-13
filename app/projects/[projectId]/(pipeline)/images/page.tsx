@@ -10,6 +10,7 @@ import {
   DEFAULT_BACKGROUND_IMAGE_PROMPT,
   DEFAULT_PRESENTER_IMAGE_PROMPT,
   DEFAULT_STYLE_IMAGE_PROMPT,
+  DEFAULT_SEQUENCE_SCENE_EXTRA_PROMPT,
 } from "@/lib/pipeline/commonPromptDefaults";
 import type { Scene } from "@/lib/pipeline/splitScenes";
 import type { ScreenTypeAssignment } from "@/lib/pipeline/selectScreenTypes";
@@ -56,6 +57,8 @@ export default async function ImagesPage({ params }: { params: Promise<{ project
   const sequenceImageModeRaw = (await readProjectFile(projectId, "sequence-image-mode.txt"))?.trim();
   const initialSequenceImageMode: SequenceImageMode = sequenceImageModeRaw === "composite" ? "composite" : "ai";
   const sequencePlan = isSequence ? await readSequencePlan(projectId) : null;
+  const initialSequenceSceneExtraPrompt =
+    (await readProjectFile(projectId, "sequence-scene-extra-prompt.txt"))?.trim() || DEFAULT_SEQUENCE_SCENE_EXTRA_PROMPT;
 
   return (
     <>
@@ -91,6 +94,7 @@ export default async function ImagesPage({ params }: { params: Promise<{ project
         initialHchatGeminiModel={initialHchatGeminiModel}
         imageAspectRatio={imageAspectRatio}
         sequencePlan={sequencePlan}
+        initialSequenceSceneExtraPrompt={initialSequenceSceneExtraPrompt}
       />
     </>
   );

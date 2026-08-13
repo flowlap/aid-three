@@ -56,6 +56,15 @@ export interface ScreenTypeAssignment {
    * scenes instead of defaulting to the same position every time.
    */
   presenterPosition?: PresenterPosition;
+  /**
+   * Sequence mode only — see VisualDesign.overlayPositions (designVisuals.ts)
+   * for the full rationale. Populated here (not planSequences.ts) because
+   * screen-design runs after sequences and already receives this scene's
+   * planned overlays as read-only context (buildSequenceOverlayContextBlock)
+   * — the AI can place them relative to whatever screenType/layoutElements
+   * it's choosing for THIS scene, instead of sequences.ts guessing blind.
+   */
+  overlayPositions?: (LayoutPosition | undefined)[];
 }
 
 function isStringArray(value: unknown): value is string[] {
@@ -134,6 +143,21 @@ function sanitizeLayoutElements(value: unknown): LayoutElement[] | undefined {
       LAYOUT_POSITION_SET.has((item as LayoutElement).position as LayoutPosition)
   );
   return cleaned.length > 0 ? cleaned : undefined;
+}
+
+/**
+ * Unlike sanitizeLayoutElements, invalid entries are mapped to `undefined`
+ * in place rather than filtered out — index i must keep meaning "the i-th
+ * overlay of this scene" (see ScreenTypeAssignment.overlayPositions), so
+ * dropping a bad entry would silently shift every later overlay's position
+ * onto the wrong one. A length mismatch against the scene's actual overlay
+ * count is deliberately not checked here (this function has no access to
+ * that count) — the renderer zips positions against overlays by index and
+ * simply has nothing for indices past either array's end.
+ */
+function sanitizeOverlayPositions(value: unknown): (LayoutPosition | undefined)[] | undefined {
+  if (!Array.isArray(value) || value.length === 0) return undefined;
+  return value.map((item) => (typeof item === "string" && LAYOUT_POSITION_SET.has(item) ? (item as LayoutPosition) : undefined));
 }
 
 const PRESENTER_POSITION_SET: ReadonlySet<string> = new Set(PRESENTER_POSITIONS);
@@ -303,11 +327,11 @@ function buildSequenceOverlayContextBlock(context: SceneSequenceContext): string
   }
   if (overlays.length > 0) {
     lines.push(
-      "- 이 씬에 계획된 오버레이(자막/숫자/라벨/차트 등은 렌더러가 이미지 위에 별도로 합성합니다 — imageOrDiagramDescription과 objectPlacement에는 아래 항목을 글자·숫자로 다시 그려 넣도록 요청하지 마세요):"
+      "- 이 씬에 계획된 오버레이(자막/숫자/라벨/차트 등은 렌더러가 이미지 위에 별도로 합성합니다 — imageOrDiagramDescription과 objectPlacement에는 아래 항목을 글자·숫자로 다시 그려 넣도록 요청하지 마세요. 번호는 아래 overlayPositions 필드에서 그대로 참조하세요):"
     );
-    for (const overlay of overlays) {
-      lines.push(`  - (${overlay.type}) ${overlay.description}`);
-    }
+    overlays.forEach((overlay, index) => {
+      lines.push(`  - ${index}: (${overlay.type}) ${overlay.description}`);
+    });
   }
 
   return `\n${lines.join("\n")}\n`;
@@ -436,7 +460,9 @@ layoutElements: objectPlacement에서 서술한 배치를 3~6개의 (label, posi
 
 presenterPosition: 이 화면에 강사(발표자)가 등장한다면 어디에 배치할지 반드시 다음 4개 중 하나로 선택하세요: left, right, center, full. 방금 정한 objectPlacement/layoutElements와 겹치지 않게 — 다른 시각 요소가 이미 차지한 자리를 피해서 정하세요.
 
-JSON으로만 응답하세요: {"scenes": [{"order": number, "screenType": string, "recommendedLayout": string, "rationale": string, "caption": string, "keywords": string[], "imageOrDiagramDescription": string, "objectPlacement": string, "layoutElements": {"label": string, "position": string}[], "presenterPosition": string}]} — scenes 배열에는 위 씬 목록의 모든 order가 하나씩, 목록과 같은 순서로 빠짐없이 포함되어야 합니다.`;
+overlayPositions: 이 씬에 번호가 매겨진 오버레이 목록이 있는 경우에만 작성하세요(없으면 빈 배열). 그 목록의 각 번호마다, 오버레이 카드를 화면 어디에 둘지 다음 9개 중 하나로 순서대로(0번부터) 배열에 담으세요: top-left, top, top-right, left, center, right, bottom-left, bottom, bottom-right. 방금 정한 layoutElements/presenterPosition이 차지한 자리와 겹치지 않는 위치를 고르세요.
+
+JSON으로만 응답하세요: {"scenes": [{"order": number, "screenType": string, "recommendedLayout": string, "rationale": string, "caption": string, "keywords": string[], "imageOrDiagramDescription": string, "objectPlacement": string, "layoutElements": {"label": string, "position": string}[], "presenterPosition": string, "overlayPositions": string[]}]} — scenes 배열에는 위 씬 목록의 모든 order가 하나씩, 목록과 같은 순서로 빠짐없이 포함되어야 합니다.`;
 
   return [
     { role: "system", content: "당신은 이러닝 스토리보드 화면 설계 전문가입니다." },
@@ -493,6 +519,7 @@ async function requestSceneGroupAssignments(
       ...assignmentFields,
       layoutElements: sanitizeLayoutElements((entry as { layoutElements?: unknown }).layoutElements),
       presenterPosition: sanitizePresenterPosition((entry as { presenterPosition?: unknown }).presenterPosition, entry.screenType),
+      overlayPositions: sanitizeOverlayPositions((entry as { overlayPositions?: unknown }).overlayPositions),
     };
     byOrder.set(order, assignment);
   }

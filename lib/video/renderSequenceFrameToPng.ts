@@ -1,6 +1,7 @@
 import { buildSequenceOverlayLayout } from "./renderSequenceFrame";
 import { rasterizeToPng } from "./rasterizeToPng";
 import type { SequenceOverlayEntry } from "@/lib/pipeline/sequenceTypes";
+import type { LayoutPosition } from "@/lib/pipeline/designVisuals";
 import type { FrameDimensions } from "./frameDimensions";
 
 /**
@@ -19,10 +20,11 @@ import type { FrameDimensions } from "./frameDimensions";
  */
 export async function renderSequenceOverlayToPng(
   overlays: SequenceOverlayEntry[],
-  dimensions: FrameDimensions
+  dimensions: FrameDimensions,
+  overlayPositions?: (LayoutPosition | undefined)[]
 ): Promise<Buffer | null> {
   if (overlays.length === 0) return null;
 
-  const layout = buildSequenceOverlayLayout(overlays, dimensions.width, dimensions.height);
+  const layout = buildSequenceOverlayLayout(overlays, dimensions.width, dimensions.height, overlayPositions);
   return rasterizeToPng(layout, dimensions);
 }

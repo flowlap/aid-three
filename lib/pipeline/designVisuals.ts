@@ -48,4 +48,19 @@ export interface VisualDesign {
    * field existed.
    */
   presenterPosition?: PresenterPosition;
+  /**
+   * Sequence mode only — a 3x3-grid position per entry of this scene's
+   * `Sequence.overlays` (same sceneId-filtered order used everywhere:
+   * buildSequenceContextByScene, bakeSequenceSceneStill, buildSequenceTimeline
+   * — so index i here always means "the i-th overlay planned for this
+   * scene"). Lets the sequence-mode composite overlay renderer
+   * (renderSequenceFrame.tsx) place a scene's fallback label/highlight cards
+   * according to THIS scene's actual screen design instead of always
+   * stacking them in the same two fixed zones. Undefined (or an
+   * out-of-range/invalid entry) for structured overlays (flow/diagram/chart)
+   * and target-based highlights, which keep their existing placement
+   * regardless — see renderSequenceFrame.tsx's OVERLAY_STYLES/zone system —
+   * and for scene-mode projects, which have no Sequence.overlays at all.
+   */
+  overlayPositions?: (LayoutPosition | undefined)[];
 }
