@@ -87,10 +87,17 @@ export function SequenceMasterVisualsSection({
    * sequences no longer contend with each other. Capped like the main batch
    * scene-image job: LOCAL_IMAGE_CONCURRENCY (1, the local engine runs on a
    * single GPU process) or IMAGE_GENERATION_CONCURRENCY for remote engines.
+   *
+   * `force` mirrors the scene-image step's "전체 다시 생성" — normally this
+   * only targets sequences that aren't already `"generated"` (missing or
+   * stale), but a force run regenerates every sequence regardless of status,
+   * for cases like "the common prompt/style reference changed and every
+   * master should reflect it" where nothing is technically stale.
    */
-  async function generateAll() {
+  async function generateAll(force: boolean) {
     if (batchRunning) return;
-    const targets = sortedSequences(plan).filter((seq) => seq.masterVisual.status !== "generated");
+    const all = sortedSequences(plan);
+    const targets = force ? all : all.filter((seq) => seq.masterVisual.status !== "generated");
     if (targets.length === 0) return;
 
     setBatchRunning(true);
@@ -150,16 +157,28 @@ export function SequenceMasterVisualsSection({
             중지
           </Button>
         ) : (
-          <Button
-            variant="outline"
-            size="sm"
-            className="ml-auto"
-            onClick={() => void generateAll()}
-            disabled={pendingCount === 0}
-            title="마스터 비주얼이 없는(또는 재생성이 필요한) 시퀀스를 모두 병렬로 생성합니다"
-          >
-            {pendingCount === 0 ? "모두 생성됨" : `일괄 생성 (${pendingCount}개)`}
-          </Button>
+          <div className="ml-auto flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void generateAll(false)}
+              disabled={pendingCount === 0}
+              title="마스터 비주얼이 없는(또는 재생성이 필요한) 시퀀스를 모두 병렬로 생성합니다"
+            >
+              {pendingCount === 0 ? "모두 생성됨" : `일괄 생성 (${pendingCount}개)`}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                if (!confirm(`이미 생성된 것을 포함해 전체 ${sequences.length}개 시퀀스의 마스터 비주얼을 다시 생성합니다. 계속할까요?`)) return;
+                void generateAll(true);
+              }}
+              title="상태와 무관하게 모든 시퀀스의 마스터 비주얼을 다시 생성합니다"
+            >
+              전체 재생성
+            </Button>
+          </div>
         )}
       </div>
       {batchRunning && batchProgress && (

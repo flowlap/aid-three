@@ -202,13 +202,26 @@ const BACKGROUND_FIXED_INSTRUCTION =
   "이 화면은 제공된 배경 참고 이미지를 그대로 배경으로 사용해야 합니다. 배경 자체를 새로 그리거나 다른 배경으로 바꾸지 말고, 그 위에 이 화면의 구성 요소(자막, 아이콘, 강사 등)만 배치하세요.";
 
 /**
+ * DEFAULT_STYLE_IMAGE_PROMPT (commonPromptDefaults.ts) deliberately bakes
+ * literal placeholder strings ("샘플 자막입니다", "A/B/C") into the
+ * tone-and-manner reference image so the model has a concrete lower-third
+ * to anchor its style on. Exported so every prompt that attaches that
+ * reference image — this scene's and the sequence master visual's
+ * (generateSequenceMasterImage.ts) — can reuse the exact same warning
+ * instead of drifting out of sync with what the reference image actually
+ * contains.
+ */
+export const STYLE_REFERENCE_SAMPLE_TEXT_EXCLUSION =
+  "기준 이미지 속 자막·숫자·라벨 및 '샘플 자막입니다', 'A/B/C' 같은 모든 글자는 스타일 예시일 뿐 실제 콘텐츠가 아닙니다. 기준 이미지의 어떤 문구·문자·숫자도 복사하거나 변형해 넣지 마세요.";
+
+/**
  * Appended when a project-wide "톤앤매너 기준" style reference image is
  * attached — an anchor for color/illustration style/mood, not content. Told
  * explicitly not to copy the reference's specific composition/content since
  * this one sample image gets reused across every scene's independent call.
  */
 const STYLE_REFERENCE_INSTRUCTION =
-  "제공된 톤앤매너 기준 이미지와 동일한 색감, 일러스트 스타일, 자막바(로어써드)·아이콘·인포그래픽 등 구성 요소의 디자인 방식과 전체적인 분위기를 유지해서 그려주세요. 기준 이미지 속 자막·숫자·라벨 및 '샘플 자막입니다', 'A/B/C' 같은 모든 글자는 스타일 예시일 뿐 이 화면의 콘텐츠가 아닙니다. 기준 이미지의 어떤 문구·문자·숫자도 복사하거나 변형해 넣지 마세요. 이 화면에서 명시적으로 요청한 자막만 넣을 수 있으며, 자막 요청이 없다면 어떤 텍스트도 새로 넣지 마세요. 실제 텍스트 내용과 화면 구성은 이 화면 자체의 구성 명세를 따르세요.";
+  `제공된 톤앤매너 기준 이미지와 동일한 색감, 일러스트 스타일, 자막바(로어써드)·아이콘·인포그래픽 등 구성 요소의 디자인 방식과 전체적인 분위기를 유지해서 그려주세요. ${STYLE_REFERENCE_SAMPLE_TEXT_EXCLUSION} 이 화면에서 명시적으로 요청한 자막만 넣을 수 있으며, 자막 요청이 없다면 어떤 텍스트도 새로 넣지 마세요. 실제 텍스트 내용과 화면 구성은 이 화면 자체의 구성 명세를 따르세요.`;
 
 /**
  * Sequence mode, master reference image attached (see

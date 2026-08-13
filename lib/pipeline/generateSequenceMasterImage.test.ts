@@ -123,6 +123,17 @@ describe("buildSequenceMasterImagePrompt", () => {
     expect(prompt).toContain("간결하고 최소화된 구도");
     expect(prompt).toContain("의미 없는 장식물·소품·군중·복잡한 패턴");
   });
+
+  it("omits the background-reference emphasis instruction when no background reference image is attached", () => {
+    const prompt = buildSequenceMasterImagePrompt(sequence({ id: "sequence-001" }));
+    expect(prompt).not.toContain("배경 고정");
+  });
+
+  it("tells the model to heavily follow the background-fixed reference image when one is attached", () => {
+    const prompt = buildSequenceMasterImagePrompt(sequence({ id: "sequence-001" }), undefined, true);
+    expect(prompt).toContain("배경 참고 이미지(배경 고정)가 함께 첨부되었습니다");
+    expect(prompt).toContain("가벼운 참고 자료로 다루지 말고");
+  });
 });
 
 describe("generateSequenceMasterImage", () => {
@@ -139,6 +150,12 @@ describe("generateSequenceMasterImage", () => {
     const style = Buffer.from("style");
     await generateSequenceMasterImage(client, sequence({ id: "sequence-001" }), { background, style });
     expect(client.calls[0].options?.referenceImages).toEqual([style, background]);
+  });
+
+  it("adds the background-reference emphasis instruction to the prompt when a background reference image is passed", async () => {
+    const client = new MockImageClient();
+    await generateSequenceMasterImage(client, sequence({ id: "sequence-001" }), { background: Buffer.from("bg") });
+    expect(client.calls[0].prompt).toContain("배경 참고 이미지(배경 고정)가 함께 첨부되었습니다");
   });
 
   it("retries and eventually succeeds on a transient (non-429) error", async () => {
