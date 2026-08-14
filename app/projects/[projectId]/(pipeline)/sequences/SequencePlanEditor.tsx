@@ -29,11 +29,15 @@ import {
 import type { ProductionMode } from "@/lib/projects/types";
 import { useAiJob } from "@/lib/client/useAiJob";
 import { useNextStepAction } from "@/lib/client/StepNavContext";
+import { useToast } from "@/lib/client/ToastContext";
 import { useAutoProgressFlag, withAutoProgress } from "@/lib/client/useAutoProgress";
 import { estimateSecondsForChars, estimateSecondsForScenes } from "@/lib/client/estimateAiDuration";
 import { DEFAULT_SCREEN_DESIGN_COMMON_PROMPT } from "@/lib/pipeline/commonPromptDefaults";
 import { ScreenDesignSceneCard } from "../screen-design/ScreenDesignFields";
 import { cn } from "@/lib/utils";
+
+/** Lets the "저장 완료" toast actually be seen before a destination navigation unloads the page. */
+const TOAST_BEFORE_NAVIGATE_MS = 600;
 
 type SequenceStreamEvent =
   | { type: "chunk"; text: string }
@@ -107,6 +111,7 @@ export function SequencePlanEditor({
 }) {
   const router = useRouter();
   const auto = useAutoProgressFlag();
+  const { showToast } = useToast();
   const [scenes] = useState<Scene[]>(initialScenes);
   const [plan, setPlan] = useState<SequencePlan | null>(initialPlan);
   const [planDirty, setPlanDirty] = useState(false);
@@ -360,7 +365,9 @@ export function SequencePlanEditor({
       }
 
       setPlanDirty(false);
+      showToast("저장 완료");
       if (destination) {
+        await new Promise((resolve) => setTimeout(resolve, TOAST_BEFORE_NAVIGATE_MS));
         window.location.href = destination;
       }
     } catch {

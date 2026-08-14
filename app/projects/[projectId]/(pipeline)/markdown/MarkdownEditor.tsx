@@ -8,8 +8,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { AiJobStatus } from "@/components/AiJobStatus";
 import { useAiJob } from "@/lib/client/useAiJob";
 import { useNextStepAction } from "@/lib/client/StepNavContext";
+import { useToast } from "@/lib/client/ToastContext";
 import { estimateSecondsForChars } from "@/lib/client/estimateAiDuration";
 import type { ScriptType } from "@/lib/projects/types";
+
+/** Lets the "저장 완료" toast actually be seen before a destination navigation unloads the page. */
+const TOAST_BEFORE_NAVIGATE_MS = 600;
 
 type MarkdownStreamEvent =
   | { type: "chunk"; text: string }
@@ -30,6 +34,7 @@ export function MarkdownEditor({
 }) {
   const isPreEditedNarration = scriptType === "narration_pre_edited";
   const router = useRouter();
+  const { showToast } = useToast();
   const [markdown, setMarkdown] = useState(initialMarkdown ?? "");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -55,7 +60,8 @@ export function MarkdownEditor({
     await start();
   }
 
-  async function saveAndGoTo(destination: string) {
+  /** Omitting `destination` saves in place (the standalone "저장" button); passing one saves then navigates there ("다음 단계"/자동 진행). */
+  async function saveAndGoTo(destination?: string) {
     setSaving(true);
     setSaveError(null);
     try {
@@ -69,6 +75,9 @@ export function MarkdownEditor({
         setSaveError(data.error ?? "저장에 실패했습니다");
         return;
       }
+      showToast("저장 완료");
+      if (!destination) return;
+      await new Promise((resolve) => setTimeout(resolve, TOAST_BEFORE_NAVIGATE_MS));
       // A plain SPA router.push() here can reuse a stale cached render of
       // the shared (pipeline) layout (stepper checkmarks included) — the
       // layout only reliably refetches project.currentStep on a real
@@ -114,10 +123,13 @@ export function MarkdownEditor({
           )}
           <Button
             variant="outline"
-            onClick={handleAutoProgress}
+            onClick={() => void saveAndGoTo()}
             disabled={!markdown || saving || loading}
             className="ml-auto"
           >
+            {saving ? "저장 중..." : "저장"}
+          </Button>
+          <Button variant="outline" onClick={handleAutoProgress} disabled={!markdown || saving || loading}>
             자동 진행 (2~6단계)
           </Button>
         </div>
