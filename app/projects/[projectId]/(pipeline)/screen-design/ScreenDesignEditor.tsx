@@ -12,10 +12,14 @@ import type { VisualDesign } from "@/lib/pipeline/designVisuals";
 import { buildSceneHierarchy } from "@/lib/pipeline/sceneHierarchy";
 import { useAiJob } from "@/lib/client/useAiJob";
 import { useNextStepAction } from "@/lib/client/StepNavContext";
+import { useToast } from "@/lib/client/ToastContext";
 import { useAutoProgressFlag, withAutoProgress } from "@/lib/client/useAutoProgress";
 import { estimateSecondsForScenes } from "@/lib/client/estimateAiDuration";
 import { DEFAULT_SCREEN_DESIGN_COMMON_PROMPT } from "@/lib/pipeline/commonPromptDefaults";
 import { ScreenDesignSceneCard } from "./ScreenDesignFields";
+
+/** Lets the "저장 완료" toast actually be seen before a destination navigation unloads the page. */
+const TOAST_BEFORE_NAVIGATE_MS = 600;
 
 type ScreenDesignStreamEvent =
   | { type: "scene"; sceneId: string; index: number; total: number; screenType: ScreenTypeAssignment; visualDesign: VisualDesign }
@@ -38,6 +42,7 @@ export function ScreenDesignEditor({
 }) {
   const router = useRouter();
   const auto = useAutoProgressFlag();
+  const { showToast } = useToast();
   const [screenTypes, setScreenTypes] = useState(initialScreenTypes);
   const [designs, setDesigns] = useState(initialDesigns);
   const [saving, setSaving] = useState(false);
@@ -138,7 +143,8 @@ export function ScreenDesignEditor({
     }
   }
 
-  async function handleNext() {
+  /** Omitting `destination` saves in place (the standalone "저장" button); passing one saves then navigates there ("다음 단계"). */
+  async function saveAndGoTo(destination?: string) {
     setSaving(true);
     setSaveError(null);
     try {
@@ -152,17 +158,24 @@ export function ScreenDesignEditor({
         setSaveError(data.error ?? "저장에 실패했습니다");
         return;
       }
+      showToast("저장 완료");
+      if (!destination) return;
+      await new Promise((resolve) => setTimeout(resolve, TOAST_BEFORE_NAVIGATE_MS));
       // A plain SPA router.push() here can reuse a stale cached render of
       // the shared (pipeline) layout (stepper checkmarks included) — the
       // layout only reliably refetches project.currentStep on a real
       // navigation, so this step deliberately does a full page load instead
       // of a soft client-side transition.
-      window.location.href = withAutoProgress(`/projects/${projectId}/review`, auto);
+      window.location.href = destination;
     } catch {
       setSaveError("저장 요청 중 오류가 발생했습니다");
     } finally {
       setSaving(false);
     }
+  }
+
+  function handleNext() {
+    return saveAndGoTo(withAutoProgress(`/projects/${projectId}/review`, auto));
   }
 
   useNextStepAction(
@@ -229,7 +242,15 @@ export function ScreenDesignEditor({
               취소
             </Button>
           )}
-          <span className="ml-auto text-xs font-medium text-muted-foreground">
+          <Button
+            variant="outline"
+            onClick={() => void saveAndGoTo()}
+            disabled={Object.keys(screenTypes).length === 0 || saving || loading}
+            className="ml-auto"
+          >
+            {saving ? "저장 중..." : "저장"}
+          </Button>
+          <span className="text-xs font-medium text-muted-foreground">
             {completedCount} / {scenes.length}개 씬 완료
           </span>
         </div>

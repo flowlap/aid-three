@@ -14,10 +14,14 @@ import type { ProductionMode, ScriptType } from "@/lib/projects/types";
 import { getPipelineSteps } from "@/lib/projects/pipelineSteps";
 import { useAiJob } from "@/lib/client/useAiJob";
 import { useNextStepAction } from "@/lib/client/StepNavContext";
+import { useToast } from "@/lib/client/ToastContext";
 import { useAutoProgressFlag, withAutoProgress } from "@/lib/client/useAutoProgress";
 import { estimateSecondsForChars } from "@/lib/client/estimateAiDuration";
 import { cn } from "@/lib/utils";
 import { getDepthBorderClass } from "@/lib/depthColors";
+
+/** Lets the "저장 완료" toast actually be seen before a destination navigation unloads the page. */
+const TOAST_BEFORE_NAVIGATE_MS = 600;
 
 type SceneStreamEvent =
   | { type: "chunk"; text: string }
@@ -63,6 +67,7 @@ export function SceneListEditor({
 }) {
   const router = useRouter();
   const auto = useAutoProgressFlag();
+  const { showToast } = useToast();
   const [scenes, setScenes] = useState<Scene[]>(initialScenes);
   const textareaRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
   const [saving, setSaving] = useState(false);
@@ -192,7 +197,8 @@ export function SceneListEditor({
     });
   }
 
-  async function saveAndGoTo(destination: string) {
+  /** Omitting `destination` saves in place (the standalone "저장" button); passing one saves then navigates there ("다음 단계"/자동 진행). */
+  async function saveAndGoTo(destination?: string) {
     setSaving(true);
     setSaveError(null);
     try {
@@ -206,6 +212,9 @@ export function SceneListEditor({
         setSaveError(data.error ?? "저장에 실패했습니다");
         return;
       }
+      showToast("저장 완료");
+      if (!destination) return;
+      await new Promise((resolve) => setTimeout(resolve, TOAST_BEFORE_NAVIGATE_MS));
       // A plain SPA router.push() here can reuse a stale cached render of
       // the shared (pipeline) layout (stepper checkmarks included) — the
       // layout only reliably refetches project.currentStep on a real
@@ -285,7 +294,15 @@ export function SceneListEditor({
               {analyzing ? "분석 중..." : "AI 추가 정보 분석"}
             </Button>
           )}
-          <span className="ml-auto text-xs font-medium text-muted-foreground">총 {scenes.length}개 씬</span>
+          <Button
+            variant="outline"
+            onClick={() => void saveAndGoTo()}
+            disabled={scenes.length === 0 || saving || loading}
+            className="ml-auto"
+          >
+            {saving ? "저장 중..." : "저장"}
+          </Button>
+          <span className="text-xs font-medium text-muted-foreground">총 {scenes.length}개 씬</span>
         </div>
         <AiJobStatus
           loading={loading}
@@ -353,39 +370,42 @@ export function SceneListEditor({
                       />
                       초
                     </label>
-                    <div className="ml-auto flex gap-1">
+                    <div className="ml-auto flex gap-1.5">
                       {!isTitle && (
-                        <button
+                        <Button
                           type="button"
+                          variant="outline"
+                          size="sm"
                           onClick={() => splitScene(index)}
-                          aria-label="씬 분리"
                           title="씬 분리 (텍스트 커서 위치 기준)"
-                          className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                         >
-                          <Scissors className="size-4" />
-                        </button>
+                          <Scissors className="size-3.5" />
+                          분리
+                        </Button>
                       )}
                       {index < scenes.length - 1 && (
-                        <button
+                        <Button
                           type="button"
+                          variant="outline"
+                          size="sm"
                           onClick={() => mergeWithNext(index)}
-                          aria-label="다음 씬과 병합"
                           title="다음 씬과 병합"
-                          className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                         >
-                          <Combine className="size-4" />
-                        </button>
+                          <Combine className="size-3.5" />
+                          병합
+                        </Button>
                       )}
-                      <button
+                      <Button
                         type="button"
+                        variant="destructive"
+                        size="sm"
                         onClick={() => deleteScene(index)}
                         disabled={scenes.length <= 1}
-                        aria-label="씬 삭제"
                         title="씬 삭제"
-                        className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-40"
                       >
-                        <Trash2 className="size-4" />
-                      </button>
+                        <Trash2 className="size-3.5" />
+                        삭제
+                      </Button>
                     </div>
                   </div>
                   {entry && entry.breadcrumb.length > 0 && (

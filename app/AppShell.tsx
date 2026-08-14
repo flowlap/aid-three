@@ -7,6 +7,7 @@ import { Check, Home } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EditableProjectTitle } from "@/components/EditableProjectTitle";
 import { StepNavProvider, type NextStepAction } from "@/lib/client/StepNavContext";
+import { ToastProvider } from "@/lib/client/ToastContext";
 import { getPipelineSteps, type PipelineBarStep } from "@/lib/projects/pipelineSteps";
 import type { ProductionMode } from "@/lib/projects/types";
 import { cn } from "@/lib/utils";
@@ -123,7 +124,9 @@ export function AppShell({
             {currentIndex + 1}단계 · {viewedStep.label}
           </p>
         )}
-        <StepNavProvider setNextAction={setNextAction}>{children}</StepNavProvider>
+        <ToastProvider>
+          <StepNavProvider setNextAction={setNextAction}>{children}</StepNavProvider>
+        </ToastProvider>
       </main>
 
       <footer className="sticky bottom-0 z-10 shrink-0 transform-gpu border-t bg-background shadow-[0_-1px_2px_rgba(15,15,15,0.04)] [backface-visibility:hidden]">
