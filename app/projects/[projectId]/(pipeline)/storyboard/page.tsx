@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { readProject, readProjectFile, listProjectImageIds, updateProjectStep } from "@/lib/projects/store";
+import { readProject, readProjectFile, listProjectImageIds, listProjectImageVersions, updateProjectStep } from "@/lib/projects/store";
 import { getProductionMode } from "@/lib/projects/types";
 import { computeStoryboardPrereqsComplete } from "@/lib/projects/stepCompletion";
 import { Button } from "@/components/ui/button";
@@ -39,6 +39,7 @@ export default async function StoryboardPage({ params }: { params: Promise<{ pro
   const screenTypes: Record<string, ScreenTypeAssignment> = screenDesign.screenTypes ?? {};
   const visualDesigns: Record<string, VisualDesign> = screenDesign.visualDesigns ?? {};
   const imageIds = new Set(await listProjectImageIds(projectId));
+  const imageVersions = await listProjectImageVersions(projectId);
   const mockupVariants = computeMockupVariantIndexes(scenes, screenTypes);
   const hierarchy = buildSceneHierarchy(scenes);
   const imageAspectRatio = await getProjectImageAspectRatio(projectId);
@@ -86,7 +87,7 @@ export default async function StoryboardPage({ params }: { params: Promise<{ pro
                   {hasImage && (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
-                      src={`/api/projects/${projectId}/images/${scene.id}`}
+                      src={`/api/projects/${projectId}/images/${scene.id}?v=${imageVersions[scene.id] ?? 0}`}
                       alt={design?.caption ?? scene.narrationText}
                       className="w-32 shrink-0 rounded-lg border object-cover"
                       style={{ aspectRatio: `${imageAspectRatio.width} / ${imageAspectRatio.height}` }}

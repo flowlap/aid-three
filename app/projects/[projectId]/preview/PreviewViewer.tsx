@@ -30,6 +30,7 @@ export function PreviewViewer({
   screenTypes,
   visualDesigns,
   imageIds,
+  imageVersions,
   imageAspectRatio,
 }: {
   projectId: string;
@@ -38,6 +39,8 @@ export function PreviewViewer({
   screenTypes: Record<string, ScreenTypeAssignment>;
   visualDesigns: Record<string, VisualDesign>;
   imageIds: string[];
+  /** Per-scene image file mtime (ms), keyed by sceneId — cache-busts the <img> URL so a regenerated image (e.g. composite → AI mode) isn't masked by a stale cache. See listProjectImageVersions. */
+  imageVersions: Record<string, number>;
   /** Actual generated-image pixel ratio (see lib/pipeline/imageAspectRatio.ts) — OpenAI defaults to 3:2, Gemini to 16:9. */
   imageAspectRatio: { width: number; height: number };
 }) {
@@ -294,7 +297,7 @@ ${clone.outerHTML}
                     {hasImage ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
-                        src={`/api/projects/${projectId}/images/${scene.id}`}
+                        src={`/api/projects/${projectId}/images/${scene.id}?v=${imageVersions[scene.id] ?? 0}`}
                         alt={design?.caption ?? scene.narrationText}
                         className="w-full rounded-lg border object-cover"
                         style={{ aspectRatio: `${imageAspectRatio.width} / ${imageAspectRatio.height}` }}
@@ -332,7 +335,7 @@ ${clone.outerHTML}
                   <p className="text-muted-foreground">{design?.imageOrDiagramDescription}</p>
                   <p className="text-muted-foreground">배치: {design?.objectPlacement}</p>
                   <RelatedImageSearch
-                    imageUrl={hasImage ? `/api/projects/${projectId}/images/${scene.id}` : undefined}
+                    imageUrl={hasImage ? `/api/projects/${projectId}/images/${scene.id}?v=${imageVersions[scene.id] ?? 0}` : undefined}
                     keywords={design?.keywords ?? []}
                     site={imageSearchSite}
                   />

@@ -334,6 +334,41 @@ export async function listProjectImageIds(id: string): Promise<string[]> {
 }
 
 /**
+ * Per-scene image versions (file mtime in ms), keyed by sceneId, for
+ * cache-busting <img src> in the read-only final views (storyboard/preview).
+ * Those are server components with no client-side regenerate state — unlike
+ * the images editor, which bumps its own `?v=` counter on each regenerate —
+ * so an image regenerated in a different mode (e.g. composite → AI) served
+ * from the same bare URL can otherwise stay masked by a stale browser/proxy
+ * cache. Appending `?v={mtime}` makes the URL change whenever the file is
+ * rewritten, so the view always reflects the most recently generated image.
+ * Missing directory → empty map.
+ */
+export async function listProjectImageVersions(id: string): Promise<Record<string, number>> {
+  const dir = projectImagesDir(id);
+  let entries: string[];
+  try {
+    entries = await fs.readdir(dir);
+  } catch {
+    return {};
+  }
+  const versions: Record<string, number> = {};
+  await Promise.all(
+    entries
+      .filter((name) => name.endsWith(".png"))
+      .map(async (name) => {
+        try {
+          const stat = await fs.stat(path.join(dir, name));
+          versions[name.slice(0, -".png".length)] = Math.floor(stat.mtimeMs);
+        } catch {
+          // File vanished between readdir and stat — skip it.
+        }
+      })
+  );
+  return versions;
+}
+
+/**
  * Sequence master visuals, stored one directory deeper than per-scene images:
  * sequence-assets/{sequenceId}/{assetId}.png. `assetId` lets a sequence keep
  * more than one generated master (e.g. after regeneration) without
