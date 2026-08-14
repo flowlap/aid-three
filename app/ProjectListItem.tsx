@@ -9,7 +9,7 @@ import { Card } from "@/components/ui/card";
 import { EditableProjectTitle } from "@/components/EditableProjectTitle";
 import { cn } from "@/lib/utils";
 import { getProjectStatus, PROJECT_STATUS_BADGE_CLASS, PROJECT_STATUS_LABEL } from "@/lib/projects/pipelineStatus";
-import type { ProjectMeta } from "@/lib/projects/types";
+import { getProductionMode, PRODUCTION_MODE_LABEL, type ProjectMeta } from "@/lib/projects/types";
 
 export function ProjectListItem({ project }: { project: ProjectMeta }) {
   const router = useRouter();
@@ -35,6 +35,7 @@ export function ProjectListItem({ project }: { project: ProjectMeta }) {
   }
 
   const status = getProjectStatus(project.currentStep);
+  const productionMode = getProductionMode(project);
 
   return (
     <li>
@@ -45,9 +46,12 @@ export function ProjectListItem({ project }: { project: ProjectMeta }) {
           aria-label={project.title}
         />
         <div className="flex items-start justify-between gap-2">
-          <Badge className={cn("border-transparent font-medium", PROJECT_STATUS_BADGE_CLASS[status])}>
-            {PROJECT_STATUS_LABEL[status]}
-          </Badge>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Badge className={cn("border-transparent font-medium", PROJECT_STATUS_BADGE_CLASS[status])}>
+              {PROJECT_STATUS_LABEL[status]}
+            </Badge>
+            <Badge variant="outline">{PRODUCTION_MODE_LABEL[productionMode]}</Badge>
+          </div>
           <button
             type="button"
             onClick={handleDelete}

@@ -29,3 +29,9 @@ export interface ProjectMeta {
 export function getProductionMode(project: ProjectMeta): ProductionMode {
   return project.productionMode ?? "scene";
 }
+
+/** Short Korean label for display (e.g. the home screen's project list). */
+export const PRODUCTION_MODE_LABEL: Record<ProductionMode, string> = {
+  scene: "씬 모드",
+  sequence: "시퀀스 모드",
+};
