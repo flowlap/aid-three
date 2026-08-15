@@ -99,6 +99,7 @@ export default async function StoryboardPage({ params }: { params: Promise<{ pro
                     design={design}
                     variantIndex={mockupVariants[scene.id] ?? 0}
                     aspectRatio={imageAspectRatio}
+                    style="notebooklm"
                   />
                 </div>
                 <div className="min-w-0 flex-1 space-y-1.5">

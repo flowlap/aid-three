@@ -32,14 +32,20 @@ export const DEFAULT_PRESENTER_IMAGE_PROMPT =
  * the model to actually anchor on, since PRODUCTION_STYLE_INSTRUCTION
  * (generateSceneImage.ts) asks every scene for concrete components — lower
  * thirds, icon badges, infographic cards — that a content-free reference
- * never demonstrated. This version instead asks for a fully composed sample
- * screen with those exact components, filled with placeholder/dummy text so
- * nothing scene-specific leaks into later generations while still giving the
- * model a real example of what "this style's lower third/icon/infographic"
- * looks like.
+ * never demonstrated. A later version asked for a fully composed sample
+ * screen with those exact components — but a single coherent "screen" was
+ * itself the problem: reference-image bias meant later generations
+ * (including the sequence master visual) started copying its specific
+ * composition/layout, not just its color/style, despite text instructions
+ * not to (see STYLE_REFERENCE_TONE_ONLY_INSTRUCTION in
+ * generateSequenceMasterImage.ts). This version keeps concrete, real
+ * components (still nothing to anchor on if abstract) but lays them out as
+ * separate, spaced-apart swatches on a reference sheet instead of one
+ * integrated scene, so there's no single "layout" for anything else to
+ * imitate.
  */
 export const DEFAULT_STYLE_IMAGE_PROMPT =
-  "이러닝 강의 영상의 실제 화면 예시를 1장 그려주세요. 다음 구성 요소를 모두 포함한, 완성된 한 장면처럼 보이는 화면이어야 합니다: 화면 하단의 자막바(로어써드)와 그 안의 짧은 샘플 자막 텍스트, 화면 한쪽의 심플한 아이콘 또는 뱃지, 핵심 내용을 보여주는 간단한 인포그래픽 요소(원형 다이어그램, 막대 그래프, 아이콘 리스트 카드 중 택1). 플랫 일러스트 스타일, 밝고 차분한 파스텔톤 색상, 둥근 모서리와 여백을 살린 미니멀한 레이아웃을 사용해서 이 프로젝트의 대표 컬러 팔레트와 컴포넌트(자막바·아이콘·인포그래픽) 스타일을 명확히 보여주세요. 자막바의 문구와 그래픽 안의 숫자·라벨은 실제 강의 내용과 무관한 임의의 샘플 문구(예: \"샘플 자막입니다\", \"A / B / C\")를 사용하세요. 실존 인물의 얼굴이나 특정 브랜드 로고·상표는 포함하지 마세요.";
+  "이 프로젝트의 디자인 시스템을 보여주는 스타일 참고 시트를 1장 그려주세요. 하나의 완성된 화면 장면이 아니라, 서로 독립된 디자인 요소 샘플들을 여백을 두고 따로따로 배치한 무드보드/스타일 가이드 형태여야 합니다. 다음 요소를 각각 별개의 조각으로 포함하되, 서로 겹치거나 하나의 장면처럼 통합되지 않도록 충분한 여백으로 분리하세요: (1) 이 프로젝트의 주조색·보조색 팔레트를 보여주는 색상 스와치, (2) 화면 하단 자막바(로어써드) 디자인 샘플 1개(짧은 샘플 자막 문구 포함), (3) 아이콘 또는 뱃지 디자인 샘플 1~2개, (4) 인포그래픽 요소 샘플 1개(원형 다이어그램, 막대 그래프, 아이콘 리스트 카드 중 택1). 이 이미지 전체가 하나의 화면 레이아웃이나 장면처럼 보여서는 안 됩니다 — 각 요소는 독립된 참고용 샘플일 뿐입니다. 플랫 일러스트 스타일, 밝고 차분한 파스텔톤 색상, 둥근 모서리를 사용해서 이 프로젝트의 대표 컬러 팔레트와 컴포넌트 스타일을 명확히 보여주세요. 자막바의 문구와 그래픽 안의 숫자·라벨은 실제 강의 내용과 무관한 임의의 샘플 문구(예: \"샘플 자막입니다\", \"A / B / C\")를 사용하세요. 실존 인물의 얼굴이나 특정 브랜드 로고·상표는 포함하지 마세요.";
 
 /**
  * Default for sequence + AI image mode's per-scene "추가 프롬프트" field.

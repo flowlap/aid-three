@@ -93,8 +93,9 @@ async function regenerateScene(projectId: string, sceneId: string, overrides: Re
   const modelSizeRaw = (await readProjectFile(projectId, "image-local-model-size.txt"))?.trim();
   const localModelSize: LocalImageModelSize = modelSizeRaw === "9b" ? "9b" : "4b";
   const hchatGeminiModel = (await readProjectFile(projectId, "image-hchat-gemini-model.txt"))?.trim() || undefined;
+  // Default "ai" when unset, matching the images step UI's default (images/page.tsx).
   const sequenceImageModeRaw = (await readProjectFile(projectId, "sequence-image-mode.txt"))?.trim();
-  const sequenceImageMode: "composite" | "ai" = sequenceImageModeRaw === "ai" ? "ai" : "composite";
+  const sequenceImageMode: "composite" | "ai" = sequenceImageModeRaw === "composite" ? "composite" : "ai";
 
   const presenterEnabled = overrides.presenterEnabled ?? projectPresenterEnabled;
   const backgroundFixed = overrides.backgroundFixed ?? projectBackgroundFixed;

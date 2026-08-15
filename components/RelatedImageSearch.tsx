@@ -4,7 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { Search, Crop, X, Download, Camera } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { getImageSearchSite, type ImageSearchSiteId } from "@/lib/imageSearchSites";
+import { Input } from "@/components/ui/input";
+import type { ImageSearchSite } from "@/lib/imageSearchSites";
 
 interface Rect {
   x: number;
@@ -55,35 +56,39 @@ function downloadBlob(blob: Blob, filename: string) {
 
 /**
  * Per-scene "연관 이미지 찾기" controls for the preview page: click a keyword
- * to open a text search on the chosen site, or crop a region of the scene's
+ * (or type free text) to open a text search on every currently-selected site
+ * (see PreviewViewer.tsx's checkbox row), or crop a region of the scene's
  * generated image to copy it to the clipboard ("이미지 크롭") or download it
- * directly ("이미지 크롭 후 다운로드").
+ * directly ("이미지 크롭 후 다운로드") — those two stay site-independent.
  *
- * Most sites can't be linked to automatically with a locally captured image
- * (see lib/imageSearchSites.ts), so the plain crop-to-clipboard flow just
- * copies the crop and lets the user paste it wherever they need it — it
- * doesn't open or target any particular site.
- *
- * Getty Images Korea ("스크린샷 검색" button, isGettyKorea) is the exception:
- * the crop is uploaded automatically via handleGettyKoreaAutoSearch (proxied
- * server-side, see lib/imageSearch/gettyImageSearchUpload.ts) and the results
- * page opens directly. If that upload fails, it falls back to the same manual
- * clipboard/download flow as every other site.
+ * "스크린샷 검색" (crop-based image search) only targets sites that actually
+ * support it (`site.imageSearchUrl` defined — see lib/imageSearchSites.ts;
+ * a site like Flaticon with no image-based search at all is silently
+ * skipped). Getty Images Korea is the one site with a true automated
+ * hand-off: the crop is uploaded server-side (handleGettyKoreaAutoSearch,
+ * proxied via lib/imageSearch/gettyImageSearchUpload.ts) and its results
+ * page opens directly. Every other capable site gets the manual flow: the
+ * crop is copied to the clipboard once and each site's image-search entry
+ * point opens in its own tab for the user to paste into.
  */
 export function RelatedImageSearch({
   imageUrl,
   keywords,
-  site: siteId,
+  sites,
 }: {
   imageUrl?: string;
   keywords: string[];
-  site: ImageSearchSiteId;
+  sites: ImageSearchSite[];
 }) {
-  const site = getImageSearchSite(siteId);
-  const isGettyKorea = siteId === "gettyimageskorea-pro";
+  const gettyKoreaSite = sites.find((s) => s.id === "gettyimageskorea-pro");
+  const manualImageSearchSites = sites.filter((s) => s.id !== "gettyimageskorea-pro" && s.imageSearchUrl);
+  const hasImageSearchCapableSite = Boolean(gettyKoreaSite) || manualImageSearchSites.length > 0;
+  const siteLabels = sites.map((s) => s.label).join("·");
+
+  const [searchText, setSearchText] = useState("");
   const imgRef = useRef<HTMLImageElement>(null);
   const [cropMode, setCropMode] = useState(false);
-  const [cropIntent, setCropIntent] = useState<"clipboard" | "download" | "koreaSearch">("clipboard");
+  const [cropIntent, setCropIntent] = useState<"clipboard" | "download" | "search">("clipboard");
   const [dragOrigin, setDragOrigin] = useState<{ x: number; y: number } | null>(null);
   const [dragRect, setDragRect] = useState<Rect | null>(null);
   const [pendingThumbnail, setPendingThumbnail] = useState<string | null>(null);
@@ -107,7 +112,8 @@ export function RelatedImageSearch({
     toastTimeoutRef.current = setTimeout(() => setToast(null), 2500);
   }
 
-  async function handleImageForSearch(blob: Blob, opts?: { autoDownload?: boolean }) {
+  /** Manual "copy to clipboard + open each capable site's entry point" flow, used both as the primary path for non-Getty-Korea sites and as Getty Korea's own fallback when auto-upload fails. */
+  async function handleManualImageSearch(blob: Blob, targets: ImageSearchSite[], opts?: { autoDownload?: boolean }) {
     setError(null);
     try {
       await withTimeout(navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })]), 1500);
@@ -123,10 +129,11 @@ export function RelatedImageSearch({
       // 게티이미지코리아 자동 업로드(handleGettyKoreaAutoSearch)가 실패했을 때만 여기로 온다 —
       // 클립보드 붙여넣기가 안 통하는 사이트이므로, 새 탭을 열기 전에 파일을 미리 다운로드해
       // 사용자가 수동으로 업로드할 수 있게 한다.
-      // eslint-disable-next-line react-hooks/purity -- called only from event-handler chains (mouseup/click), never during render
       downloadBlob(blob, `screenshot-${Date.now()}.png`);
     }
-    window.open(site.imageSearchUrl(), "_blank", "noopener,noreferrer");
+    for (const target of targets) {
+      if (target.imageSearchUrl) window.open(target.imageSearchUrl(), "_blank", "noopener,noreferrer");
+    }
   }
 
   async function handleGettyKoreaAutoSearch(blob: Blob) {
@@ -140,11 +147,17 @@ export function RelatedImageSearch({
       if (!res.ok || !data.resultUrl) throw new Error(data.error ?? "업로드에 실패했습니다");
       window.open(data.resultUrl, "_blank", "noopener,noreferrer");
     } catch {
-      await handleImageForSearch(blob, { autoDownload: true });
+      if (gettyKoreaSite) await handleManualImageSearch(blob, [gettyKoreaSite], { autoDownload: true });
       setError("자동 업로드에 실패해 수동 방식으로 전환했습니다");
     } finally {
       setUploading(false);
     }
+  }
+
+  /** Runs whichever of the two flows apply for the currently-selected sites — both, if both a Getty Korea and other capable sites are selected. */
+  async function handleScreenshotSearch(blob: Blob) {
+    if (gettyKoreaSite) await handleGettyKoreaAutoSearch(blob);
+    if (manualImageSearchSites.length > 0) await handleManualImageSearch(blob, manualImageSearchSites);
   }
 
   async function handleCropToClipboard(blob: Blob) {
@@ -158,11 +171,10 @@ export function RelatedImageSearch({
   }
 
   function handleCropToDownload(blob: Blob) {
-    // eslint-disable-next-line react-hooks/purity -- called only from the crop-region mouseup handler, never during render
     downloadBlob(blob, `crop-${Date.now()}.png`);
   }
 
-  function startCrop(intent: "clipboard" | "download" | "koreaSearch") {
+  function startCrop(intent: "clipboard" | "download" | "search") {
     if (cropMode && cropIntent === intent) {
       setCropMode(false);
       return;
@@ -171,8 +183,12 @@ export function RelatedImageSearch({
     setCropMode(true);
   }
 
-  function handleKeywordClick(keyword: string) {
-    window.open(site.keywordSearchUrl(keyword), "_blank", "noopener,noreferrer");
+  function handleSearch(text: string) {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    for (const site of sites) {
+      window.open(site.keywordSearchUrl(trimmed), "_blank", "noopener,noreferrer");
+    }
   }
 
   function handleMouseDown(e: React.MouseEvent<HTMLDivElement>) {
@@ -244,7 +260,7 @@ export function RelatedImageSearch({
         setError("영역 캡처에 실패했습니다");
         return;
       }
-      if (intent === "koreaSearch") void handleGettyKoreaAutoSearch(blob);
+      if (intent === "search") void handleScreenshotSearch(blob);
       else if (intent === "download") handleCropToDownload(blob);
       else void handleCropToClipboard(blob);
     }, "image/png");
@@ -252,6 +268,26 @@ export function RelatedImageSearch({
 
   return (
     <div className="space-y-2">
+      <form
+        className="flex gap-1.5"
+        onSubmit={(e) => {
+          e.preventDefault();
+          handleSearch(searchText);
+        }}
+      >
+        <Input
+          type="text"
+          value={searchText}
+          onChange={(e) => setSearchText(e.target.value)}
+          placeholder={sites.length > 0 ? `${siteLabels}에서 검색어 입력` : "검색할 사이트를 먼저 선택하세요"}
+          className="h-7 max-w-64 text-xs"
+        />
+        <Button type="submit" variant="outline" size="sm" disabled={sites.length === 0 || !searchText.trim()}>
+          <Search className="size-3.5" />
+          검색
+        </Button>
+      </form>
+
       {keywords.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
           {keywords.map((kw) => (
@@ -260,7 +296,11 @@ export function RelatedImageSearch({
               variant="outline"
               className="cursor-pointer gap-1 hover:bg-muted"
               render={
-                <button type="button" onClick={() => handleKeywordClick(kw)} title={`"${kw}" ${site.label}에서 검색`} />
+                <button
+                  type="button"
+                  onClick={() => handleSearch(kw)}
+                  title={sites.length > 0 ? `"${kw}" ${siteLabels}에서 검색` : "검색할 사이트를 먼저 선택하세요"}
+                />
               }
             >
               <Search className="size-3" />
@@ -280,17 +320,17 @@ export function RelatedImageSearch({
             <Download className="size-3.5" />
             {cropMode && cropIntent === "download" ? "영역 선택 취소" : "이미지 크롭 후 다운로드"}
           </Button>
-          {isGettyKorea && (
+          {hasImageSearchCapableSite && (
             <Button
               type="button"
               variant="outline"
               size="sm"
-              onClick={() => startCrop("koreaSearch")}
+              onClick={() => startCrop("search")}
               disabled={uploading}
-              title="영역을 선택하면 자동으로 업로드하고 게티이미지코리아 검색 결과를 엽니다"
+              title="영역을 선택하면 이미지 검색을 지원하는 선택된 사이트로 검색합니다 (지원하지 않는 사이트는 건너뜁니다)"
             >
               <Camera className="size-3.5" />
-              {uploading ? "업로드 중..." : cropMode && cropIntent === "koreaSearch" ? "영역 선택 취소" : "스크린샷 검색"}
+              {uploading ? "업로드 중..." : cropMode && cropIntent === "search" ? "영역 선택 취소" : "스크린샷 검색"}
             </Button>
           )}
         </div>

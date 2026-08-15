@@ -380,6 +380,14 @@ describe("selectScreenTypes", () => {
     expect(result["scene-001"].presenterPosition).toBe("right");
   });
 
+  it("keeps 'none' as a valid presenterPosition (AI judged the presenter doesn't fit this screen)", async () => {
+    const client = new MockLlmClient([batchResponse([scenes[0]], { 1: { presenterPosition: "none" } })]);
+
+    const result = await selectScreenTypes(client, [scenes[0]]);
+
+    expect(result["scene-001"].presenterPosition).toBe("none");
+  });
+
   it("drops an invalid presenterPosition value", async () => {
     const client = new MockLlmClient([batchResponse([scenes[0]], { 1: { presenterPosition: "somewhere" } })]);
 

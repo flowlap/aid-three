@@ -441,7 +441,7 @@ ${documentContext}${commonPromptContext}${sharedSequenceContext}
 사용 가능한 화면 유형과 설명(반드시 이 중 하나를 이름 그대로 정확히 선택):
 ${SCREEN_TYPE_GUIDE}
 
-그룹 내 다양성: 같은 그룹 안에서 화면 유형을 3개 연속으로 동일하게 선택하지 마세요. 다만 내용상 명백히 같은 유형이 계속 이어져야 한다면(예: 같은 절차의 연속 단계) 그대로 유지해도 됩니다. 강사(발표자)가 등장하는 씬들은 내용이 이어지는 동안 같은 위치를 유지하고, 새로운 내용으로 전환되는 지점에서만 위치를 바꾸세요.
+그룹 내 다양성: 같은 그룹 안에서 화면 유형을 3개 연속으로 동일하게 선택하지 마세요. 다만 내용상 명백히 같은 유형이 계속 이어져야 한다면(예: 같은 절차의 연속 단계) 그대로 유지해도 됩니다. 강사(발표자)가 등장하는 씬들은 내용이 이어지는 동안 같은 위치를 유지하고, 새로운 내용으로 전환되는 지점에서만 위치를 바꾸세요 — 단, 그룹 전체에서 강사 위치가 처음부터 끝까지 하나로만 고정되지 않도록, 전환 지점이 있다면 실제로 다른 위치(left/right/center/full)로 바꿔서 단조롭지 않게 하세요.
 
 씬 목록(순서대로, 화면 전환이 이 순서로 이어집니다):
 ${sceneBlocks}
@@ -458,7 +458,7 @@ objectPlacement: 화면 안의 요소들이 정확히 어디에 배치되는지 
 
 layoutElements: objectPlacement에서 서술한 배치를 3~6개의 (label, position) 쌍으로 압축하세요. label은 화면에 실제로 보이는 요소 이름(예: "배출권 ETF 카드", "인물", "핵심 문구"), position은 반드시 다음 9개 중 하나로만 선택하세요: top-left, top, top-right, left, center, right, bottom-left, bottom, bottom-right. 이 값은 코드가 기계적으로 렌더링할 때 쓰이므로 objectPlacement 서술과 반드시 일치해야 합니다.
 
-presenterPosition: 이 화면에 강사(발표자)가 등장한다면 어디에 배치할지 반드시 다음 4개 중 하나로 선택하세요: left, right, center, full. 방금 정한 objectPlacement/layoutElements와 겹치지 않게 — 다른 시각 요소가 이미 차지한 자리를 피해서 정하세요.
+presenterPosition: 다음 5개 중 하나로 선택하세요: left, right, center, full, none. 강사가 이 화면 내용과 잘 어울린다면 left/right/center/full 중 하나로 배치 위치를 정하세요(방금 정한 objectPlacement/layoutElements와 겹치지 않게, 다른 시각 요소가 이미 차지한 자리를 피해서). 강사가 필수는 아니므로, 도식·차트 등 화면 내용 자체가 중심이라 강사가 오히려 방해될 화면이라면 none을 선택해 강사를 생략하세요.
 
 overlayPositions: 이 씬에 번호가 매겨진 오버레이 목록이 있는 경우에만 작성하세요(없으면 빈 배열). 그 목록의 각 번호마다, 오버레이 카드를 화면 어디에 둘지 다음 9개 중 하나로 순서대로(0번부터) 배열에 담으세요: top-left, top, top-right, left, center, right, bottom-left, bottom, bottom-right. 방금 정한 layoutElements/presenterPosition이 차지한 자리와 겹치지 않는 위치를 고르세요.
 

@@ -5,6 +5,7 @@ import { ImagesEditor } from "./ImagesEditor";
 import type { ImageEngine, LocalModelSize, HChatGeminiModel } from "@/components/ImageEngineSelector";
 import type { SequenceImageMode } from "@/components/SequenceImageModeSelector";
 import { getImageProviderType } from "@/lib/ai/image/factory";
+import { isGeminiBatchProviderEnabled } from "@/lib/ai/image/geminiBatch";
 import {
   DEFAULT_IMAGE_COMMON_PROMPT,
   DEFAULT_BACKGROUND_IMAGE_PROMPT,
@@ -47,6 +48,7 @@ export default async function ImagesPage({ params }: { params: Promise<{ project
   const modelSizeRaw = (await readProjectFile(projectId, "image-local-model-size.txt"))?.trim();
   const initialModelSize: LocalModelSize = modelSizeRaw === "9b" ? "9b" : "4b";
   const imageProviderType = getImageProviderType();
+  const imageBatchProviderEnabled = isGeminiBatchProviderEnabled();
   const hchatGeminiModelRaw = (await readProjectFile(projectId, "image-hchat-gemini-model.txt"))?.trim();
   const initialHchatGeminiModel: HChatGeminiModel =
     hchatGeminiModelRaw === "gemini-3-pro-image" ? "gemini-3-pro-image" : "gemini-3.1-flash-image";
@@ -91,6 +93,7 @@ export default async function ImagesPage({ params }: { params: Promise<{ project
         initialEngine={initialEngine}
         initialModelSize={initialModelSize}
         imageProviderType={imageProviderType}
+        imageBatchProviderEnabled={imageBatchProviderEnabled}
         initialHchatGeminiModel={initialHchatGeminiModel}
         imageAspectRatio={imageAspectRatio}
         sequencePlan={sequencePlan}

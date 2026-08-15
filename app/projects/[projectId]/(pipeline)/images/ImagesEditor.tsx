@@ -18,6 +18,7 @@ import {
 import { SequenceImageModeSelector, type SequenceImageMode } from "@/components/SequenceImageModeSelector";
 import { SectionQuickNav, SECTION_QUICK_NAV_SCROLL_MARGIN_CLASS } from "@/components/SectionQuickNav";
 import { SequenceMasterVisualsSection } from "./SequenceMasterVisualsSection";
+import { GeminiBatchStatusPanel } from "./GeminiBatchStatusPanel";
 import { computeMockupVariantIndexes } from "@/lib/visual-templates";
 import type { Scene } from "@/lib/pipeline/splitScenes";
 import type { ScreenTypeAssignment } from "@/lib/pipeline/selectScreenTypes";
@@ -67,6 +68,7 @@ export function ImagesEditor({
   initialEngine,
   initialModelSize,
   imageProviderType,
+  imageBatchProviderEnabled,
   initialHchatGeminiModel,
   imageAspectRatio,
   initialSequenceImageMode,
@@ -92,6 +94,8 @@ export function ImagesEditor({
   initialEngine: ImageEngine;
   initialModelSize: LocalModelSize;
   imageProviderType: ImageProviderType;
+  /** Whether IMAGE_BATCH_PROVIDER=gemini is configured — shows the separate "Gemini 배치로 일괄 생성" button/status panel when true. See GeminiBatchStatusPanel.tsx. */
+  imageBatchProviderEnabled: boolean;
   initialHchatGeminiModel: HChatGeminiModel;
   /** Actual generated-image pixel ratio (see lib/pipeline/imageAspectRatio.ts) — OpenAI defaults to 3:2, Gemini to 16:9, so the thumbnail/mockup aspect follows whatever this project actually generated instead of a hardcoded 3:2. */
   imageAspectRatio: { width: number; height: number };
@@ -396,7 +400,12 @@ export function ImagesEditor({
       {isSequence && sequencePlan && (
         <div id="sequence-master-visuals-section" className={cn("space-y-2", SECTION_QUICK_NAV_SCROLL_MARGIN_CLASS)}>
           <h2 className="text-sm font-semibold">시퀀스 마스터 비주얼</h2>
-          <SequenceMasterVisualsSection projectId={projectId} initialPlan={sequencePlan} engine={engine} />
+          <SequenceMasterVisualsSection
+            projectId={projectId}
+            initialPlan={sequencePlan}
+            engine={engine}
+            imageBatchProviderEnabled={imageBatchProviderEnabled}
+          />
         </div>
       )}
       <div id="scene-images-section" className={cn("space-y-2", SECTION_QUICK_NAV_SCROLL_MARGIN_CLASS)}>
@@ -441,6 +450,30 @@ export function ImagesEditor({
             {completedCount} / {eligibleScenes.length}개 생성됨
           </span>
         </div>
+        {imageBatchProviderEnabled && !isSequenceComposite && (
+          <GeminiBatchStatusPanel
+            projectId={projectId}
+            kind="scene"
+            primaryMode={isPartial ? "resume" : "full"}
+            primaryCount={isPartial ? remainingCount : eligibleScenes.length}
+            primaryLabel={isPartial ? `이어서 생성 (${remainingCount}개)` : imageIds.size ? "전체 다시 생성" : "AI로 이미지 생성"}
+            showFullSecondary={isPartial}
+            fullCount={eligibleScenes.length}
+            disabled={loading}
+            onApplied={(appliedSceneIds) => {
+              setImageIds((prev) => {
+                const next = new Set(prev);
+                for (const id of appliedSceneIds) next.add(id);
+                return next;
+              });
+              setVersions((prev) => {
+                const next = { ...prev };
+                for (const id of appliedSceneIds) next[id] = (next[id] ?? 0) + 1;
+                return next;
+              });
+            }}
+          />
+        )}
         <AiJobStatus
           loading={loading}
           label={
@@ -538,6 +571,13 @@ export function ImagesEditor({
                       // same options panel as scene mode (a real AI call).
                       onClick={() => (isSequenceComposite ? void regenerateScene(scene.id) : toggleOptionsPanel(scene.id))}
                       disabled={regenerating || loading || !design}
+                      title={
+                        !design
+                          ? isSequence
+                            ? "화면 설계가 아직 없습니다 — 시퀀스 설계 단계에서 'AI로 화면 설계 생성'을 먼저 실행하고 저장하세요"
+                            : "화면 설계가 아직 없습니다 — 화면 설계 단계를 먼저 완료하세요"
+                          : undefined
+                      }
                     >
                       {regenerating
                         ? "생성 중..."
@@ -656,7 +696,9 @@ export function ImagesEditor({
                         ? "제목 씬은 이미지를 생성하지 않습니다"
                         : design
                           ? "아직 생성된 이미지가 없습니다"
-                          : "화면 설계 데이터가 없어 생성할 수 없습니다"}
+                          : isSequence
+                            ? "화면 설계가 아직 없습니다 — 시퀀스 설계 단계에서 'AI로 화면 설계 생성'을 먼저 실행하고 저장한 뒤 다시 시도하세요"
+                            : "화면 설계가 아직 없습니다 — 화면 설계 단계를 먼저 완료한 뒤 다시 시도하세요"}
                     </div>
                   )}
                 </div>

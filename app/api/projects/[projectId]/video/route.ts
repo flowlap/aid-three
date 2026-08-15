@@ -219,8 +219,11 @@ async function handleSequenceModeVideo(
   const visualDesigns: Record<string, VisualDesign> = screenDesignRaw
     ? (JSON.parse(screenDesignRaw).visualDesigns ?? {})
     : {};
+  // Default "ai" when unset, matching the images step UI's default (images/page.tsx) —
+  // previously defaulted to "composite" here, silently diverging from what a project
+  // that never explicitly chose a mode showed in the UI.
   const sequenceImageModeRaw = (await readProjectFile(projectId, "sequence-image-mode.txt"))?.trim();
-  const sequenceImageMode: "composite" | "ai" = sequenceImageModeRaw === "ai" ? "ai" : "composite";
+  const sequenceImageMode: "composite" | "ai" = sequenceImageModeRaw === "composite" ? "composite" : "ai";
 
   let durations: number[];
   // Only a sha256 digest of each scene's narration WAV is retained here, not

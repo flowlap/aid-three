@@ -425,6 +425,7 @@ export function ScreenMockupThumbnail({
   design,
   variantIndex,
   aspectRatio,
+  style,
 }: {
   width: number;
   screenType?: string;
@@ -432,6 +433,8 @@ export function ScreenMockupThumbnail({
   variantIndex?: number;
   /** See ScreenMockup's aspectRatio prop. Applied to both the outer box and the inner ScreenMockup so the transform:scale() math (which scales width/height uniformly) lines up. */
   aspectRatio?: { width: number; height: number };
+  /** See ScreenMockup's style prop — forwarded as-is. */
+  style?: "storyboard" | "notebooklm";
 }) {
   const scale = width / MOCKUP_NATURAL_WIDTH;
   return (
@@ -450,6 +453,7 @@ export function ScreenMockupThumbnail({
           variantIndex={variantIndex}
           className="w-full"
           aspectRatio={aspectRatio}
+          style={style}
         />
       </div>
     </div>

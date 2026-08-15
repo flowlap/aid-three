@@ -17,7 +17,7 @@ export interface LayoutElement {
   position: LayoutPosition;
 }
 
-export const PRESENTER_POSITIONS = ["left", "right", "center", "full"] as const;
+export const PRESENTER_POSITIONS = ["left", "right", "center", "full", "none"] as const;
 
 export type PresenterPosition = (typeof PRESENTER_POSITIONS)[number];
 
@@ -40,10 +40,12 @@ export interface VisualDesign {
   /**
    * Where the presenter/announcer should appear if the images step's
    * "강사 표시" toggle is on — decided once here (screen design), with
-   * variety enforced against neighboring scenes, rather than left to each
+   * variety encouraged against neighboring scenes, rather than left to each
    * independent image-generation call to guess (which in practice defaulted
-   * to the same position every time). Undefined for scenes where a
-   * presenter doesn't make sense (pure transition screens — see
+   * to the same position every time). `"none"` means the AI judged the
+   * presenter doesn't fit this particular screen even though the toggle is
+   * on — distinct from `undefined`, which is for scenes where a presenter
+   * doesn't make sense by screen type (pure transition screens — see
    * PRESENTER_EXCLUDED_SCREEN_TYPES) or for older data from before this
    * field existed.
    */

@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ScreenMockup } from "@/components/ScreenMockup";
 import { PptxQuickExportButton, PptxTemplateSection } from "@/components/PptxExportButton";
 import { RelatedImageSearch } from "@/components/RelatedImageSearch";
@@ -13,8 +12,8 @@ import { buildSceneHierarchy } from "@/lib/pipeline/sceneHierarchy";
 import { cn } from "@/lib/utils";
 import {
   IMAGE_SEARCH_SITES,
-  DEFAULT_IMAGE_SEARCH_SITE,
-  IMAGE_SEARCH_SITE_STORAGE_KEY,
+  DEFAULT_SELECTED_IMAGE_SEARCH_SITES,
+  IMAGE_SEARCH_SELECTED_SITES_STORAGE_KEY,
   type ImageSearchSiteId,
 } from "@/lib/imageSearchSites";
 import type { Scene } from "@/lib/pipeline/splitScenes";
@@ -49,31 +48,44 @@ export function PreviewViewer({
   const hierarchy = useMemo(() => buildSceneHierarchy(scenes), [scenes]);
   const [activeIndex, setActiveIndex] = useState(0);
   const [downloading, setDownloading] = useState(false);
-  const [mockupStyle, setMockupStyle] = useState<MockupStyle>("storyboard");
-  const [imageSearchSite, setImageSearchSite] = useState<ImageSearchSiteId>(DEFAULT_IMAGE_SEARCH_SITE);
+  const [mockupStyle, setMockupStyle] = useState<MockupStyle>("notebooklm");
+  const [selectedSiteIds, setSelectedSiteIds] = useState<Set<ImageSearchSiteId>>(
+    () => new Set(DEFAULT_SELECTED_IMAGE_SEARCH_SITES)
+  );
+  const selectedSites = useMemo(
+    () => IMAGE_SEARCH_SITES.filter((s) => selectedSiteIds.has(s.id)),
+    [selectedSiteIds]
+  );
   const sectionRefs = useRef<Record<string, HTMLElement | null>>({});
   const exportRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     queueMicrotask(() => {
       try {
-        const saved = localStorage.getItem(IMAGE_SEARCH_SITE_STORAGE_KEY);
-        if (saved && IMAGE_SEARCH_SITES.some((s) => s.id === saved)) {
-          setImageSearchSite(saved as ImageSearchSiteId);
-        }
+        const saved = localStorage.getItem(IMAGE_SEARCH_SELECTED_SITES_STORAGE_KEY);
+        if (!saved) return;
+        const parsed: unknown = JSON.parse(saved);
+        if (!Array.isArray(parsed)) return;
+        const valid = parsed.filter((id): id is ImageSearchSiteId => IMAGE_SEARCH_SITES.some((s) => s.id === id));
+        if (valid.length > 0) setSelectedSiteIds(new Set(valid));
       } catch {
-        // localStorage unavailable (private browsing) — keep the default.
+        // localStorage unavailable (private browsing) or malformed JSON — keep the default.
       }
     });
   }, []);
 
-  function handleImageSearchSiteChange(value: ImageSearchSiteId) {
-    setImageSearchSite(value);
-    try {
-      localStorage.setItem(IMAGE_SEARCH_SITE_STORAGE_KEY, value);
-    } catch {
-      // localStorage unavailable — selection just won't persist across reloads.
-    }
+  function toggleImageSearchSite(id: ImageSearchSiteId) {
+    setSelectedSiteIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      try {
+        localStorage.setItem(IMAGE_SEARCH_SELECTED_SITES_STORAGE_KEY, JSON.stringify([...next]));
+      } catch {
+        // localStorage unavailable — selection just won't persist across reloads.
+      }
+      return next;
+    });
   }
 
   useEffect(() => {
@@ -233,20 +245,22 @@ ${clone.outerHTML}
                     </button>
                   ))}
                 </div>
-                <div className="flex items-center gap-1.5">
+                <div className="flex flex-wrap items-center gap-1.5">
                   <span className="text-[11px] font-medium text-muted-foreground">연관 이미지 검색</span>
-                  <Select value={imageSearchSite} onValueChange={(value) => handleImageSearchSiteChange(value as ImageSearchSiteId)}>
-                    <SelectTrigger size="sm" className="w-36">
-                      <SelectValue>{(value: ImageSearchSiteId) => IMAGE_SEARCH_SITES.find((s) => s.id === value)?.label}</SelectValue>
-                    </SelectTrigger>
-                    <SelectContent>
-                      {IMAGE_SEARCH_SITES.map((s) => (
-                        <SelectItem key={s.id} value={s.id}>
-                          {s.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  {IMAGE_SEARCH_SITES.map((s) => (
+                    <label
+                      key={s.id}
+                      className="flex cursor-pointer items-center gap-1 rounded-full border px-2 py-0.5 text-xs has-[:checked]:border-primary has-[:checked]:bg-primary/10 has-[:checked]:text-primary"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedSiteIds.has(s.id)}
+                        onChange={() => toggleImageSearchSite(s.id)}
+                        className="size-3 accent-primary"
+                      />
+                      {s.label}
+                    </label>
+                  ))}
                 </div>
               </div>
               <div className="flex flex-wrap items-start justify-end gap-2">
@@ -337,7 +351,7 @@ ${clone.outerHTML}
                   <RelatedImageSearch
                     imageUrl={hasImage ? `/api/projects/${projectId}/images/${scene.id}?v=${imageVersions[scene.id] ?? 0}` : undefined}
                     keywords={design?.keywords ?? []}
-                    site={imageSearchSite}
+                    sites={selectedSites}
                   />
                 </div>
                 <p className="border-t bg-muted/40 px-5 py-3 text-sm text-muted-foreground">{scene.narrationText}</p>

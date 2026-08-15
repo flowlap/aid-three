@@ -133,7 +133,14 @@ export interface SceneReferenceImages {
   master?: Buffer;
 }
 
-const PRESENTER_POSITION_LABEL: Record<PresenterPosition, string> = {
+/**
+ * Excludes "none" — that value means "no presenter on this scene", handled
+ * upstream by isPresenterOmitted (buildImagePrompt) skipping the whole
+ * presenter instruction before this label map is ever consulted.
+ */
+type PositionedPresenterPosition = Exclude<PresenterPosition, "none">;
+
+const PRESENTER_POSITION_LABEL: Record<PositionedPresenterPosition, string> = {
   left: "좌측 등장(화면 좌측에 상반신, 우측에 시각 자료)",
   right: "우측 등장(화면 우측에 상반신, 좌측에 시각 자료)",
   center: "중앙 등장(화면 중앙에 상반신, 시각 자료는 배경/주변)",
@@ -153,7 +160,7 @@ const PRESENTER_GENDER_LABEL: Record<"male" | "female", string> = {
  * text would otherwise suggest a large, dominant appearance.
  */
 const PRESENTER_SIZE_CONSTRAINT =
-  "단, 등장 형태(좌측/우측/중앙/풀샷)와 무관하게 강사는 화면 전체 면적의 약 20% 정도를 차지하도록 배치하세요 — 지나치게 작아서 잘 보이지 않거나, 반대로 화면을 압도할 만큼 크게 등장해서는 안 됩니다. 화면의 주인공은 시각 자료이며 강사는 보조적인 역할입니다.";
+  "단, 등장 형태(좌측/우측/중앙/풀샷)와 무관하게 강사는 화면 전체 면적의 약 20% 정도를 차지하도록 배치하세요 — 지나치게 작아서 잘 보이지 않거나, 반대로 화면을 압도할 만큼 크게 등장해서는 안 됩니다. 화면의 주인공은 시각 자료이며 강사는 보조적인 역할입니다. 강사가 위 화면 구성 명세(무엇을 그릴지/요소 배치)에서 지정한 핵심 시각 자료나 텍스트를 가리거나 겹치지 않도록, 강사와 다른 구성 요소들이 각자의 영역을 침범하지 않고 명확히 분리되어 보이게 배치하세요.";
 
 /**
  * Appended when the project-wide "강사 표시" toggle is on. Prefers a
@@ -180,7 +187,11 @@ const PRESENTER_SIZE_CONSTRAINT =
 const PRESENTER_LIKENESS_LOCK =
   "자세, 손동작, 표정은 이 화면 내용에 맞게 자연스럽게 바꿔도 되지만, 참고 이미지에 없던 안경, 마이크, 액세서리 등을 새로 추가하거나 반대로 참고 이미지에 있던 것을 빼지 마세요. 또한 참고 이미지가 실사(사진) 스타일이라면, 공통 스타일 가이드가 일러스트 톤을 요구하더라도 강사 인물만큼은 예외로 실사 그대로의 화풍을 유지하고 다른 화풍(일러스트 등)으로 바꾸지 마세요. 배경이나 다른 구성 요소는 공통 스타일 가이드를 따르되, 강사 인물의 외형과 화풍만은 참고 이미지를 그대로 따르세요.";
 
-function buildPresenterInstruction(position?: PresenterPosition, gender?: "male" | "female", hasReferenceImage?: boolean): string {
+function buildPresenterInstruction(
+  position?: PositionedPresenterPosition,
+  gender?: "male" | "female",
+  hasReferenceImage?: boolean
+): string {
   if (hasReferenceImage) {
     const positionPhrase = position ? `${PRESENTER_POSITION_LABEL[position]} 형태로` : "화면 내용과 구도에 가장 잘 어울리는 형태로";
     return `이 화면에는 제공된 강사 참고 이미지와 동일한 인물(얼굴, 헤어스타일, 의상)이 ${positionPhrase} 등장해야 합니다. 참고 이미지 속 인물의 외형을 그대로 유지하고, 위 화면 구성 명세와 자연스럽게 어우러지게 배치하세요. ${PRESENTER_SIZE_CONSTRAINT} ${PRESENTER_LIKENESS_LOCK}`;
@@ -222,6 +233,19 @@ export const STYLE_REFERENCE_SAMPLE_TEXT_EXCLUSION =
  */
 const STYLE_REFERENCE_INSTRUCTION =
   `제공된 톤앤매너 기준 이미지와 동일한 색감, 일러스트 스타일, 자막바(로어써드)·아이콘·인포그래픽 등 구성 요소의 디자인 방식과 전체적인 분위기를 유지해서 그려주세요. ${STYLE_REFERENCE_SAMPLE_TEXT_EXCLUSION} 이 화면에서 명시적으로 요청한 자막만 넣을 수 있으며, 자막 요청이 없다면 어떤 텍스트도 새로 넣지 마세요. 실제 텍스트 내용과 화면 구성은 이 화면 자체의 구성 명세를 따르세요.`;
+
+/**
+ * Appended only when BOTH a "배경 고정" background reference and a "톤앤매너
+ * 기준" style reference are attached to the same call — makes the fusion
+ * between the two explicit instead of relying on BACKGROUND_FIXED_INSTRUCTION
+ * and STYLE_REFERENCE_INSTRUCTION (each written to stand alone) to compose
+ * correctly on their own. Without this, a model can drift toward treating
+ * the style reference as its own competing background instead of purely a
+ * source of component design (color/iconography/lower-third style) to layer
+ * on top of the fixed background.
+ */
+const BACKGROUND_STYLE_COMBINATION_INSTRUCTION =
+  "배경 참고 이미지와 톤앤매너 기준 이미지가 함께 제공되었습니다. 이 둘을 결합해서 그려주세요 — 배경 참고 이미지는 이 화면의 배경 그 자체로 그대로 사용하고, 톤앤매너 기준 이미지에서는 배경이 아니라 그 위에 올라갈 구성 요소(자막바, 아이콘, 인포그래픽 등)의 색상·화풍·디자인 방식만 가져와 결합하세요. 톤앤매너 기준 이미지의 배경이나 장면 구성 자체를 이 화면에 옮기지 마세요 — 배경은 오직 배경 참고 이미지를 따르고, 그 위에 톤앤매너 기준 이미지 스타일의 요소들만 얹는다는 느낌으로 그려주세요.";
 
 /**
  * Sequence mode, master reference image attached (see
@@ -345,12 +369,24 @@ export function buildImagePrompt(scene: Scene, design: VisualDesign, promptOptio
     ? `\n\n공통 스타일 가이드(모든 화면에 일관되게 적용):\n${promptOptions.commonPrompt.trim()}`
     : "";
   const isPresenterExcluded = promptOptions?.screenType ? PRESENTER_EXCLUDED_SCREEN_TYPES.has(promptOptions.screenType) : false;
+  // "none" is screen design's own per-scene call that a presenter doesn't fit
+  // this particular screen (see PresenterPosition/VisualDesign.presenterPosition
+  // in designVisuals.ts) — distinct from presenterPosition being simply absent
+  // (undefined), which falls back to letting this independent image call pick
+  // freely among the 4 real positions.
+  const isPresenterOmitted = promptOptions?.presenterPosition === "none";
+  const positionedPresenterPosition: PositionedPresenterPosition | undefined =
+    promptOptions?.presenterPosition === "none" ? undefined : promptOptions?.presenterPosition;
   const presenterInstruction =
-    promptOptions?.presenterEnabled && !isPresenterExcluded
-      ? `\n\n${buildPresenterInstruction(promptOptions.presenterPosition, promptOptions.presenterGender, promptOptions.hasPresenterReferenceImage)}`
+    promptOptions?.presenterEnabled && !isPresenterExcluded && !isPresenterOmitted
+      ? `\n\n${buildPresenterInstruction(positionedPresenterPosition, promptOptions.presenterGender, promptOptions.hasPresenterReferenceImage)}`
       : "";
   const backgroundInstruction = promptOptions?.backgroundFixed ? `\n\n${BACKGROUND_FIXED_INSTRUCTION}` : "";
   const styleReferenceInstruction = promptOptions?.hasStyleReferenceImage ? `\n\n${STYLE_REFERENCE_INSTRUCTION}` : "";
+  const backgroundStyleCombinationInstruction =
+    promptOptions?.backgroundFixed && promptOptions?.hasStyleReferenceImage
+      ? `\n\n${BACKGROUND_STYLE_COMBINATION_INSTRUCTION}`
+      : "";
   const relatedScenes = promptOptions?.relatedScenes ?? [];
   const relatedContext =
     relatedScenes.length > 0
@@ -386,7 +422,7 @@ export function buildImagePrompt(scene: Scene, design: VisualDesign, promptOptio
 - 무엇을 그릴지: ${design.imageOrDiagramDescription}
 - 요소 배치: ${design.objectPlacement}
 
-${PRODUCTION_STYLE_INSTRUCTION} ${textInstruction}${extraInstruction}${styleGuide}${styleReferenceInstruction}${backgroundInstruction}${presenterInstruction}${relatedContext}${sequenceContinuityInstruction}${sequenceCameraInstruction}${sequenceOverlayInstruction}
+${PRODUCTION_STYLE_INSTRUCTION} ${textInstruction}${extraInstruction}${styleGuide}${styleReferenceInstruction}${backgroundInstruction}${backgroundStyleCombinationInstruction}${presenterInstruction}${relatedContext}${sequenceContinuityInstruction}${sequenceCameraInstruction}${sequenceOverlayInstruction}
 
 관련 나레이션(맥락 참고용 — 화면 구성 명세와 배치를 우선하고, 나레이션 문장을 그대로 옮기지 마세요): ${scene.narrationText}`;
 }

@@ -1,11 +1,20 @@
 /**
  * Stock/reverse-image search sites usable from the preview page's "연관 이미지
- * 찾기" feature. For most sites, no automatic hand-off is possible — browsers
- * block injecting a file into another origin's upload widget, and this app has
- * no public URL for services like Google Lens's uploadbyurl to fetch from. Every
- * `imageSearchUrl` just opens the site's own image-search entry point in a new
- * tab; the caller is expected to have already copied the image to the clipboard
- * (and offered a draggable fallback) so the user can paste/drag it in there
+ * 찾기" feature. Multi-select: the user checks any number of sites at the top
+ * of the preview page (see PreviewViewer.tsx), and a keyword click or free-text
+ * search opens a new tab per selected site.
+ *
+ * `imageSearchUrl` (crop/screenshot search) is optional — a site with no
+ * image-based search feature at all (e.g. Flaticon, an icon-keyword-only
+ * site) simply omits it, and RelatedImageSearch.tsx skips that site entirely
+ * for the "스크린샷 검색" flow instead of opening a useless tab. For every
+ * site that does define it, no automatic hand-off is possible except
+ * "gettyimageskorea-pro" (see below) — browsers block injecting a file into
+ * another origin's upload widget, and this app has no public URL for
+ * services like Google Lens's uploadbyurl to fetch from. `imageSearchUrl`
+ * just opens the site's own image-search entry point in a new tab; the
+ * caller is expected to have already copied the image to the clipboard (and
+ * offered a draggable fallback) so the user can paste/drag it in there
  * themselves.
  *
  * "gettyimageskorea-pro" is the one exception: its upload endpoint is proxied
@@ -16,13 +25,14 @@
  *
  * To add a site, add one entry here — nothing else needs to change.
  */
-export type ImageSearchSiteId = "getty" | "google" | "gettyimagesbank" | "gettyimageskorea-pro";
+export type ImageSearchSiteId = "getty" | "google" | "gettyimagesbank" | "gettyimageskorea-pro" | "flaticon";
 
 export interface ImageSearchSite {
   id: ImageSearchSiteId;
   label: string;
   keywordSearchUrl(keyword: string): string;
-  imageSearchUrl(): string;
+  /** Omitted for sites with no image-based search feature at all (e.g. Flaticon) — see this file's header doc. */
+  imageSearchUrl?(): string;
 }
 
 export const IMAGE_SEARCH_SITES: readonly ImageSearchSite[] = [
@@ -57,11 +67,18 @@ export const IMAGE_SEARCH_SITES: readonly ImageSearchSite[] = [
       `https://mbdrive.gettyimageskorea.com/creative/?q=${encodeURIComponent(keyword)}&cs=on&lct=rm%2Crf`,
     imageSearchUrl: () => "https://mbdrive.gettyimageskorea.com/",
   },
+  {
+    id: "flaticon",
+    label: "플랫아이콘",
+    keywordSearchUrl: (keyword) => `https://www.flaticon.com/kr/search?word=${encodeURIComponent(keyword)}&type=icon`,
+    // No imageSearchUrl — Flaticon is icon-keyword search only, no image-based search of any kind.
+  },
 ] as const;
 
-export const DEFAULT_IMAGE_SEARCH_SITE: ImageSearchSiteId = "gettyimageskorea-pro";
+/** Preselected on a fresh browser (no saved selection yet) — mirrors what the preview page previously hardcoded (Getty Korea + Flaticon always-on). */
+export const DEFAULT_SELECTED_IMAGE_SEARCH_SITES: readonly ImageSearchSiteId[] = ["gettyimageskorea-pro", "flaticon"];
 
-export const IMAGE_SEARCH_SITE_STORAGE_KEY = "imageSearchSite";
+export const IMAGE_SEARCH_SELECTED_SITES_STORAGE_KEY = "imageSearchSelectedSites";
 
 export function getImageSearchSite(id: ImageSearchSiteId): ImageSearchSite {
   const site = IMAGE_SEARCH_SITES.find((s) => s.id === id);

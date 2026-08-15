@@ -172,6 +172,17 @@ describe("generateSceneImage", () => {
     expect(prompt).toContain("다음 4가지 중에서");
   });
 
+  it("tells the model to keep the presenter from overlapping/covering the main visual content", () => {
+    const prompt = buildImagePrompt(scene, design, { presenterEnabled: true });
+    expect(prompt).toContain("가리거나 겹치지 않도록");
+    expect(prompt).toContain("각자의 영역을 침범하지 않고 명확히 분리되어");
+  });
+
+  it("omits the presenter entirely when presenterPosition is 'none', even though presenterEnabled is true", () => {
+    const prompt = buildImagePrompt(scene, design, { presenterEnabled: true, presenterPosition: "none" });
+    expect(prompt).not.toContain("강사");
+  });
+
   it("mentions the chosen gender when presenterGender is set and no reference image is attached", () => {
     const prompt = buildImagePrompt(scene, design, { presenterEnabled: true, presenterGender: "female" });
     expect(prompt).toContain("여성 강사(발표자)가 등장해야 합니다");
@@ -195,6 +206,18 @@ describe("generateSceneImage", () => {
   it("includes the style-reference instruction only when hasStyleReferenceImage is true", () => {
     expect(buildImagePrompt(scene, design, { hasStyleReferenceImage: true })).toContain("톤앤매너 기준 이미지와 동일한 색감");
     expect(buildImagePrompt(scene, design)).not.toContain("톤앤매너 기준 이미지");
+  });
+
+  it("tells the model to fuse the fixed background with the style reference's design elements only when both are attached together", () => {
+    const both = buildImagePrompt(scene, design, { backgroundFixed: true, hasStyleReferenceImage: true });
+    expect(both).toContain("배경 참고 이미지와 톤앤매너 기준 이미지가 함께 제공되었습니다");
+    expect(both).toContain("배경은 오직 배경 참고 이미지를 따르고");
+
+    const backgroundOnly = buildImagePrompt(scene, design, { backgroundFixed: true });
+    const styleOnly = buildImagePrompt(scene, design, { hasStyleReferenceImage: true });
+    for (const prompt of [backgroundOnly, styleOnly]) {
+      expect(prompt).not.toContain("배경 참고 이미지와 톤앤매너 기준 이미지가 함께 제공되었습니다");
+    }
   });
 
   it("includes related scenes as reference material when provided", () => {

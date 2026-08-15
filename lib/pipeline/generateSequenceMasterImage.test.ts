@@ -102,11 +102,40 @@ describe("buildSequenceMasterImagePrompt", () => {
     expect(prompt).not.toContain("절대 변경 금지:");
   });
 
-  it("keeps text out while allowing continuity subjects inside the master", () => {
+  it("keeps text out and frames the master as a subordinate background, not the focus", () => {
     const prompt = buildSequenceMasterImagePrompt(sequence({ id: "sequence-001" }));
     expect(prompt).toContain("텍스트 렌더링 없이");
-    expect(prompt).toContain("고정 요소에 인물·제품·사물이 있다면");
+    expect(prompt).toContain("조연");
+    expect(prompt).toContain("주된 내용 전달은 전부 각 씬 이미지에서 이루어지므로");
     expect(prompt).toContain("프로젝트별 강사 오버레이를 새로 추가하지");
+  });
+
+  it("tells the model not to draw concept-symbol icons/objects into the master even if continuity names them", () => {
+    const prompt = buildSequenceMasterImagePrompt(sequence({ id: "sequence-001" }));
+    expect(prompt).toContain("개념을 상징하는 구체적 오브제·아이콘·상징물은 절대 넣지 마세요");
+  });
+
+  it("strongly weights the style reference's color/lighting/illustration-style, but not its layout", () => {
+    const prompt = buildSequenceMasterImagePrompt(sequence({ id: "sequence-001" }));
+    expect(prompt).toContain("가벼운 참고 자료로 다루지 말고");
+    expect(prompt).toContain("팔레트");
+    expect(prompt).toContain("그대로 옮기지는 마세요");
+  });
+
+  it("requires matching the tone reference's level of visual simplicity, not just its color", () => {
+    const prompt = buildSequenceMasterImagePrompt(sequence({ id: "sequence-001" }));
+    expect(prompt).toContain("참고 이미지보다 요소가 많고 복잡한 그림이 되어서는 절대 안 됩니다");
+  });
+
+  it("tells the model to keep the master visually subdued so scene content stands out", () => {
+    const prompt = buildSequenceMasterImagePrompt(sequence({ id: "sequence-001" }));
+    expect(prompt).toContain("가장 눈에 띄는 요소");
+  });
+
+  it("asks for a shallow-depth-of-field blur so the master reads as an out-of-focus backdrop", () => {
+    const prompt = buildSequenceMasterImagePrompt(sequence({ id: "sequence-001" }));
+    expect(prompt).toContain("아웃포커스");
+    expect(prompt).toContain("흐릿하게");
   });
 
   it("asks for a wide composition with margin for camera crops and overlays", () => {
@@ -124,6 +153,11 @@ describe("buildSequenceMasterImagePrompt", () => {
     expect(prompt).toContain("의미 없는 장식물·소품·군중·복잡한 패턴");
   });
 
+  it("keeps the minimal-background instruction from fighting style-reference color fidelity", () => {
+    const prompt = buildSequenceMasterImagePrompt(sequence({ id: "sequence-001" }));
+    expect(prompt).toContain("임의로 탁하게 낮추지 마세요");
+  });
+
   it("omits the background-reference emphasis instruction when no background reference image is attached", () => {
     const prompt = buildSequenceMasterImagePrompt(sequence({ id: "sequence-001" }));
     expect(prompt).not.toContain("배경 고정");
@@ -133,6 +167,17 @@ describe("buildSequenceMasterImagePrompt", () => {
     const prompt = buildSequenceMasterImagePrompt(sequence({ id: "sequence-001" }), undefined, true);
     expect(prompt).toContain("배경 참고 이미지(배경 고정)가 함께 첨부되었습니다");
     expect(prompt).toContain("가벼운 참고 자료로 다루지 말고");
+  });
+
+  it("omits the consistency-reference instruction when no other sequence's master is attached", () => {
+    const prompt = buildSequenceMasterImagePrompt(sequence({ id: "sequence-001" }));
+    expect(prompt).not.toContain("다른 시퀀스에서 이미 생성된 마스터 비주얼");
+  });
+
+  it("tells the model to match another sequence's master's color/style but not its place/composition when one is attached", () => {
+    const prompt = buildSequenceMasterImagePrompt(sequence({ id: "sequence-001" }), undefined, false, true);
+    expect(prompt).toContain("다른 시퀀스에서 이미 생성된 마스터 비주얼이 참고 이미지로 함께 첨부되었습니다");
+    expect(prompt).toContain("다른 시퀀스의 장소나 사물을 이 마스터에 옮겨 그리면 안 됩니다");
   });
 });
 
@@ -156,6 +201,21 @@ describe("generateSequenceMasterImage", () => {
     const client = new MockImageClient();
     await generateSequenceMasterImage(client, sequence({ id: "sequence-001" }), { background: Buffer.from("bg") });
     expect(client.calls[0].prompt).toContain("배경 참고 이미지(배경 고정)가 함께 첨부되었습니다");
+  });
+
+  it("forwards a consistencyReference image to the client alongside style/background", async () => {
+    const client = new MockImageClient();
+    const style = Buffer.from("style");
+    const background = Buffer.from("bg");
+    const consistencyReference = Buffer.from("anchor");
+    await generateSequenceMasterImage(client, sequence({ id: "sequence-001" }), { style, background, consistencyReference });
+    expect(client.calls[0].options?.referenceImages).toEqual([style, background, consistencyReference]);
+  });
+
+  it("adds the consistency-reference instruction to the prompt when a consistencyReference image is passed", async () => {
+    const client = new MockImageClient();
+    await generateSequenceMasterImage(client, sequence({ id: "sequence-001" }), { consistencyReference: Buffer.from("anchor") });
+    expect(client.calls[0].prompt).toContain("다른 시퀀스에서 이미 생성된 마스터 비주얼이 참고 이미지로 함께 첨부되었습니다");
   });
 
   it("retries and eventually succeeds on a transient (non-429) error", async () => {

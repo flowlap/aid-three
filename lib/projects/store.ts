@@ -523,6 +523,113 @@ export async function statProjectVideo(id: string): Promise<{ path: string; size
 }
 
 /**
+ * Gemini image-batch job records — one JSON file per batch, persisted so a
+ * submitted (async, potentially hours-long) Google batch job survives a
+ * server restart or the user navigating away and back. See
+ * lib/ai/image/geminiBatch.ts and app/api/projects/[projectId]/images/batch/.
+ */
+export interface ImageBatchJobRecord {
+  batchId: string;
+  /** Google's batch resource name (`batches/{id}`), used to poll/query the job. */
+  googleBatchName: string;
+  model: string;
+  submittedAt: string;
+  /** Scene ids submitted in this batch, in submission order. */
+  sceneIds: string[];
+  status: "submitted" | "succeeded" | "failed" | "applied";
+  /** Per-scene failure messages, if any scene's item errored — the rest of the batch can still succeed independently. */
+  sceneErrors?: Record<string, string>;
+  errorMessage?: string;
+  appliedAt?: string;
+}
+
+function assertSafeBatchId(batchId: string): void {
+  assertSafeIdentifier("batch id", batchId);
+}
+
+export function projectImageBatchJobsDir(id: string): string {
+  return path.join(projectDir(id), "image-batch-jobs");
+}
+
+function projectImageBatchJobPath(id: string, batchId: string): string {
+  assertSafeBatchId(batchId);
+  return path.join(projectImageBatchJobsDir(id), `${batchId}.json`);
+}
+
+export async function writeImageBatchJob(id: string, record: ImageBatchJobRecord): Promise<void> {
+  await fs.mkdir(projectImageBatchJobsDir(id), { recursive: true });
+  await fs.writeFile(projectImageBatchJobPath(id, record.batchId), JSON.stringify(record, null, 2), "utf-8");
+}
+
+export async function readImageBatchJob(id: string, batchId: string): Promise<ImageBatchJobRecord | null> {
+  try {
+    return JSON.parse(await fs.readFile(projectImageBatchJobPath(id, batchId), "utf-8"));
+  } catch {
+    return null;
+  }
+}
+
+export async function listImageBatchJobIds(id: string): Promise<string[]> {
+  try {
+    const entries = await fs.readdir(projectImageBatchJobsDir(id));
+    return entries.filter((name) => name.endsWith(".json")).map((name) => name.slice(0, -".json".length));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Same async-batch-job persistence pattern as ImageBatchJobRecord above, for
+ * sequence master-visual batches (see app/api/projects/[projectId]/sequences/master-image/batch/).
+ * `sceneErrors` intentionally reuses that field name (values are actually
+ * sequence ids here) so the shared GeminiBatchStatusPanel client component
+ * can read either job shape without branching on which kind it is.
+ */
+export interface MasterBatchJobRecord {
+  batchId: string;
+  googleBatchName: string;
+  model: string;
+  submittedAt: string;
+  /** Sequence ids submitted in this batch, in submission order. */
+  sequenceIds: string[];
+  status: "submitted" | "failed" | "applied";
+  sceneErrors?: Record<string, string>;
+  errorMessage?: string;
+  appliedAt?: string;
+}
+
+export function projectMasterBatchJobsDir(id: string): string {
+  return path.join(projectDir(id), "master-batch-jobs");
+}
+
+function projectMasterBatchJobPath(id: string, batchId: string): string {
+  assertSafeBatchId(batchId);
+  return path.join(projectMasterBatchJobsDir(id), `${batchId}.json`);
+}
+
+export async function writeMasterBatchJob(id: string, record: MasterBatchJobRecord): Promise<void> {
+  await fs.mkdir(projectMasterBatchJobsDir(id), { recursive: true });
+  await fs.writeFile(projectMasterBatchJobPath(id, record.batchId), JSON.stringify(record, null, 2), "utf-8");
+}
+
+export async function readMasterBatchJob(id: string, batchId: string): Promise<MasterBatchJobRecord | null> {
+  try {
+    return JSON.parse(await fs.readFile(projectMasterBatchJobPath(id, batchId), "utf-8"));
+  } catch {
+    return null;
+  }
+}
+
+export async function listMasterBatchJobIds(id: string): Promise<string[]> {
+  try {
+    const entries = await fs.readdir(projectMasterBatchJobsDir(id));
+    return entries.filter((name) => name.endsWith(".json")).map((name) => name.slice(0, -".json".length));
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Merges a single entry into a top-level map within a project JSON file,
  * e.g. { screenTypes: { "scene-001": {...} } }, without touching sibling
  * entries. Used for per-scene incremental saves during streaming generation.

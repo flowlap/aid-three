@@ -12,6 +12,7 @@ import {
   readSequenceMasterImage,
   writeSequenceMasterImage,
   updateSequenceMasterVisual,
+  projectSequenceMasterImagePath,
 } from "@/lib/projects/store";
 import { getProductionMode } from "@/lib/projects/types";
 import { createImageClient } from "@/lib/ai/image/factory";
@@ -50,6 +51,15 @@ const NOT_SEQUENCE_MODE_ERROR = "시퀀스 제작 모드 프로젝트가 아닙�
 interface GenerateSequenceMasterImageOverrides {
   description?: string;
   continuity?: Partial<SequenceContinuity>;
+  /**
+   * Another sequence's id in the same plan, whose already-generated master
+   * visual should be attached as an extra reference image for cross-sequence
+   * visual consistency — see SequenceMasterVisualsSection.tsx's multi-select
+   * "선택한 시퀀스 통일감 있게 생성" flow. Silently ignored if that sequence
+   * doesn't exist or has no generated master (same "optional, degrade
+   * gracefully" pattern as the background/style references below).
+   */
+  referenceSequenceId?: string;
 }
 
 /**
@@ -133,9 +143,28 @@ async function generateMasterVisual(
 
   const backgroundFixed = (await readProjectFile(projectId, "background-fixed-enabled.txt"))?.trim() === "true";
   const styleReferenceEnabled = true;
+
+  // "통일감 있게 생성" multi-select flow's anchor reference — a different
+  // sequence's own already-generated master, not this project's abstract
+  // style-sample image. See GenerateSequenceMasterImageOverrides.referenceSequenceId.
+  let consistencyReferenceBuffer: Buffer | undefined;
+  let consistencyReferencePath: string | undefined;
+  const refSequence =
+    overrides.referenceSequenceId && overrides.referenceSequenceId !== sequenceId
+      ? plan.sequences.find((seq) => seq.id === overrides.referenceSequenceId)
+      : undefined;
+  const refAssetId = refSequence?.masterVisual.assetId;
+  if (refSequence && refAssetId) {
+    consistencyReferenceBuffer = (await readSequenceMasterImage(projectId, refSequence.id, refAssetId)) ?? undefined;
+    if (consistencyReferenceBuffer) {
+      consistencyReferencePath = projectSequenceMasterImagePath(projectId, refSequence.id, refAssetId);
+    }
+  }
+
   const referenceImages: SequenceMasterReferenceImages = {
     background: backgroundFixed ? (await readProjectReferenceImage(projectId, "background")) ?? undefined : undefined,
     style: styleReferenceEnabled ? (await readProjectReferenceImage(projectId, "style")) ?? undefined : undefined,
+    consistencyReference: consistencyReferenceBuffer,
   };
   const commonPrompt = (await readProjectFile(projectId, "image-common-prompt.txt"))?.trim() || DEFAULT_IMAGE_COMMON_PROMPT;
   const engineRaw = (await readProjectFile(projectId, "image-engine.txt"))?.trim();
@@ -149,7 +178,7 @@ async function generateMasterVisual(
   let buffer: Buffer;
   if (engine === "local") {
     try {
-      buffer = await generateLocalMasterVisual(projectId, prompt, referenceImages, localModelSize);
+      buffer = await generateLocalMasterVisual(projectId, prompt, referenceImages, localModelSize, consistencyReferencePath);
     } catch (err) {
       console.error("시퀀스 마스터 비주얼 생성 실패:", err);
       return NextResponse.json({ error: err instanceof Error ? err.message : "로컬 이미지 생성에 실패했습니다" }, { status: 502 });
@@ -191,11 +220,13 @@ async function generateLocalMasterVisual(
   projectId: string,
   prompt: string,
   referenceImages: SequenceMasterReferenceImages,
-  modelSize: LocalImageModelSize
+  modelSize: LocalImageModelSize,
+  consistencyReferencePath?: string
 ): Promise<Buffer> {
   const referenceImagePaths = [
     referenceImages.background ? projectReferenceImagePath(projectId, "background") : null,
     referenceImages.style ? projectReferenceImagePath(projectId, "style") : null,
+    consistencyReferencePath ?? null,
   ].filter((p): p is string => p !== null);
 
   const tempDir = await fsPromises.mkdtemp(path.join(tmpdir(), "seq-master-"));

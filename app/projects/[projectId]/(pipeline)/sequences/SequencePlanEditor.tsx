@@ -10,6 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { AiJobStatus } from "@/components/AiJobStatus";
 import { CommonPromptField } from "@/components/CommonPromptField";
 import { SectionQuickNav, SECTION_QUICK_NAV_SCROLL_MARGIN_CLASS } from "@/components/SectionQuickNav";
+import { Collapsible, CollapsibleTrigger, CollapsiblePanel } from "@/components/ui/collapsible";
 import type { Scene } from "@/lib/pipeline/splitScenes";
 import type { Sequence, SequenceContinuity, SequenceIntegrityIssue, SequencePlan } from "@/lib/pipeline/sequenceTypes";
 import type { ScreenTypeAssignment } from "@/lib/pipeline/selectScreenTypes";
@@ -70,25 +71,42 @@ function narrationSnippet(scene: Scene | undefined): string {
   return text.length > 90 ? `${text.slice(0, 90)}…` : text;
 }
 
-/** Small severity-tagged issue list, shared by the always-on client-side check and the PUT endpoint's returned issues. */
-function IssueList({ issues }: { issues: SequenceIntegrityIssue[] }) {
+/**
+ * Severity-tagged issue list wrapped in a collapsible section, shared by the
+ * always-on client-side check and the PUT endpoint's returned issues.
+ * Collapsed by default so a long list of routine warnings (e.g. duration
+ * mismatches) doesn't dominate the page — but any `error`-severity issue
+ * forces it open by default, since those block saving/progressing and
+ * shouldn't be hidden.
+ */
+function IssueList({ title, issues }: { title: string; issues: SequenceIntegrityIssue[] }) {
   if (issues.length === 0) return null;
+  const errorCount = issues.filter((issue) => issue.severity === "error").length;
   return (
-    <ul className="space-y-1">
-      {issues.map((issue) => (
-        <li
-          key={issue.id}
-          className={cn(
-            "rounded-md border px-3 py-1.5 text-xs",
-            issue.severity === "error"
-              ? "border-destructive/30 bg-destructive/5 text-destructive"
-              : "border-warning/30 bg-warning/10 text-warning"
-          )}
-        >
-          {issue.message}
-        </li>
-      ))}
-    </ul>
+    <Collapsible defaultOpen={errorCount > 0} className="space-y-1">
+      <CollapsibleTrigger className="text-xs font-medium text-muted-foreground">
+        <span>
+          {title} ({issues.length}건{errorCount > 0 ? `, 오류 ${errorCount}건` : ""})
+        </span>
+      </CollapsibleTrigger>
+      <CollapsiblePanel>
+        <ul className="space-y-1 pt-1">
+          {issues.map((issue) => (
+            <li
+              key={issue.id}
+              className={cn(
+                "rounded-md border px-3 py-1.5 text-xs",
+                issue.severity === "error"
+                  ? "border-destructive/30 bg-destructive/5 text-destructive"
+                  : "border-warning/30 bg-warning/10 text-warning"
+              )}
+            >
+              {issue.message}
+            </li>
+          ))}
+        </ul>
+      </CollapsiblePanel>
+    </Collapsible>
   );
 }
 
@@ -507,20 +525,11 @@ export function SequencePlanEditor({
           {saveError}
         </p>
       )}
-      {saveIssues.length > 0 && (
-        <div className="space-y-1">
-          <p className="text-xs font-medium text-muted-foreground">저장 시 확인된 사항</p>
-          <IssueList issues={saveIssues} />
-        </div>
-      )}
-      {integrityIssues.length > 0 && (
-        <div className="space-y-1">
-          <p className="text-xs font-medium text-muted-foreground">
-            현재 계획 점검 결과{hasBlockingIssues ? " — 오류를 해결해야 저장/다음 단계로 진행할 수 있습니다" : ""}
-          </p>
-          <IssueList issues={integrityIssues} />
-        </div>
-      )}
+      <IssueList title="저장 시 확인된 사항" issues={saveIssues} />
+      <IssueList
+        title={`현재 계획 점검 결과${hasBlockingIssues ? " — 오류를 해결해야 저장/다음 단계로 진행할 수 있습니다" : ""}`}
+        issues={integrityIssues}
+      />
 
       {!plan || sequences.length === 0 ? (
         <Card className="p-6 text-center text-sm text-muted-foreground">
