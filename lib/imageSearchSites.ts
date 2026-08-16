@@ -9,21 +9,27 @@
  * site) simply omits it, and RelatedImageSearch.tsx skips that site entirely
  * for the "스크린샷 검색" flow instead of opening a useless tab. For every
  * site that does define it, no automatic hand-off is possible except
- * "gettyimageskorea-pro" (see below) — browsers block injecting a file into
- * another origin's upload widget, and this app has no public URL for
- * services like Google Lens's uploadbyurl to fetch from. `imageSearchUrl`
- * just opens the site's own image-search entry point in a new tab; the
- * caller is expected to have already copied the image to the clipboard (and
- * offered a draggable fallback) so the user can paste/drag it in there
- * themselves.
+ * "gettyimageskorea-pro" and "gettyimagesbank" (see below) — browsers block
+ * injecting a file into another origin's upload widget, and this app has no
+ * public URL for services like Google Lens's uploadbyurl to fetch from.
+ * `imageSearchUrl` just opens the site's own image-search entry point in a
+ * new tab; the caller is expected to have already copied the image to the
+ * clipboard (and offered a draggable fallback) so the user can paste/drag it
+ * in there themselves.
  *
- * "gettyimageskorea-pro" is the one exception: its upload endpoint is proxied
- * server-side (see lib/imageSearch/gettyImageSearchUpload.ts), so
- * RelatedImageSearch.tsx uploads automatically instead of using this site's
- * `imageSearchUrl` for that flow — `imageSearchUrl` here is only the fallback
- * destination when the automatic upload fails.
+ * "gettyimageskorea-pro" and "gettyimagesbank" are the two exceptions: each
+ * site's upload endpoint is proxied server-side (see
+ * lib/imageSearch/gettyImageSearchUpload.ts and
+ * lib/imageSearch/gettyImageBankSearchUpload.ts, wired up via
+ * RelatedImageSearch.tsx's AUTO_UPLOAD_ENDPOINTS), so RelatedImageSearch.tsx
+ * uploads automatically instead of using that site's `imageSearchUrl` for
+ * that flow — `imageSearchUrl` here is only the fallback destination when
+ * the automatic upload fails.
  *
- * To add a site, add one entry here — nothing else needs to change.
+ * To add a site, add one entry here — nothing else needs to change (unless
+ * it also gets a true auto-upload hand-off, which additionally needs a new
+ * lib/imageSearch/*.ts module + API route + an AUTO_UPLOAD_ENDPOINTS entry
+ * in RelatedImageSearch.tsx).
  */
 export type ImageSearchSiteId = "getty" | "google" | "gettyimagesbank" | "gettyimageskorea-pro" | "flaticon";
 

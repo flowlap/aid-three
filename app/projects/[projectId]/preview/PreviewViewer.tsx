@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ScreenMockup } from "@/components/ScreenMockup";
+import { OcrTextOverlay } from "@/components/OcrTextOverlay";
 import { PptxQuickExportButton, PptxTemplateSection } from "@/components/PptxExportButton";
 import { RelatedImageSearch } from "@/components/RelatedImageSearch";
 import { computeMockupVariantIndexes } from "@/lib/visual-templates";
@@ -309,8 +310,7 @@ ${clone.outerHTML}
                   <div>
                     <p className="mb-1.5 text-xs font-medium text-muted-foreground">이미지</p>
                     {hasImage ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
+                      <OcrTextOverlay
                         src={`/api/projects/${projectId}/images/${scene.id}?v=${imageVersions[scene.id] ?? 0}`}
                         alt={design?.caption ?? scene.narrationText}
                         className="w-full rounded-lg border object-cover"

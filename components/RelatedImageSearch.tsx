@@ -5,7 +5,13 @@ import { Search, Crop, X, Download, Camera } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import type { ImageSearchSite } from "@/lib/imageSearchSites";
+import type { ImageSearchSite, ImageSearchSiteId } from "@/lib/imageSearchSites";
+
+/** Sites with a true automated screenshot-search hand-off (server-side upload proxy) — see this file's header doc and each listed API route/lib module. */
+const AUTO_UPLOAD_ENDPOINTS: Partial<Record<ImageSearchSiteId, string>> = {
+  "gettyimageskorea-pro": "/api/imageSearch/gettyimageskorea",
+  gettyimagesbank: "/api/imageSearch/gettyimagesbank",
+};
 
 interface Rect {
   x: number;
@@ -64,12 +70,13 @@ function downloadBlob(blob: Blob, filename: string) {
  * "스크린샷 검색" (crop-based image search) only targets sites that actually
  * support it (`site.imageSearchUrl` defined — see lib/imageSearchSites.ts;
  * a site like Flaticon with no image-based search at all is silently
- * skipped). Getty Images Korea is the one site with a true automated
- * hand-off: the crop is uploaded server-side (handleGettyKoreaAutoSearch,
- * proxied via lib/imageSearch/gettyImageSearchUpload.ts) and its results
- * page opens directly. Every other capable site gets the manual flow: the
- * crop is copied to the clipboard once and each site's image-search entry
- * point opens in its own tab for the user to paste into.
+ * skipped). Getty Images Korea and Getty Images Bank are the two sites with
+ * a true automated hand-off (see AUTO_UPLOAD_ENDPOINTS below): the crop is
+ * uploaded server-side (each site proxied via its own lib/imageSearch/*.ts
+ * module, reverse-engineered from that site's own upload JS the same way)
+ * and its results page opens directly. Every other capable site gets the
+ * manual flow: the crop is copied to the clipboard once and each site's
+ * image-search entry point opens in its own tab for the user to paste into.
  */
 export function RelatedImageSearch({
   imageUrl,
@@ -80,9 +87,9 @@ export function RelatedImageSearch({
   keywords: string[];
   sites: ImageSearchSite[];
 }) {
-  const gettyKoreaSite = sites.find((s) => s.id === "gettyimageskorea-pro");
-  const manualImageSearchSites = sites.filter((s) => s.id !== "gettyimageskorea-pro" && s.imageSearchUrl);
-  const hasImageSearchCapableSite = Boolean(gettyKoreaSite) || manualImageSearchSites.length > 0;
+  const autoUploadSites = sites.filter((s) => s.id in AUTO_UPLOAD_ENDPOINTS);
+  const manualImageSearchSites = sites.filter((s) => !(s.id in AUTO_UPLOAD_ENDPOINTS) && s.imageSearchUrl);
+  const hasImageSearchCapableSite = autoUploadSites.length > 0 || manualImageSearchSites.length > 0;
   const siteLabels = sites.map((s) => s.label).join("·");
 
   const [searchText, setSearchText] = useState("");
@@ -126,7 +133,7 @@ export function RelatedImageSearch({
     setPendingBlob(blob);
     setPendingThumbnail(URL.createObjectURL(blob));
     if (opts?.autoDownload) {
-      // 게티이미지코리아 자동 업로드(handleGettyKoreaAutoSearch)가 실패했을 때만 여기로 온다 —
+      // 자동 업로드(handleAutoUploadSearch)가 실패했을 때만 여기로 온다 —
       // 클립보드 붙여넣기가 안 통하는 사이트이므로, 새 탭을 열기 전에 파일을 미리 다운로드해
       // 사용자가 수동으로 업로드할 수 있게 한다.
       downloadBlob(blob, `screenshot-${Date.now()}.png`);
@@ -136,27 +143,29 @@ export function RelatedImageSearch({
     }
   }
 
-  async function handleGettyKoreaAutoSearch(blob: Blob) {
+  async function handleAutoUploadSearch(site: ImageSearchSite, blob: Blob) {
+    const endpoint = AUTO_UPLOAD_ENDPOINTS[site.id];
+    if (!endpoint) return;
     setError(null);
     setUploading(true);
     try {
       const form = new FormData();
       form.append("image", blob, "screenshot.png");
-      const res = await fetch("/api/imageSearch/gettyimageskorea", { method: "POST", body: form });
+      const res = await fetch(endpoint, { method: "POST", body: form });
       const data = await res.json();
       if (!res.ok || !data.resultUrl) throw new Error(data.error ?? "업로드에 실패했습니다");
       window.open(data.resultUrl, "_blank", "noopener,noreferrer");
     } catch {
-      if (gettyKoreaSite) await handleManualImageSearch(blob, [gettyKoreaSite], { autoDownload: true });
-      setError("자동 업로드에 실패해 수동 방식으로 전환했습니다");
+      await handleManualImageSearch(blob, [site], { autoDownload: true });
+      setError(`${site.label} 자동 업로드에 실패해 수동 방식으로 전환했습니다`);
     } finally {
       setUploading(false);
     }
   }
 
-  /** Runs whichever of the two flows apply for the currently-selected sites — both, if both a Getty Korea and other capable sites are selected. */
+  /** Runs whichever flows apply for the currently-selected sites — auto-upload sites each go through their own proxy, then any remaining manual-capable sites share one clipboard-copy + tabs-open pass. */
   async function handleScreenshotSearch(blob: Blob) {
-    if (gettyKoreaSite) await handleGettyKoreaAutoSearch(blob);
+    for (const site of autoUploadSites) await handleAutoUploadSearch(site, blob);
     if (manualImageSearchSites.length > 0) await handleManualImageSearch(blob, manualImageSearchSites);
   }
 

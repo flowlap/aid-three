@@ -34,7 +34,7 @@ import { assertFfmpegAvailable } from "@/lib/media/ffmpeg";
 import { getWavDurationSec } from "@/lib/media/wavDuration";
 import { runWithConcurrencyLimit } from "@/lib/concurrency";
 import { VIDEO_RENDER_CONCURRENCY } from "@/lib/pipeline/videoRenderConfig";
-import { getProjectImageAspectRatio, getPngDimensions } from "@/lib/pipeline/imageAspectRatio";
+import { getProjectImageAspectRatio, getImageDimensions } from "@/lib/pipeline/imageAspectRatio";
 import { validateSequenceIntegrity } from "@/lib/pipeline/validateSequenceIntegrity";
 import { loadSequenceMasterAsset } from "@/lib/pipeline/sequenceLookup";
 import type { Scene } from "@/lib/pipeline/splitScenes";
@@ -368,15 +368,15 @@ async function handleSequenceModeVideo(
           } else {
             framePath = masterAsset.path;
             const staticVf = buildStaticScaleFilter(frameDimensions);
-            const sourceDimensions = getPngDimensions(baseBuffer);
+            const sourceDimensions = getImageDimensions(baseBuffer);
             const motionVf = sourceDimensions
               ? buildMotionFilter(entry.motion, sourceDimensions, frameDimensions, entry.clipDurationSec)
               : null;
             vf = motionVf ?? staticVf;
 
             if (motionVf === null && entry.motion !== "static") {
-              // Two different reasons land here: the PNG couldn't be parsed
-              // at all (sourceDimensions null — corrupt/non-PNG file), vs.
+              // Two different reasons land here: the image couldn't be parsed
+              // at all (sourceDimensions null — corrupt/unrecognized file), vs.
               // buildMotionFilter itself rejecting the motion for a
               // perfectly readable image (e.g. not enough pan slack). These
               // need distinct messages so a margin-insufficient warning

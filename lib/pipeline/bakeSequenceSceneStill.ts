@@ -2,7 +2,7 @@ import { promises as fs } from "fs";
 import { tmpdir } from "os";
 import path from "path";
 import { projectImagePath } from "@/lib/projects/store";
-import { getPngDimensions } from "@/lib/pipeline/imageAspectRatio";
+import { getImageDimensions } from "@/lib/pipeline/imageAspectRatio";
 import { startCropRect } from "@/lib/video/motionFilter";
 import { composeSequenceStill } from "@/lib/video/composeSequenceStill";
 import { renderSequenceOverlayToPng } from "@/lib/video/renderSequenceFrameToPng";
@@ -44,7 +44,7 @@ export async function bakeSequenceSceneStill(params: {
   const { projectId, sceneId, sequence, masterAsset, frameDimensions, overlayPositions, signal } = params;
 
   if (!masterAsset.path || !masterAsset.buffer) return { baked: false, reason: "no-master" };
-  const source = getPngDimensions(masterAsset.buffer);
+  const source = getImageDimensions(masterAsset.buffer);
   if (!source) return { baked: false, reason: "unreadable-master" };
 
   const motion = sequence?.cameraPlan.find((entry) => entry.sceneId === sceneId)?.motion ?? "static";
