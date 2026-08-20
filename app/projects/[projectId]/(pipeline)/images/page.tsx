@@ -16,6 +16,7 @@ import {
 import type { Scene } from "@/lib/pipeline/splitScenes";
 import type { ScreenTypeAssignment } from "@/lib/pipeline/selectScreenTypes";
 import type { VisualDesign } from "@/lib/pipeline/designVisuals";
+import type { FixedPresenterPosition } from "@/lib/pipeline/generateSceneImage";
 
 export default async function ImagesPage({ params }: { params: Promise<{ projectId: string }> }) {
   const { projectId } = await params;
@@ -38,6 +39,11 @@ export default async function ImagesPage({ params }: { params: Promise<{ project
     (await readProjectFile(projectId, "presenter-image-prompt.txt"))?.trim() || DEFAULT_PRESENTER_IMAGE_PROMPT;
   const genderRaw = (await readProjectFile(projectId, "presenter-gender.txt"))?.trim();
   const initialPresenterGender = genderRaw === "male" ? "male" : "female";
+  const fixedPositionRaw = (await readProjectFile(projectId, "presenter-fixed-position.txt"))?.trim();
+  const initialPresenterFixedPosition: FixedPresenterPosition =
+    fixedPositionRaw === "left" || fixedPositionRaw === "center" || fixedPositionRaw === "right"
+      ? fixedPositionRaw
+      : "auto";
   const initialHasBackgroundImage = (await readProjectReferenceImage(projectId, "background")) !== null;
   const initialHasPresenterImage = (await readProjectReferenceImage(projectId, "presenter")) !== null;
   const initialStylePrompt =
@@ -86,6 +92,7 @@ export default async function ImagesPage({ params }: { params: Promise<{ project
         initialBackgroundPrompt={initialBackgroundPrompt}
         initialPresenterPrompt={initialPresenterPrompt}
         initialPresenterGender={initialPresenterGender}
+        initialPresenterFixedPosition={initialPresenterFixedPosition}
         initialHasBackgroundImage={initialHasBackgroundImage}
         initialHasPresenterImage={initialHasPresenterImage}
         initialStylePrompt={initialStylePrompt}

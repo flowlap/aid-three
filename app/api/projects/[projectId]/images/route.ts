@@ -18,7 +18,9 @@ import {
   buildImagePrompt,
   buildRelatedScenesContext,
   describeImageError,
+  resolvePresenterPosition,
   type SceneReferenceImages,
+  type FixedPresenterPosition,
 } from "@/lib/pipeline/generateSceneImage";
 import type { Scene } from "@/lib/pipeline/splitScenes";
 import type { ScreenTypeAssignment, SceneSequenceContext } from "@/lib/pipeline/selectScreenTypes";
@@ -79,6 +81,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
   const backgroundFixed = (await readProjectFile(projectId, "background-fixed-enabled.txt"))?.trim() === "true";
   const genderRaw = (await readProjectFile(projectId, "presenter-gender.txt"))?.trim();
   const presenterGender = genderRaw === "male" || genderRaw === "female" ? genderRaw : undefined;
+  const fixedPositionRaw = (await readProjectFile(projectId, "presenter-fixed-position.txt"))?.trim();
+  const presenterFixedPosition: FixedPresenterPosition =
+    fixedPositionRaw === "left" || fixedPositionRaw === "center" || fixedPositionRaw === "right"
+      ? fixedPositionRaw
+      : "auto";
   const engineRaw = (await readProjectFile(projectId, "image-engine.txt"))?.trim();
   const engine: "openai" | "local" = engineRaw === "local" ? "local" : "openai";
   const modelSizeRaw = (await readProjectFile(projectId, "image-local-model-size.txt"))?.trim();
@@ -268,7 +275,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
             commonPrompt,
             extraPrompt: sequencePlan ? sequenceSceneExtraPrompt : undefined,
             presenterEnabled,
-            presenterPosition: design.presenterPosition,
+            presenterPosition: resolvePresenterPosition(presenterFixedPosition, design.presenterPosition),
             presenterGender,
             backgroundFixed,
             relatedScenes: buildRelatedScenesContext(scene, visualDesigns),
@@ -328,7 +335,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
                 commonPrompt,
                 extraPrompt: sequencePlan ? sequenceSceneExtraPrompt : undefined,
                 presenterEnabled,
-                presenterPosition: design.presenterPosition,
+                presenterPosition: resolvePresenterPosition(presenterFixedPosition, design.presenterPosition),
                 presenterGender,
                 backgroundFixed,
                 relatedScenes: buildRelatedScenesContext(scene, visualDesigns),

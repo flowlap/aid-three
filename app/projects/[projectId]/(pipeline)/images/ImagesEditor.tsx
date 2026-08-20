@@ -23,6 +23,7 @@ import { computeMockupVariantIndexes } from "@/lib/visual-templates";
 import type { Scene } from "@/lib/pipeline/splitScenes";
 import type { ScreenTypeAssignment } from "@/lib/pipeline/selectScreenTypes";
 import type { VisualDesign } from "@/lib/pipeline/designVisuals";
+import type { FixedPresenterPosition } from "@/lib/pipeline/generateSceneImage";
 import type { SequencePlan } from "@/lib/pipeline/sequenceTypes";
 import type { ProductionMode } from "@/lib/projects/types";
 import { buildSceneHierarchy } from "@/lib/pipeline/sceneHierarchy";
@@ -61,6 +62,7 @@ export function ImagesEditor({
   initialBackgroundPrompt,
   initialPresenterPrompt,
   initialPresenterGender,
+  initialPresenterFixedPosition,
   initialHasBackgroundImage,
   initialHasPresenterImage,
   initialStylePrompt,
@@ -87,6 +89,7 @@ export function ImagesEditor({
   initialBackgroundPrompt: string;
   initialPresenterPrompt: string;
   initialPresenterGender: PresenterGender;
+  initialPresenterFixedPosition: FixedPresenterPosition;
   initialHasBackgroundImage: boolean;
   initialHasPresenterImage: boolean;
   initialStylePrompt: string;
@@ -126,6 +129,8 @@ export function ImagesEditor({
   const [imageIds, setImageIds] = useState<Set<string>>(new Set(initialImageIds));
   const [presenterEnabled, setPresenterEnabled] = useState(initialPresenterEnabled);
   const [presenterSaving, setPresenterSaving] = useState(false);
+  const [presenterFixedPosition, setPresenterFixedPosition] = useState(initialPresenterFixedPosition);
+  const [presenterPositionSaving, setPresenterPositionSaving] = useState(false);
   const [backgroundFixed, setBackgroundFixed] = useState(initialBackgroundFixed);
   const [backgroundFixedSaving, setBackgroundFixedSaving] = useState(false);
   const [engine, setEngine] = useState<ImageEngine>(initialEngine);
@@ -171,6 +176,20 @@ export function ImagesEditor({
       });
     } finally {
       setPresenterSaving(false);
+    }
+  }
+
+  async function changePresenterFixedPosition(next: FixedPresenterPosition) {
+    setPresenterFixedPosition(next);
+    setPresenterPositionSaving(true);
+    try {
+      await fetch(`/api/projects/${projectId}/images/presenter-position`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ position: next }),
+      });
+    } finally {
+      setPresenterPositionSaving(false);
     }
   }
 
@@ -369,6 +388,22 @@ export function ImagesEditor({
               </p>
             </span>
           </label>
+          {presenterEnabled && (
+            <label className="flex items-center gap-2 text-sm">
+              <span className="font-medium">강사 위치 고정</span>
+              <select
+                value={presenterFixedPosition}
+                disabled={presenterPositionSaving}
+                onChange={(e) => changePresenterFixedPosition(e.target.value as FixedPresenterPosition)}
+                className="rounded border px-2 py-1 text-sm"
+              >
+                <option value="auto">자동 (AI가 씬마다 선택)</option>
+                <option value="left">좌측 고정</option>
+                <option value="center">중앙 고정</option>
+                <option value="right">우측 고정</option>
+              </select>
+            </label>
+          )}
           {presenterEnabled && (
             <ReferenceImageSection
               projectId={projectId}

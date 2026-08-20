@@ -16,6 +16,8 @@ import {
   buildImagePrompt,
   buildRelatedScenesContext,
   describeImageError,
+  resolvePresenterPosition,
+  type FixedPresenterPosition,
 } from "@/lib/pipeline/generateSceneImage";
 import { DEFAULT_IMAGE_COMMON_PROMPT, DEFAULT_SEQUENCE_SCENE_EXTRA_PROMPT } from "@/lib/pipeline/commonPromptDefaults";
 import {
@@ -88,6 +90,11 @@ async function regenerateScene(projectId: string, sceneId: string, overrides: Re
   const projectBackgroundFixed = (await readProjectFile(projectId, "background-fixed-enabled.txt"))?.trim() === "true";
   const genderRaw = (await readProjectFile(projectId, "presenter-gender.txt"))?.trim();
   const presenterGender = genderRaw === "male" || genderRaw === "female" ? genderRaw : undefined;
+  const fixedPositionRaw = (await readProjectFile(projectId, "presenter-fixed-position.txt"))?.trim();
+  const presenterFixedPosition: FixedPresenterPosition =
+    fixedPositionRaw === "left" || fixedPositionRaw === "center" || fixedPositionRaw === "right"
+      ? fixedPositionRaw
+      : "auto";
   const engineRaw = (await readProjectFile(projectId, "image-engine.txt"))?.trim();
   const engine: "openai" | "local" = engineRaw === "local" ? "local" : "openai";
   const modelSizeRaw = (await readProjectFile(projectId, "image-local-model-size.txt"))?.trim();
@@ -209,7 +216,7 @@ async function regenerateScene(projectId: string, sceneId: string, overrides: Re
       screenType: screenTypes[sceneId]?.screenType,
       commonPrompt,
       presenterEnabled,
-      presenterPosition: design.presenterPosition,
+      presenterPosition: resolvePresenterPosition(presenterFixedPosition, design.presenterPosition),
       presenterGender,
       backgroundFixed,
       relatedScenes: buildRelatedScenesContext(scene, visualDesigns),
@@ -260,7 +267,7 @@ async function regenerateScene(projectId: string, sceneId: string, overrides: Re
         screenType: screenTypes[sceneId]?.screenType,
         commonPrompt,
         presenterEnabled,
-        presenterPosition: design.presenterPosition,
+        presenterPosition: resolvePresenterPosition(presenterFixedPosition, design.presenterPosition),
         presenterGender,
         backgroundFixed,
         relatedScenes: buildRelatedScenesContext(scene, visualDesigns),

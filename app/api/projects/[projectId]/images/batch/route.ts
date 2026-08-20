@@ -11,7 +11,12 @@ import {
   type ImageBatchJobRecord,
 } from "@/lib/projects/store";
 import { getProductionMode } from "@/lib/projects/types";
-import { buildImagePrompt, buildRelatedScenesContext } from "@/lib/pipeline/generateSceneImage";
+import {
+  buildImagePrompt,
+  buildRelatedScenesContext,
+  resolvePresenterPosition,
+  type FixedPresenterPosition,
+} from "@/lib/pipeline/generateSceneImage";
 import type { Scene } from "@/lib/pipeline/splitScenes";
 import type { ScreenTypeAssignment, SceneSequenceContext } from "@/lib/pipeline/selectScreenTypes";
 import type { VisualDesign } from "@/lib/pipeline/designVisuals";
@@ -70,6 +75,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
   const backgroundFixed = (await readProjectFile(projectId, "background-fixed-enabled.txt"))?.trim() === "true";
   const genderRaw = (await readProjectFile(projectId, "presenter-gender.txt"))?.trim();
   const presenterGender = genderRaw === "male" || genderRaw === "female" ? genderRaw : undefined;
+  const fixedPositionRaw = (await readProjectFile(projectId, "presenter-fixed-position.txt"))?.trim();
+  const presenterFixedPosition: FixedPresenterPosition =
+    fixedPositionRaw === "left" || fixedPositionRaw === "center" || fixedPositionRaw === "right"
+      ? fixedPositionRaw
+      : "auto";
   const sequenceImageModeRaw = (await readProjectFile(projectId, "sequence-image-mode.txt"))?.trim();
   const sequenceImageMode: "composite" | "ai" = sequenceImageModeRaw === "composite" ? "composite" : "ai";
   const referenceImages = {
@@ -139,7 +149,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pro
         commonPrompt,
         extraPrompt: sequencePlan ? sequenceSceneExtraPrompt : undefined,
         presenterEnabled,
-        presenterPosition: design.presenterPosition,
+        presenterPosition: resolvePresenterPosition(presenterFixedPosition, design.presenterPosition),
         presenterGender,
         backgroundFixed,
         relatedScenes: buildRelatedScenesContext(scene, visualDesigns),

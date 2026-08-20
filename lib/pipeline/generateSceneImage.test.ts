@@ -8,6 +8,7 @@ import {
   describeImageError,
   buildImagePrompt,
   buildRelatedScenesContext,
+  resolvePresenterPosition,
   NO_TEXT_INSTRUCTION,
 } from "./generateSceneImage";
 import {
@@ -270,6 +271,29 @@ describe("generateSceneImage", () => {
   it("does not include the accessory/likeness lock when no presenter reference image is attached", () => {
     const prompt = buildImagePrompt(scene, design, { presenterEnabled: true, presenterGender: "female" });
     expect(prompt).not.toContain("안경, 마이크, 액세서리");
+  });
+
+  it("includes the safe-area instruction unconditionally", () => {
+    expect(buildImagePrompt(scene, design)).toContain("90% 안전 영역");
+  });
+});
+
+describe("resolvePresenterPosition", () => {
+  it("defers to the screen-design position when the fixed position is auto or unset", () => {
+    expect(resolvePresenterPosition("auto", "left")).toBe("left");
+    expect(resolvePresenterPosition(undefined, "right")).toBe("right");
+  });
+
+  it("overrides the side when a fixed position is set and screen design chose a position", () => {
+    expect(resolvePresenterPosition("center", "left")).toBe("center");
+  });
+
+  it("applies the fixed position even when screen design didn't decide one", () => {
+    expect(resolvePresenterPosition("right", undefined)).toBe("right");
+  });
+
+  it("keeps 'none' even when a fixed position is set, since screen design decided no presenter fits this scene", () => {
+    expect(resolvePresenterPosition("left", "none")).toBe("none");
   });
 });
 

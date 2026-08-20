@@ -140,6 +140,23 @@ export interface SceneReferenceImages {
  */
 type PositionedPresenterPosition = Exclude<PresenterPosition, "none">;
 
+export type FixedPresenterPosition = "auto" | "left" | "center" | "right";
+
+/**
+ * "auto"(미설정)는 화면설계 AI의 씬별 선택을 그대로 따른다(현행 동작, undefined
+ * 포함). left/center/right가 지정되면 화면설계가 위치를 안 정했거나 다르게
+ * 정한 씬도 그 고정 위치로 덮어쓰지만, 화면설계가 이미 "none"으로 정한
+ * 씬(강사가 안 어울리는 화면)만은 예외로 그대로 강사 없이 둔다.
+ */
+export function resolvePresenterPosition(
+  fixedPosition: FixedPresenterPosition | undefined,
+  designPosition: PresenterPosition | undefined
+): PresenterPosition | undefined {
+  if (!fixedPosition || fixedPosition === "auto") return designPosition;
+  if (designPosition === "none") return "none";
+  return fixedPosition;
+}
+
 const PRESENTER_POSITION_LABEL: Record<PositionedPresenterPosition, string> = {
   left: "좌측 등장(화면 좌측에 상반신, 우측에 시각 자료)",
   right: "우측 등장(화면 우측에 상반신, 좌측에 시각 자료)",
@@ -347,6 +364,14 @@ function buildSequenceOverlayBakeInstruction(overlays: SequenceOverlayEntry[]): 
 export const PRODUCTION_STYLE_INSTRUCTION =
   "이 이미지는 유튜브 강의 영상이나 TV 교육 프로그램에서 흔히 볼 수 있는 실제 영상 콘텐츠의 한 장면처럼 보여야 합니다. 목적은 교육이지만 형식은 일반 방송/영상 콘텐츠와 같아야 하며, 단순한 플랫 삽화보다는 화면 자막바(로어써드), 인포그래픽 오버레이, 스튜디오 그래픽 같은 실제 영상 화면 구성 요소를 활용하세요.";
 
+/**
+ * Applies to every scene unconditionally, same status as
+ * PRODUCTION_STYLE_INSTRUCTION — keeps captions/presenter/icons/diagrams from
+ * being cropped or touching the frame edge.
+ */
+export const SAFE_AREA_INSTRUCTION =
+  "화면의 모든 시각 요소(자막, 아이콘, 다이어그램 등, 등장인물이 있다면 그 인물 포함)는 프레임 중앙의 약 90% 안전 영역 안에 배치하세요 — 상하좌우 각 가장자리에 프레임 크기의 약 5%에 해당하는 여백을 남기고, 어떤 요소도 잘리거나 프레임 가장자리에 붙지 않게 하세요.";
+
 export const NO_TEXT_INSTRUCTION = "실제 사람 얼굴이나 텍스트 렌더링 없이, 설명하는 개념을 시각적으로 표현하세요.";
 
 function buildTextInstruction(scene: Scene, design: VisualDesign): string {
@@ -422,7 +447,7 @@ export function buildImagePrompt(scene: Scene, design: VisualDesign, promptOptio
 - 무엇을 그릴지: ${design.imageOrDiagramDescription}
 - 요소 배치: ${design.objectPlacement}
 
-${PRODUCTION_STYLE_INSTRUCTION} ${textInstruction}${extraInstruction}${styleGuide}${styleReferenceInstruction}${backgroundInstruction}${backgroundStyleCombinationInstruction}${presenterInstruction}${relatedContext}${sequenceContinuityInstruction}${sequenceCameraInstruction}${sequenceOverlayInstruction}
+${PRODUCTION_STYLE_INSTRUCTION} ${SAFE_AREA_INSTRUCTION} ${textInstruction}${extraInstruction}${styleGuide}${styleReferenceInstruction}${backgroundInstruction}${backgroundStyleCombinationInstruction}${presenterInstruction}${relatedContext}${sequenceContinuityInstruction}${sequenceCameraInstruction}${sequenceOverlayInstruction}
 
 관련 나레이션(맥락 참고용 — 화면 구성 명세와 배치를 우선하고, 나레이션 문장을 그대로 옮기지 마세요): ${scene.narrationText}`;
 }
