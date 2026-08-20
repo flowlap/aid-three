@@ -20,7 +20,7 @@
 → (선택) 미리보기 / PPTX 내보내기 / 내레이션 음성 생성 + 동영상 생성(Mac 전용)
 ```
 
-각 단계는 "AI 생성 → 사용자 검토/수정 → 다음 단계" 패턴을 따르는 선형 마법사(wizard) UI로 구현되어 있다. 1단계에서 "자동 진행" 버튼을 누르면 이후 단계들이 각자 도착 시 자동으로 생성을 트리거하고, 결과가 무결성 문제 없이 완전하면 자동으로 다음 단계까지 넘어간다(URL의 `?auto=1`로 전파) — 단, 씬 분할 무결성 경고나 일관성 검수 이슈가 발견되면 그 자리에서 자동 진행이 멈추고 사용자 확인을 기다린다. **자동진행은 4단계(일관성 검수)에서 끝나고 5단계(이미지 생성)로는 넘어가지 않는다** — 이미지 생성은 실제 과금되는 OpenAI 호출이라 사용자의 명시적 클릭이 항상 필요하도록 의도적으로 막아뒀다. 단계별 정확한 입출력 계약은 [`docs/reference/pipeline-steps.md`](reference/pipeline-steps.md) 참고.
+각 단계는 "AI 생성 → 사용자 검토/수정 → 다음 단계" 패턴을 따르는 선형 마법사(wizard) UI로 구현되어 있다. (2026-08-19: 1단계의 "자동 진행(2~6단계)" 파일럿 기능은 제거됨 — 각 단계는 이제 항상 사용자가 직접 "다음 단계"를 눌러야 진행된다.) 단계별 정확한 입출력 계약은 [`docs/reference/pipeline-steps.md`](reference/pipeline-steps.md) 참고.
 
 | 단계 | 산출물 파일 | AI 호출 | 사용자 편집 |
 |---|---|---|---|
@@ -95,7 +95,7 @@ lib/
   concurrency.ts  # runWithConcurrencyLimit(동시 실행 상한), createRateGate(호출 시작 간 최소 간격 페이싱) — AI 호출 병렬화 공용 헬퍼
   jobs/           # registry.ts — AI 작업 레지스트리(중복 실행 방지/취소/진행률), PIPELINE_JOB_STEPS
                   #   inFlightLock.ts — 더 단순한 프로젝트별 배타적 락(레지스트리와 별도, 동시 요청 직렬화용)
-  client/         # useAiJob.ts(작업 폴링+스트림 훅), StepNavContext.tsx(셸 푸터 다음-버튼 등록), useAutoProgress.ts(?auto=1 자동진행)
+  client/         # useAiJob.ts(작업 폴링+스트림 훅), StepNavContext.tsx(셸 푸터 다음-버튼 등록)
 app/
   AppShell.tsx                     # 파이프라인 단계 전용 공용 셸: 1000px 중앙 컬럼, sticky 헤더(단계 배지)/푸터(이전·다음)
   ThemeToggle.tsx                  # 다크모드 토글(우상단 고정), 루트 layout.tsx에서 전역 렌더
@@ -150,8 +150,9 @@ npm test                      # 전체 유닛 테스트
 npx tsc --noEmit               # 타입 체크 (테스트에 안 걸리는 실제 버그를 여러 번 잡아냈음 — 항상 같이 확인할 것)
 ```
 
-## 5. 현재 상태 (2026-08-11 기준)
+## 5. 현재 상태 (2026-08-19 기준)
 
+- 2026-08-19: 원고 변환(1단계)의 "자동 진행(2~6단계)" 파일럿 기능 제거 — 버튼과 `?auto=1` 플래그를 소비하던 씬 분할/화면 설계/시퀀스 설계/일관성 검수 4개 편집기의 자동 시작·자동 전진 로직, 그리고 이를 지탱하던 `lib/client/useAutoProgress.ts`를 모두 삭제. 각 단계는 이제 항상 사용자가 직접 "다음 단계"를 눌러야 진행되며, 그 외 단계별 동작(수동 생성/저장/편집)은 변경 없음.
 - (이전 세션들에서 이미 구현됐으나 이 문서에는 반영되지 않았던 기능들 — 문서를 실제 코드 상태에 맞춰 동기화) 로컬 TTS(Qwen3-TTS, `narration-audio` 페이지) + ffmpeg 기반 동영상 렌더링(`lib/video/`), PPTX 내보내기(`lib/pptx/`, OOXML 직접 조작), Getty Images Korea 역방향 이미지 검색(`lib/imageSearch/`, 미리보기 페이지), fal.ai 이미지 provider(`IMAGE_PROVIDER=fal`, Nano Banana 2 계열은 참조 이미지도 지원, `e1f55ea`) 모두 이미 구현·동작 중.
 - 2026-08-10 (`93732b7`): 로컬 TTS(Qwen3-TTS-CustomVoice)가 `instruct` 없이 호출하면 씬 텍스트 내용만 보고 톤을 추론해, 씬마다 독립 합성하는 구조상 슬픔/당참 등으로 톤이 널뛰던 문제를 고정 한국어 `instruct`(`TTS_DEFAULT_INSTRUCT`, `ttsGenerationConfig.ts`)로 해결.
 - 2026-08-10 (`d984682`): 화면 설계가 시퀀스 설계 단계에 흡수되면서 `screenTypes`가 비어 있어도 "다음 단계" 저장이 막히지 않아 빈 `screen-design.json`이 저장되고 이후 씬 이미지 생성이 전부 깨지는 경로가 있었음 — 씬 모드의 `ScreenDesignEditor.tsx`와 동일한 게이트를 `SequencePlanEditor.tsx`에도 적용.

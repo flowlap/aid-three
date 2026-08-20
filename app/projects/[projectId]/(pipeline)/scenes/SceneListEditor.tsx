@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Combine, Scissors, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -15,7 +15,6 @@ import { getPipelineSteps } from "@/lib/projects/pipelineSteps";
 import { useAiJob } from "@/lib/client/useAiJob";
 import { useNextStepAction } from "@/lib/client/StepNavContext";
 import { useToast } from "@/lib/client/ToastContext";
-import { useAutoProgressFlag, withAutoProgress } from "@/lib/client/useAutoProgress";
 import { estimateSecondsForChars } from "@/lib/client/estimateAiDuration";
 import { cn } from "@/lib/utils";
 import { getDepthBorderClass } from "@/lib/depthColors";
@@ -66,7 +65,6 @@ export function SceneListEditor({
   productionMode: ProductionMode;
 }) {
   const router = useRouter();
-  const auto = useAutoProgressFlag();
   const { showToast } = useToast();
   const [scenes, setScenes] = useState<Scene[]>(initialScenes);
   const textareaRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
@@ -197,7 +195,7 @@ export function SceneListEditor({
     });
   }
 
-  /** Omitting `destination` saves in place (the standalone "저장" button); passing one saves then navigates there ("다음 단계"/자동 진행). */
+  /** Omitting `destination` saves in place (the standalone "저장" button); passing one saves then navigates there ("다음 단계"). */
   async function saveAndGoTo(destination?: string) {
     setSaving(true);
     setSaveError(null);
@@ -240,37 +238,12 @@ export function SceneListEditor({
   }, [productionMode]);
 
   async function handleNext() {
-    await saveAndGoTo(withAutoProgress(`/projects/${projectId}/${nextStepKey}`, auto));
+    await saveAndGoTo(`/projects/${projectId}/${nextStepKey}`);
   }
 
   useNextStepAction(saving ? "저장 중..." : "다음 단계", scenes.length === 0 || saving || loading, handleNext);
 
   const hierarchy = useMemo(() => buildSceneHierarchy(scenes), [scenes]);
-
-  // Auto-progress: kick off generation once on arrival if there's nothing yet.
-  const autoStartedRef = useRef(false);
-  useEffect(() => {
-    if (auto && !autoStartedRef.current && scenes.length === 0) {
-      autoStartedRef.current = true;
-      handleGenerate();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Auto-progress: once this tab's own generation settles cleanly, move on by itself.
-  const autoPilotRef = useRef(auto);
-  const prevLoadingRef = useRef(loading);
-  useEffect(() => {
-    if (prevLoadingRef.current && !loading && autoPilotRef.current && autoStartedRef.current && !discoveredRunning) {
-      if (!error && warning === null && scenes.length > 0) {
-        queueMicrotask(() => void handleNext());
-      } else {
-        autoPilotRef.current = false;
-      }
-    }
-    prevLoadingRef.current = loading;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading]);
 
   return (
     <div className="space-y-4">

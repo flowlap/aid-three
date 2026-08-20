@@ -60,7 +60,7 @@ export function MarkdownEditor({
     await start();
   }
 
-  /** Omitting `destination` saves in place (the standalone "저장" button); passing one saves then navigates there ("다음 단계"/자동 진행). */
+  /** Omitting `destination` saves in place (the standalone "저장" button); passing one saves then navigates there ("다음 단계"). */
   async function saveAndGoTo(destination?: string) {
     setSaving(true);
     setSaveError(null);
@@ -95,10 +95,6 @@ export function MarkdownEditor({
     await saveAndGoTo(`/projects/${projectId}/scenes`);
   }
 
-  async function handleAutoProgress() {
-    await saveAndGoTo(`/projects/${projectId}/scenes?auto=1`);
-  }
-
   useNextStepAction(saving ? "저장 중..." : "다음 단계", !markdown || saving || loading, handleNext);
 
   return (
@@ -128,9 +124,6 @@ export function MarkdownEditor({
             className="ml-auto"
           >
             {saving ? "저장 중..." : "저장"}
-          </Button>
-          <Button variant="outline" onClick={handleAutoProgress} disabled={!markdown || saving || loading}>
-            자동 진행 (2~6단계)
           </Button>
         </div>
         {loading && (

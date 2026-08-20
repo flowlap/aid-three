@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -11,7 +11,6 @@ import { cn } from "@/lib/utils";
 import { DETERMINISTIC_ISSUE_LABELS, type ReviewIssue } from "@/lib/pipeline/reviewConsistency";
 import { useAiJob } from "@/lib/client/useAiJob";
 import { useNextStepAction } from "@/lib/client/StepNavContext";
-import { useAutoProgressFlag } from "@/lib/client/useAutoProgress";
 import { estimateSecondsForScenes } from "@/lib/client/estimateAiDuration";
 
 const SEVERITY_LABELS: Record<ReviewIssue["severity"], string> = {
@@ -52,7 +51,6 @@ export function ReviewIssueList({
   sceneCount: number;
 }) {
   const router = useRouter();
-  const auto = useAutoProgressFlag();
   const [issues, setIssues] = useState<ReviewIssue[]>(initialIssues);
   const [hasRun, setHasRun] = useState(initialHasRun);
   const [rawPreview, setRawPreview] = useState("");
@@ -93,18 +91,6 @@ export function ReviewIssueList({
   }
 
   useNextStepAction(navigatingNext ? "이동 중..." : "다음 단계", navigatingNext, handleNext);
-
-  // Auto-progress only covers free/cheap DeepSeek text steps — it deliberately
-  // stops here rather than auto-continuing into the images step, which makes
-  // real (paid) OpenAI image API calls per scene.
-  const autoStartedRef = useRef(false);
-  useEffect(() => {
-    if (auto && !autoStartedRef.current) {
-      autoStartedRef.current = true;
-      handleGenerate();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   return (
     <div className="space-y-4">

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -13,7 +13,6 @@ import { buildSceneHierarchy } from "@/lib/pipeline/sceneHierarchy";
 import { useAiJob } from "@/lib/client/useAiJob";
 import { useNextStepAction } from "@/lib/client/StepNavContext";
 import { useToast } from "@/lib/client/ToastContext";
-import { useAutoProgressFlag, withAutoProgress } from "@/lib/client/useAutoProgress";
 import { estimateSecondsForScenes } from "@/lib/client/estimateAiDuration";
 import { DEFAULT_SCREEN_DESIGN_COMMON_PROMPT } from "@/lib/pipeline/commonPromptDefaults";
 import { ScreenDesignSceneCard } from "./ScreenDesignFields";
@@ -41,7 +40,6 @@ export function ScreenDesignEditor({
   initialCommonPrompt: string;
 }) {
   const router = useRouter();
-  const auto = useAutoProgressFlag();
   const { showToast } = useToast();
   const [screenTypes, setScreenTypes] = useState(initialScreenTypes);
   const [designs, setDesigns] = useState(initialDesigns);
@@ -175,7 +173,7 @@ export function ScreenDesignEditor({
   }
 
   function handleNext() {
-    return saveAndGoTo(withAutoProgress(`/projects/${projectId}/review`, auto));
+    return saveAndGoTo(`/projects/${projectId}/review`);
   }
 
   useNextStepAction(
@@ -183,30 +181,6 @@ export function ScreenDesignEditor({
     Object.keys(screenTypes).length === 0 || saving || loading,
     handleNext
   );
-
-  const autoStartedRef = useRef(false);
-  useEffect(() => {
-    if (auto && !autoStartedRef.current && Object.keys(screenTypes).length === 0) {
-      autoStartedRef.current = true;
-      handleGenerate("full");
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const autoPilotRef = useRef(auto);
-  const prevLoadingRef = useRef(loading);
-  useEffect(() => {
-    if (prevLoadingRef.current && !loading && autoPilotRef.current && autoStartedRef.current && !discoveredRunning) {
-      const complete = scenes.length > 0 && scenes.every((s) => screenTypes[s.id]?.screenType);
-      if (!error && complete) {
-        queueMicrotask(() => void handleNext());
-      } else {
-        autoPilotRef.current = false;
-      }
-    }
-    prevLoadingRef.current = loading;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading]);
 
   return (
     <div className="space-y-4">

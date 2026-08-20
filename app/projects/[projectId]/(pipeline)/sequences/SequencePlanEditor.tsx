@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -31,7 +31,6 @@ import type { ProductionMode } from "@/lib/projects/types";
 import { useAiJob } from "@/lib/client/useAiJob";
 import { useNextStepAction } from "@/lib/client/StepNavContext";
 import { useToast } from "@/lib/client/ToastContext";
-import { useAutoProgressFlag, withAutoProgress } from "@/lib/client/useAutoProgress";
 import { estimateSecondsForChars, estimateSecondsForScenes } from "@/lib/client/estimateAiDuration";
 import { DEFAULT_SCREEN_DESIGN_COMMON_PROMPT } from "@/lib/pipeline/commonPromptDefaults";
 import { ScreenDesignSceneCard } from "../screen-design/ScreenDesignFields";
@@ -128,7 +127,6 @@ export function SequencePlanEditor({
   initialScreenDesignCommonPrompt: string;
 }) {
   const router = useRouter();
-  const auto = useAutoProgressFlag();
   const { showToast } = useToast();
   const [scenes] = useState<Scene[]>(initialScenes);
   const [plan, setPlan] = useState<SequencePlan | null>(initialPlan);
@@ -406,66 +404,6 @@ export function SequencePlanEditor({
     saveDisabled || Object.keys(screenTypes).length === 0,
     () => void saveAndGoTo(`/projects/${projectId}/review`)
   );
-
-  // Auto-progress chain (?auto=1): generate the sequence plan first (if it
-  // doesn't exist yet), then generate screen design, then auto-navigate to
-  // /review — mirroring ScreenDesignEditor.tsx's autoStartedRef/autoPilotRef
-  // pattern but extended across these two sequential AI stages.
-  const autoStartedSeqRef = useRef(false);
-  const autoStartedScreenRef = useRef(false);
-  const autoPilotRef = useRef(auto);
-
-  useEffect(() => {
-    if (auto && !autoStartedSeqRef.current && !plan) {
-      autoStartedSeqRef.current = true;
-      void handleGenerate();
-    } else if (auto && !autoStartedScreenRef.current && plan && Object.keys(screenTypes).length === 0) {
-      autoStartedScreenRef.current = true;
-      void handleGenerateScreenDesign("full");
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const prevSeqLoadingRef = useRef(seqLoading);
-  useEffect(() => {
-    if (
-      prevSeqLoadingRef.current &&
-      !seqLoading &&
-      autoPilotRef.current &&
-      autoStartedSeqRef.current &&
-      !autoStartedScreenRef.current &&
-      !seqDiscoveredRunning
-    ) {
-      if (!seqError && plan && plan.sequences.length > 0) {
-        autoStartedScreenRef.current = true;
-        queueMicrotask(() => void handleGenerateScreenDesign("full"));
-      } else {
-        autoPilotRef.current = false;
-      }
-    }
-    prevSeqLoadingRef.current = seqLoading;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [seqLoading]);
-
-  const prevScreenLoadingRef = useRef(screenLoading);
-  useEffect(() => {
-    if (
-      prevScreenLoadingRef.current &&
-      !screenLoading &&
-      autoPilotRef.current &&
-      autoStartedScreenRef.current &&
-      !screenDiscoveredRunning
-    ) {
-      const complete = scenes.length > 0 && scenes.every((s) => screenTypes[s.id]?.screenType);
-      if (!screenError && complete) {
-        queueMicrotask(() => void saveAndGoTo(withAutoProgress(`/projects/${projectId}/review`, auto)));
-      } else {
-        autoPilotRef.current = false;
-      }
-    }
-    prevScreenLoadingRef.current = screenLoading;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [screenLoading]);
 
   // Defensive: this component is only ever mounted by sequences/page.tsx,
   // which already redirects scene-mode projects to /screen-design before
